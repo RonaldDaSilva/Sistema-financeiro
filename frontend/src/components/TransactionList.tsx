@@ -1,0 +1,325 @@
+import { useState } from "react";
+import {
+  ArrowDownCircle,
+  ArrowUpCircle,
+  Car,
+  ChevronDown,
+  ChevronUp,
+  CreditCard,
+  Pencil,
+  Trash2,
+  Wallet,
+} from "lucide-react";
+import type { ExtratoMensalItem, FaturaConsolidada } from "../types/finance";
+import { formatCurrency, formatDate } from "../utils/date";
+
+type TransactionListProps = {
+  items: ExtratoMensalItem[];
+  faturas?: FaturaConsolidada[];
+  onEdit: (item: ExtratoMensalItem) => void;
+  onDelete: (item: ExtratoMensalItem) => void;
+};
+
+export function TransactionList({
+  items,
+  faturas = [],
+  onEdit,
+  onDelete,
+}: TransactionListProps) {
+  const [expandedFaturas, setExpandedFaturas] = useState<Set<string>>(
+    new Set(),
+  );
+
+  if (items.length === 0) {
+    return (
+      <div className="rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-8 text-center text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+        Nenhuma movimentação encontrada para o período.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-[color:var(--app-card-border)] bg-slate-50/50 px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 md:grid-cols-[120px_1fr_170px_150px_120px]">
+        <span>Data</span>
+        <span>Movimentação</span>
+        <span className="hidden md:block">Categoria</span>
+        <span className="text-right">Valor</span>
+        <span className="hidden text-right md:block">Ações</span>
+      </div>
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        {items.map((item, index) => {
+          const isReceita = item.tipo === 1 || item.tipo === "Receita";
+          const isInvestimento =
+            item.tipo === 3 || item.tipo === "Investimento";
+          const valueClass = isReceita
+            ? "text-emerald-700"
+            : isInvestimento
+              ? "text-indigo-700"
+              : "text-red-700";
+          const MovementIcon = isReceita ? ArrowUpCircle : ArrowDownCircle;
+          const movementIconClass = isReceita
+            ? "bg-emerald-50 text-emerald-500"
+            : "bg-red-50 text-red-500";
+          const isFatura =
+            item.origem === "FaturaCartao" && item.cartaoCreditoId;
+          const fatura = isFatura
+            ? faturas.find(
+                (candidate) =>
+                  candidate.cartaoCreditoId === item.cartaoCreditoId &&
+                  candidate.dataVencimento === item.dataOcorrencia,
+              )
+            : undefined;
+          const isExpanded = Boolean(
+            fatura && expandedFaturas.has(faturaKey(fatura)),
+          );
+          const canManage =
+            (Boolean(item.id) && (!item.isProjetada || item.isFixa)) ||
+            (item.isProjetada &&
+              (item.origem === "CompraParcelada" || item.origem === "Carne") &&
+              Boolean(item.compraParceladaId) &&
+              Boolean(item.numeroParcela));
+
+          return (
+            <div
+              key={`${item.id ?? item.compraParceladaId ?? item.descricao}-${item.dataOcorrencia}-${item.numeroParcela ?? index}`}
+            >
+              <div className="group grid grid-cols-[1fr_auto] gap-3 px-6 py-5 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/40 md:grid-cols-[120px_1fr_170px_150px_120px] md:items-center">
+                <span className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300">
+                  {formatDate(item.dataOcorrencia)}
+                </span>
+                <div className="flex min-w-0 items-center gap-4">
+                  <MovementIcon
+                    size={36}
+                    className={`flex-shrink-0 rounded-full p-1 ${movementIconClass}`}
+                    strokeWidth={1.5}
+                  />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-base font-bold text-slate-900 dark:text-white">
+                        {item.descricao}
+                      </p>
+                    {fatura && (
+                      <button
+                        className="rounded-full border border-slate-300 p-1 text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                        type="button"
+                        onClick={() => {
+                          setExpandedFaturas((current) => {
+                            const next = new Set(current);
+                            const key = faturaKey(fatura);
+
+                            if (next.has(key)) {
+                              next.delete(key);
+                            } else {
+                              next.add(key);
+                            }
+
+                            return next;
+                          });
+                        }}
+                      >
+                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                    )}
+                    {item.isProjetada && (
+                      <span className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        Projetada
+                      </span>
+                    )}
+                    {item.numeroParcela && item.quantidadeParcelas && (
+                      <span className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                        {item.numeroParcela}/{item.quantidadeParcelas}
+                      </span>
+                    )}
+                    {item.origem === "Carne" && (
+                      <span className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+                        Carnê/Crediário
+                      </span>
+                    )}
+                    {item.isFixa && (
+                      <span className="rounded bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                        Fixa
+                      </span>
+                    )}
+                    </div>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                      {item.formaPagamento}
+                    </p>
+                  </div>
+                </div>
+                <div className="hidden items-center gap-2 md:flex">
+                  <CategoryIcon item={item} />
+                  <span className="truncate text-sm text-slate-600 dark:text-slate-300">
+                    {item.categoriaNome}
+                  </span>
+                </div>
+                <span
+                  className={`text-right font-semibold ${valueClass}`}
+                >
+                  {isReceita ? "+" : "-"} {formatCurrency(item.valor)}
+                </span>
+                <div className="col-span-2 flex justify-end gap-2 md:col-span-1">
+                  <button
+                    className="rounded-xl p-2 text-slate-300 opacity-100 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-100 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
+                    type="button"
+                    disabled={!canManage}
+                    onClick={() => onEdit(item)}
+                    title={
+                      canManage
+                        ? "Editar transação"
+                        : "Esta projeção não pode ser editada diretamente."
+                    }
+                  >
+                    <Pencil size={18} />
+                  </button>
+                  <button
+                    className="rounded-xl p-2 text-slate-300 opacity-100 transition-colors hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
+                    type="button"
+                    disabled={!canManage}
+                    onClick={() => onDelete(item)}
+                    title={
+                      canManage
+                        ? "Excluir transação"
+                        : "Esta projeção não pode ser excluída diretamente."
+                    }
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              </div>
+              {fatura && isExpanded && (
+                <div className="border-t border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] px-6 py-3 dark:border-slate-800 dark:bg-slate-950 md:pl-[150px]">
+                  <div className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Compras da fatura • {formatDate(fatura.inicioCompetencia)}{" "}
+                    até {formatDate(fatura.fimCompetencia)}
+                  </div>
+                  <div className="space-y-2">
+                    {fatura.detalhes.length === 0 ? (
+                      <p className="text-sm text-slate-500 dark:text-slate-400">
+                        Nenhuma compra nesta fatura.
+                      </p>
+                    ) : (
+                      fatura.detalhes.map((detalhe, detalheIndex) => (
+                        <div
+                          className="grid gap-2 rounded-lg bg-[var(--app-card)] px-3 py-2 text-sm dark:bg-slate-900 md:grid-cols-[110px_1fr_150px_120px_110px] md:items-center"
+                          key={`${detalhe.transacaoId ?? detalhe.compraParceladaId ?? detalhe.descricao}-${detalhe.numeroParcela ?? detalheIndex}`}
+                        >
+                          <span className="text-slate-500 dark:text-slate-400">
+                            {formatDate(detalhe.dataOcorrencia)}
+                          </span>
+                          <div className="min-w-0">
+                            <span className="font-medium text-slate-800 dark:text-white">
+                              {detalhe.descricao}
+                            </span>
+                            {detalhe.numeroParcela &&
+                              detalhe.quantidadeParcelas && (
+                                <span className="ml-2 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                                  {detalhe.numeroParcela}/
+                                  {detalhe.quantidadeParcelas}
+                                </span>
+                              )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="h-3 w-3 rounded-full"
+                              style={{
+                                backgroundColor: detalhe.categoriaCorHexa,
+                              }}
+                            />
+                            <span className="truncate text-slate-600 dark:text-slate-300">
+                              {detalhe.categoriaNome}
+                            </span>
+                          </div>
+                          <span className="text-right font-semibold text-red-700">
+                            - {formatCurrency(detalhe.valor)}
+                          </span>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                              type="button"
+                              onClick={() =>
+                                onEdit(
+                                  mapFaturaDetalheToExtratoItem(
+                                    fatura,
+                                    detalhe,
+                                  ),
+                                )
+                              }
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              className="rounded-full p-2 text-slate-400 hover:bg-red-50 hover:text-red-700"
+                              type="button"
+                              onClick={() =>
+                                onDelete(
+                                  mapFaturaDetalheToExtratoItem(
+                                    fatura,
+                                    detalhe,
+                                  ),
+                                )
+                              }
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CategoryIcon({ item }: { item: ExtratoMensalItem }) {
+  const Icon =
+    item.origem === "FaturaCartao" || item.formaPagamento === "Cartão de crédito"
+      ? CreditCard
+      : item.categoriaNome.toLowerCase().includes("carro")
+        ? Car
+        : Wallet;
+
+  return (
+    <Icon
+      size={16}
+      className="flex-shrink-0"
+      style={{ color: item.categoriaCorHexa }}
+    />
+  );
+}
+
+function faturaKey(fatura: FaturaConsolidada) {
+  return `${fatura.cartaoCreditoId}-${fatura.dataVencimento}`;
+}
+
+function mapFaturaDetalheToExtratoItem(
+  fatura: FaturaConsolidada,
+  detalhe: FaturaConsolidada["detalhes"][number],
+): ExtratoMensalItem {
+  return {
+    id: detalhe.transacaoId,
+    codigoExibicao: null,
+    tipo: 2,
+    descricao: detalhe.descricao,
+    valor: detalhe.valor,
+    dataOcorrencia: detalhe.dataOcorrencia,
+    categoriaId: detalhe.categoriaId,
+    categoriaNome: detalhe.categoriaNome,
+    categoriaCorHexa: detalhe.categoriaCorHexa,
+    formaPagamento: "Cartão de crédito",
+    cartaoCreditoId: fatura.cartaoCreditoId,
+    cartaoCreditoApelido: fatura.nomeCartao,
+    isFixa: detalhe.origem === "DespesaFixa",
+    isProjetada: detalhe.origem !== "Transacao",
+    origem: detalhe.origem,
+    compraParceladaId: detalhe.compraParceladaId,
+    numeroParcela: detalhe.numeroParcela,
+    quantidadeParcelas: detalhe.quantidadeParcelas,
+  };
+}
