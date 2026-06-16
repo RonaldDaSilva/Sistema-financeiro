@@ -6,4 +6,5 @@ public sealed class ConfiguracoesNotificacaoResponse
     public bool AvisarVencimento { get; set; }
     public bool AvisarMelhorDia { get; set; }
     public int DiasAntecedenciaVencimento { get; set; }
+    public decimal PercentualPadraoDivisao { get; set; }
 }

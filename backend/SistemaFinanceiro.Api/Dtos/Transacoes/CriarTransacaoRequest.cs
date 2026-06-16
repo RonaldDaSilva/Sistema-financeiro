@@ -26,6 +26,14 @@ public sealed class CriarTransacaoRequest
 
     public Guid? CartaoCreditoId { get; set; }
     public bool IsFixa { get; set; }
+    public bool IsDividida { get; set; }
+
+    [Range(0.01, 999999999999.99)]
+    public decimal? ValorTotalOriginal { get; set; }
+
+    [Range(0.01, 100)]
+    public decimal? PercentualDivisao { get; set; }
+
     public Guid? CompraParceladaId { get; set; }
     public int? NumeroParcelaQuitada { get; set; }
 }

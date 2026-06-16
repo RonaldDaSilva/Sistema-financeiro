@@ -26,8 +26,11 @@ export function SettingsPage() {
       avisarVencimento: true,
       avisarMelhorDia: true,
       diasAntecedenciaVencimento: 2,
+      percentualPadraoDivisao: 50,
     });
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
+  const [diasAntecedenciaInput, setDiasAntecedenciaInput] = useState("2");
+  const [percentualDivisaoInput, setPercentualDivisaoInput] = useState("50");
   const [senhaExclusao, setSenhaExclusao] = useState("");
   const [confirmacaoExclusao, setConfirmacaoExclusao] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
@@ -37,7 +40,15 @@ export function SettingsPage() {
   useEffect(() => {
     notificationService
       .obterConfiguracoes()
-      .then(setNotificationConfig)
+      .then((configuracoes) => {
+        setNotificationConfig(configuracoes);
+        setDiasAntecedenciaInput(
+          String(configuracoes.diasAntecedenciaVencimento),
+        );
+        setPercentualDivisaoInput(
+          formatarPercentualInput(configuracoes.percentualPadraoDivisao),
+        );
+      })
       .catch(() =>
         setError("Não foi possível carregar as configurações de notificações."),
       );
@@ -57,18 +68,51 @@ export function SettingsPage() {
     setIsSavingNotifications(true);
 
     try {
+      const diasAntecedencia = Number(diasAntecedenciaInput);
+      const percentualDivisao = parsePercentual(percentualDivisaoInput);
+
+      if (
+        diasAntecedenciaInput === "" ||
+        !Number.isFinite(diasAntecedencia) ||
+        diasAntecedencia < 0 ||
+        diasAntecedencia > 30
+      ) {
+        throw new Error("Informe os dias de antecedência entre 0 e 30.");
+      }
+
+      if (
+        percentualDivisaoInput === "" ||
+        !Number.isFinite(percentualDivisao) ||
+        percentualDivisao < 0.01 ||
+        percentualDivisao > 100
+      ) {
+        throw new Error("Informe o percentual padrão entre 0,01% e 100%.");
+      }
+
       const nextConfig = await notificationService.atualizarConfiguracoes(
-        notificationConfig,
+        {
+          ...notificationConfig,
+          diasAntecedenciaVencimento: diasAntecedencia,
+          percentualPadraoDivisao: percentualDivisao,
+        },
       );
 
       setNotificationConfig(nextConfig);
+      setDiasAntecedenciaInput(
+        String(nextConfig.diasAntecedenciaVencimento),
+      );
+      setPercentualDivisaoInput(
+        formatarPercentualInput(nextConfig.percentualPadraoDivisao),
+      );
       setMessage("Configurações de notificações atualizadas.");
     } catch (requestError) {
       setError(
-        extractMessage(
-          requestError,
-          "Não foi possível salvar as configurações de notificações.",
-        ),
+        requestError instanceof Error
+          ? requestError.message
+          : extractMessage(
+              requestError,
+              "Não foi possível salvar as configurações de notificações.",
+            ),
       );
     } finally {
       setIsSavingNotifications(false);
@@ -222,15 +266,37 @@ export function SettingsPage() {
                 disabled={!notificationConfig.receberNotificacoes}
                 min={0}
                 max={30}
-                value={notificationConfig.diasAntecedenciaVencimento}
-                onChange={(event) =>
-                  setNotificationConfig((current) => ({
-                    ...current,
-                    diasAntecedenciaVencimento: Number(event.target.value),
-                  }))
-                }
+                value={diasAntecedenciaInput}
+                onChange={(event) => setDiasAntecedenciaInput(event.target.value)}
                 required
               />
+            </label>
+          </div>
+          <div className="mt-8 border-t border-[color:var(--app-card-border)] pt-6 dark:border-slate-800">
+            <h4 className="font-semibold text-slate-900 dark:text-white">
+              Divisão de despesas
+            </h4>
+            <label className="mt-4 block max-w-xs">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Percentual padrão de divisão
+              </span>
+              <div className="relative mt-1">
+                <input
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 pr-10 text-sm text-slate-900 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                  type="text"
+                  inputMode="decimal"
+                  value={percentualDivisaoInput}
+                  onChange={(event) =>
+                    setPercentualDivisaoInput(
+                      limitarPercentual(event.target.value),
+                    )
+                  }
+                  required
+                />
+                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-500">
+                  %
+                </span>
+              </div>
             </label>
           </div>
           <div className="mt-5 flex justify-end">
@@ -239,7 +305,7 @@ export function SettingsPage() {
               disabled={isSavingNotifications}
               type="submit"
             >
-              {isSavingNotifications ? "Salvando..." : "Salvar notificações"}
+              {isSavingNotifications ? "Salvando..." : "Salvar configurações"}
             </button>
           </div>
         </form>
@@ -345,4 +411,33 @@ function extractMessage(error: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function limitarPercentual(valorDigitado: string) {
+  const valorNormalizado = valorDigitado
+    .replace(".", ",")
+    .replace(/[^\d,]/g, "");
+
+  if (valorNormalizado === "") {
+    return "";
+  }
+
+  const partes = valorNormalizado.split(",");
+  const parteInteira = partes[0].replace(/^0+(?=\d)/, "");
+  const parteDecimal = partes.slice(1).join("").slice(0, 2);
+  const possuiSeparador = valorNormalizado.includes(",");
+  const valorFormatado = possuiSeparador
+    ? `${parteInteira || "0"},${parteDecimal}`
+    : parteInteira || "0";
+
+  return parsePercentual(valorFormatado) > 100 ? "100" : valorFormatado;
+}
+
+function parsePercentual(value: string) {
+  const percentual = Number(value.replace(",", "."));
+  return Number.isFinite(percentual) ? percentual : 0;
+}
+
+function formatarPercentualInput(value: number) {
+  return String(value).replace(".", ",");
 }

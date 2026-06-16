@@ -44,4 +44,18 @@ public sealed class AuthController : ControllerBase
 
         return Ok(response);
     }
+
+    [HttpPost("refresh")]
+    public async Task<ActionResult<AuthResponse>> RenovarSessao(
+        RefreshTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        var response = await _authService.RenovarSessaoAsync(request, cancellationToken);
+        if (response is null)
+        {
+            return Unauthorized(new { message = "Sessão expirada. Faça login novamente." });
+        }
+
+        return Ok(response);
+    }
 }

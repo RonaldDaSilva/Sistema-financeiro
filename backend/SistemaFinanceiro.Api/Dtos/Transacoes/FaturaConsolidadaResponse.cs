@@ -9,5 +9,6 @@ public sealed class FaturaConsolidadaResponse
     public DateOnly InicioCompetencia { get; set; }
     public DateOnly FimCompetencia { get; set; }
     public string Status { get; set; } = string.Empty;
+    public bool IsPaga { get; set; }
     public IReadOnlyList<FaturaDetalheResponse> Detalhes { get; set; } = [];
 }

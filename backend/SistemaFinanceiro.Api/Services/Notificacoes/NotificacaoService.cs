@@ -65,6 +65,7 @@ public sealed class NotificacaoService : INotificacaoService
         configuracao.AvisarVencimento = request.AvisarVencimento;
         configuracao.AvisarMelhorDia = request.AvisarMelhorDia;
         configuracao.DiasAntecedenciaVencimento = request.DiasAntecedenciaVencimento;
+        configuracao.PercentualPadraoDivisao = request.PercentualPadraoDivisao;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         return MapearConfiguracao(configuracao);
@@ -95,7 +96,8 @@ public sealed class NotificacaoService : INotificacaoService
             ReceberNotificacoes = configuracao.ReceberNotificacoes,
             AvisarVencimento = configuracao.AvisarVencimento,
             AvisarMelhorDia = configuracao.AvisarMelhorDia,
-            DiasAntecedenciaVencimento = configuracao.DiasAntecedenciaVencimento
+            DiasAntecedenciaVencimento = configuracao.DiasAntecedenciaVencimento,
+            PercentualPadraoDivisao = configuracao.PercentualPadraoDivisao
         };
     }
 }

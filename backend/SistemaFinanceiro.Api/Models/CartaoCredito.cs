@@ -15,4 +15,5 @@ public sealed class CartaoCredito : IHasGuidId, IMustHaveTenant
     public Usuario Usuario { get; set; } = null!;
     public ICollection<CompraParcelada> ComprasParceladas { get; set; } = new List<CompraParcelada>();
     public ICollection<Transacao> Transacoes { get; set; } = new List<Transacao>();
+    public ICollection<FaturaCartaoPagamento> FaturasPagamentos { get; set; } = new List<FaturaCartaoPagamento>();
 }

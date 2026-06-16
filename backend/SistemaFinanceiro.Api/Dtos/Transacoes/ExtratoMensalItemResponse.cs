@@ -17,6 +17,10 @@ public sealed class ExtratoMensalItemResponse
     public Guid? CartaoCreditoId { get; set; }
     public string? CartaoCreditoApelido { get; set; }
     public bool IsFixa { get; set; }
+    public bool IsPaga { get; set; }
+    public bool IsDividida { get; set; }
+    public decimal? ValorTotalOriginal { get; set; }
+    public decimal? PercentualDivisao { get; set; }
     public bool IsProjetada { get; set; }
     public string Origem { get; set; } = string.Empty;
     public Guid? CompraParceladaId { get; set; }

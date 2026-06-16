@@ -8,6 +8,7 @@ export type AuthResponse = {
   accessTokenExpiraEm: string;
   refreshToken: string;
   refreshTokenExpiraEm: string;
+  lastActivityAt?: string;
 };
 
 export type AuthSession = AuthResponse;

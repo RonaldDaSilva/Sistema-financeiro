@@ -18,6 +18,7 @@ type NewTransactionModalProps = {
   isOpen: boolean;
   categorias: Categoria[];
   cartoes: CartaoCredito[];
+  percentualPadraoDivisao: number;
   initialTransaction?: ExtratoMensalItem | null;
   onClose: () => void;
   onCreateTransacao: (request: CriarTransacaoRequest) => Promise<void>;
@@ -40,6 +41,7 @@ export function NewTransactionModal({
   isOpen,
   categorias,
   cartoes,
+  percentualPadraoDivisao,
   initialTransaction,
   onClose,
   onCreateTransacao,
@@ -52,6 +54,11 @@ export function NewTransactionModal({
   );
   const [descricao, setDescricao] = useState("");
   const [valor, setValor] = useState("");
+  const [meuValor, setMeuValor] = useState("");
+  const [isDividida, setIsDividida] = useState(false);
+  const [percentualDivisao, setPercentualDivisao] = useState(
+    String(percentualPadraoDivisao),
+  );
   const [data, setData] = useState(toDateInputValue(new Date()));
   const [categoriaId, setCategoriaId] = useState("");
   const [formaPagamento, setFormaPagamento] = useState("Pix");
@@ -98,6 +105,9 @@ export function NewTransactionModal({
       setTipo("despesa");
       setDescricao("");
       setValor("");
+      setMeuValor("");
+      setIsDividida(false);
+      setPercentualDivisao(String(percentualPadraoDivisao));
       setData(toDateInputValue(new Date()));
       setCategoriaId(categoriasOrdenadas[0]?.id ?? "");
       setFormaPagamento("Pix");
@@ -121,7 +131,25 @@ export function NewTransactionModal({
       isReceita ? "receita" : isInvestimento ? "investimento" : "despesa",
     );
     setDescricao(stripProjectedInstallmentSuffix(initialTransaction.descricao));
-    setValor(formatCurrencyInput(initialTransaction.valor));
+    setIsDividida(initialTransaction.isDividida);
+    setValor(
+      formatCurrencyInput(
+        initialTransaction.isDividida &&
+          initialTransaction.valorTotalOriginal != null
+          ? initialTransaction.valorTotalOriginal
+          : initialTransaction.valor,
+      ),
+    );
+    setMeuValor(
+      initialTransaction.isDividida
+        ? formatCurrencyInput(initialTransaction.valor)
+        : "",
+    );
+    setPercentualDivisao(
+      formatarPercentualInput(
+        initialTransaction.percentualDivisao ?? percentualPadraoDivisao,
+      ),
+    );
     setData(initialTransaction.dataOcorrencia);
     setCategoriaId(initialTransaction.categoriaId ?? "");
     setFormaPagamento(initialTransaction.formaPagamento);
@@ -135,12 +163,19 @@ export function NewTransactionModal({
     setDataPrimeiroVencimento(initialTransaction.dataOcorrencia);
     setErro(null);
     setIsRepeatPromptOpen(false);
-  }, [categoriasOrdenadas, initialTransaction, isOpen]);
+  }, [
+    categoriasOrdenadas,
+    initialTransaction,
+    isOpen,
+    percentualPadraoDivisao,
+  ]);
 
   useEffect(() => {
     if (tipo !== "despesa") {
       setIsParcelada(false);
       setCartaoCreditoId("");
+      setIsDividida(false);
+      setMeuValor("");
     }
 
     if (tipo === "receita") {
@@ -164,6 +199,23 @@ export function NewTransactionModal({
 
     try {
       const numericValue = parseBrlCurrency(valor);
+      const numericPercentual = parsePercentual(percentualDivisao);
+      const numericMeuValor = isDividida
+        ? calcularParteNumerica(numericValue, numericPercentual)
+        : numericValue;
+
+      if (
+        isDividida &&
+        (!numericValue ||
+          !numericMeuValor ||
+          !numericPercentual ||
+          numericPercentual > 100 ||
+          numericMeuValor > numericValue)
+      ) {
+        throw new Error(
+          "O percentual deve estar entre 0,01% e 100%, e seu valor não pode superar o valor total.",
+        );
+      }
 
       if (tipo === "despesa" && !categoriaId) {
         throw new Error("Selecione uma categoria.");
@@ -194,7 +246,17 @@ export function NewTransactionModal({
             categoriaId,
             descricao,
             quantidadeParcelas: parcelasRestantes,
-            valorTotal: numericValue * parcelasRestantes,
+            valorTotal: isDividida
+              ? calcularParteNumerica(
+                  numericValue * parcelasRestantes,
+                  numericPercentual,
+                )
+              : numericMeuValor * parcelasRestantes,
+            isDividida,
+            valorTotalOriginal: isDividida
+              ? numericValue * parcelasRestantes
+              : null,
+            percentualDivisao: isDividida ? numericPercentual : null,
             dataCompra: data,
             dataPrimeiroVencimento: isCarne ? dataPrimeiroVencimento : null,
             formaPagamento: isCarne ? 2 : 1,
@@ -214,7 +276,10 @@ export function NewTransactionModal({
           categoriaId,
           descricao,
           quantidadeParcelas,
-          valorTotal: numericValue,
+          valorTotal: numericMeuValor,
+          isDividida,
+          valorTotalOriginal: isDividida ? numericValue : null,
+          percentualDivisao: isDividida ? numericPercentual : null,
           dataCompra: data,
           dataPrimeiroVencimento: isCarne ? dataPrimeiroVencimento : null,
           formaPagamento: isCarne ? 2 : 1,
@@ -223,12 +288,15 @@ export function NewTransactionModal({
         const request: CriarTransacaoRequest = {
           tipo: tipo === "receita" ? 1 : tipo === "despesa" ? 2 : 3,
           descricao,
-          valor: numericValue,
+          valor: numericMeuValor,
           dataOcorrencia: data,
           categoriaId: tipo === "despesa" ? categoriaId : null,
           formaPagamento,
           cartaoCreditoId: tipo === "despesa" ? cartaoCreditoId || null : null,
           isFixa,
+          isDividida,
+          valorTotalOriginal: isDividida ? numericValue : null,
+          percentualDivisao: isDividida ? numericPercentual : null,
           compraParceladaId: initialTransaction?.compraParceladaId ?? null,
           numeroParcelaQuitada: initialTransaction?.numeroParcela ?? null,
         };
@@ -307,7 +375,11 @@ export function NewTransactionModal({
           <div className="space-y-5">
             <div className="space-y-1.5">
               <label className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                {isEditingCompraParcelada
+                {isDividida
+                  ? isEditingCompraParcelada
+                    ? "Valor Total da Parcela"
+                    : "Valor Total da Compra"
+                  : isEditingCompraParcelada
                   ? "Valor da parcela"
                   : isParcelada
                     ? "Valor total"
@@ -338,9 +410,15 @@ export function NewTransactionModal({
                   inputMode="numeric"
                   placeholder="0,00"
                   value={valor}
-                  onChange={(event) =>
-                    setValor(maskBrlCurrencyInput(event.target.value))
-                  }
+                  onChange={(event) => {
+                    const nextValue = maskBrlCurrencyInput(event.target.value);
+                    setValor(nextValue);
+                    if (isDividida) {
+                      setMeuValor(
+                        calcularMeuValor(nextValue, percentualDivisao),
+                      );
+                    }
+                  }}
                   required
                 />
               </div>
@@ -387,27 +465,100 @@ export function NewTransactionModal({
             </div>
           </div>
 
-          {tipo === "despesa" && !isEditing && !isEditingCompraParcelada && (
-            <div className="flex flex-col gap-4 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:gap-8">
+          {tipo === "despesa" && (
+            <div className="flex flex-col gap-4 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:flex-wrap sm:gap-8">
+              {!isEditing && !isEditingCompraParcelada && (
+                <>
+                  <ToggleField
+                    checked={isFixa}
+                    disabled={isParcelada}
+                    label="Despesa fixa"
+                    onChange={(checked) => setIsFixa(checked)}
+                  />
+                  <ToggleField
+                    checked={isParcelada}
+                    disabled={isFixa}
+                    label="Parcelada"
+                    onChange={(checked) => {
+                      setIsParcelada(checked);
+                      if (checked) {
+                        setFormaPagamento("Cartão de crédito");
+                      } else {
+                        setCartaoCreditoId("");
+                      }
+                    }}
+                  />
+                </>
+              )}
               <ToggleField
-                checked={isFixa}
-                disabled={isParcelada}
-                label="Despesa fixa"
-                onChange={(checked) => setIsFixa(checked)}
-              />
-              <ToggleField
-                checked={isParcelada}
-                disabled={isFixa}
-                label="Parcelada"
+                checked={isDividida}
+                label="Dividir despesa"
                 onChange={(checked) => {
-                  setIsParcelada(checked);
+                  setIsDividida(checked);
                   if (checked) {
-                    setFormaPagamento("Cartão de crédito");
+                    const nextPercentual = String(percentualPadraoDivisao);
+                    setPercentualDivisao(nextPercentual);
+                    setMeuValor(calcularMeuValor(valor, nextPercentual));
                   } else {
-                    setCartaoCreditoId("");
+                    setMeuValor("");
                   }
                 }}
               />
+            </div>
+          )}
+
+          {tipo === "despesa" && isDividida && (
+            <div className="grid gap-4 rounded-xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-2">
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Percentual
+                </span>
+                <div className="relative">
+                  <input
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                    type="text"
+                    inputMode="decimal"
+                    value={percentualDivisao}
+                    onChange={(event) => {
+                      const nextPercentual = limitarPercentual(
+                        event.target.value,
+                      );
+                      setPercentualDivisao(nextPercentual);
+                      setMeuValor(calcularMeuValor(valor, nextPercentual));
+                    }}
+                    required
+                  />
+                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-500">
+                    %
+                  </span>
+                </div>
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Meu Valor
+                </span>
+                <div className="relative">
+                  <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-slate-500">
+                    R$
+                  </span>
+                  <input
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                    inputMode="numeric"
+                    value={meuValor}
+                    onChange={(event) => {
+                      const nextMeuValor = limitarMeuValor(
+                        valor,
+                        event.target.value,
+                      );
+                      setMeuValor(nextMeuValor);
+                      setPercentualDivisao(
+                        calcularPercentual(valor, nextMeuValor),
+                      );
+                    }}
+                    required
+                  />
+                </div>
+              </label>
             </div>
           )}
 
@@ -523,10 +674,11 @@ export function NewTransactionModal({
                   type="number"
                   min={2}
                   max={120}
-                  value={quantidadeParcelas}
-                  onChange={(event) =>
-                    setQuantidadeParcelas(Number(event.target.value))
-                  }
+                  value={quantidadeParcelas || ""}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setQuantidadeParcelas(value === "" ? 0 : Number(value));
+                  }}
                   required
                 />
               </label>
@@ -621,6 +773,9 @@ export function NewTransactionModal({
     setTipo("despesa");
     setDescricao("");
     setValor("");
+    setMeuValor("");
+    setIsDividida(false);
+    setPercentualDivisao(String(percentualPadraoDivisao));
     setData(toDateInputValue(new Date()));
     setCategoriaId(categoriasOrdenadas[0]?.id ?? "");
     setFormaPagamento("Pix");
@@ -631,6 +786,84 @@ export function NewTransactionModal({
     setDataPrimeiroVencimento(toDateInputValue(new Date()));
     setErro(null);
   }
+}
+
+function calcularMeuValor(valorTotal: string, percentual: string) {
+  const total = parseBrlCurrency(valorTotal);
+  const percentualNumerico = parsePercentual(percentual);
+
+  if (!total || !percentualNumerico) {
+    return "";
+  }
+
+  return formatCurrencyInput(calcularParteNumerica(total, percentualNumerico));
+}
+
+function calcularPercentual(valorTotal: string, meuValor: string) {
+  const total = parseBrlCurrency(valorTotal);
+  const parte = parseBrlCurrency(meuValor);
+
+  if (!total || !parte) {
+    return "";
+  }
+
+  return formatarPercentualInput(
+    Math.min(100, Math.round((parte / total) * 10000) / 100),
+  );
+}
+
+function limitarPercentual(valorDigitado: string) {
+  const valorNormalizado = valorDigitado
+    .replace(".", ",")
+    .replace(/[^\d,]/g, "");
+
+  if (valorNormalizado === "") {
+    return "";
+  }
+
+  const partes = valorNormalizado.split(",");
+  const parteInteira = partes[0].replace(/^0+(?=\d)/, "");
+  const parteDecimal = partes.slice(1).join("").slice(0, 2);
+  const possuiSeparador = valorNormalizado.includes(",");
+  const valorFormatado = possuiSeparador
+    ? `${parteInteira || "0"},${parteDecimal}`
+    : parteInteira || "0";
+  const percentual = parsePercentual(valorFormatado);
+
+  if (percentual > 100) {
+    return "100";
+  }
+
+  return valorFormatado;
+}
+
+function limitarMeuValor(valorTotal: string, valorDigitado: string) {
+  const valorMascarado = maskBrlCurrencyInput(valorDigitado);
+  const total = parseBrlCurrency(valorTotal);
+  const parte = parseBrlCurrency(valorMascarado);
+
+  if (total > 0 && parte > total) {
+    return formatCurrencyInput(total);
+  }
+
+  return valorMascarado;
+}
+
+function calcularParteNumerica(valorTotal: number, percentual: number) {
+  return (
+    Math.round(
+      (valorTotal * (percentual / 100) + Number.EPSILON) * 100,
+    ) / 100
+  );
+}
+
+function parsePercentual(value: string) {
+  const percentual = Number(value.replace(",", "."));
+  return Number.isFinite(percentual) ? percentual : 0;
+}
+
+function formatarPercentualInput(value: number) {
+  return String(value).replace(".", ",");
 }
 
 function stripProjectedInstallmentSuffix(descricao: string) {

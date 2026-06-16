@@ -119,6 +119,32 @@ public sealed class TransacaoController : ControllerBase
         }
     }
 
+    [HttpPost("antecipar-parcela")]
+    public async Task<ActionResult<TransacaoResponse>> AnteciparParcela(
+        AnteciparParcelaRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized(new { message = "Usuário não identificado no token." });
+        }
+
+        try
+        {
+            var transacao = await _transacaoService.AnteciparParcelaAsync(
+                request,
+                usuarioId.Value,
+                cancellationToken);
+
+            return CreatedAtAction(nameof(Criar), new { id = transacao.Id }, transacao);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Excluir(
         Guid id,
@@ -133,6 +159,46 @@ public sealed class TransacaoController : ControllerBase
 
         var excluiu = await _transacaoService.ExcluirAsync(id, usuarioId.Value, dataOcorrencia, cancellationToken);
         return excluiu ? NoContent() : NotFound();
+    }
+
+    [HttpPatch("{id:guid}/alternar-status")]
+    public async Task<IActionResult> AlternarStatusPagamento(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized(new { message = "Usuário não identificado no token." });
+        }
+
+        var isPaga = await _transacaoService.AlternarStatusPagamentoAsync(
+            id,
+            usuarioId.Value,
+            cancellationToken);
+
+        return isPaga.HasValue ? Ok(new { isPaga = isPaga.Value }) : NotFound();
+    }
+
+    [HttpPatch("faturas/{cartaoCreditoId:guid}/alternar-status")]
+    public async Task<IActionResult> AlternarStatusFatura(
+        Guid cartaoCreditoId,
+        [FromQuery] DateOnly dataVencimento,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized(new { message = "Usuário não identificado no token." });
+        }
+
+        var isPaga = await _transacaoService.AlternarStatusFaturaAsync(
+            cartaoCreditoId,
+            dataVencimento,
+            usuarioId.Value,
+            cancellationToken);
+
+        return isPaga.HasValue ? Ok(new { isPaga = isPaga.Value }) : NotFound();
     }
 
     private Guid? ObterUsuarioId()

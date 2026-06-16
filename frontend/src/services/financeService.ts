@@ -1,5 +1,6 @@
 import { api } from './api';
 import type {
+  AnteciparParcelaRequest,
   CartaoCredito,
   Categoria,
   CriarCompraParceladaRequest,
@@ -46,6 +47,32 @@ export async function excluirTransacao(id: string, dataOcorrencia?: string) {
   await api.delete(`/api/transacoes/${id}`, {
     params: dataOcorrencia ? { dataOcorrencia } : undefined,
   });
+}
+
+export async function anteciparParcela(request: AnteciparParcelaRequest) {
+  const { data } = await api.post('/api/transacoes/antecipar-parcela', request);
+  return data;
+}
+
+export async function alternarStatusPagamento(id: string) {
+  const { data } = await api.patch<{ isPaga: boolean }>(
+    `/api/transacoes/${id}/alternar-status`,
+  );
+
+  return data;
+}
+
+export async function alternarStatusFatura(
+  cartaoCreditoId: string,
+  dataVencimento: string,
+) {
+  const { data } = await api.patch<{ isPaga: boolean }>(
+    `/api/transacoes/faturas/${cartaoCreditoId}/alternar-status`,
+    null,
+    { params: { dataVencimento } },
+  );
+
+  return data;
 }
 
 export async function criarCompraParcelada(request: CriarCompraParceladaRequest) {

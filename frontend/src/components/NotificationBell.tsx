@@ -1,32 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import * as notificationService from "../services/notificationService";
-import type { Notificacao } from "../types/notification";
+import { useNotificacoesNaoLidas } from "../hooks/queries/useNotificationQueries";
+import { queryKeys } from "../hooks/queries/queryKeys";
 
 export function NotificationBell() {
-  const [notificacoes, setNotificacoes] = useState<Notificacao[]>([]);
+  const queryClient = useQueryClient();
+  const { data: notificacoes = [], isLoading } = useNotificacoesNaoLidas();
   const [isOpen, setIsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-
-  const carregar = useCallback(async () => {
-    setIsLoading(true);
-
-    try {
-      setNotificacoes(await notificationService.listarNaoLidas());
-    } catch {
-      setNotificacoes([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    carregar();
-    const interval = window.setInterval(carregar, 5 * 60 * 1000);
-
-    return () => window.clearInterval(interval);
-  }, [carregar]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -41,7 +24,10 @@ export function NotificationBell() {
 
   async function handleMarcarComoLidas() {
     await notificationService.marcarTodasComoLidas();
-    setNotificacoes([]);
+    queryClient.setQueryData(queryKeys.notificacoesNaoLidas, []);
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.notificacoesNaoLidas,
+    });
     setIsOpen(false);
   }
 

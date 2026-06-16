@@ -85,7 +85,9 @@ public sealed class TransacaoService : ITransacaoService
         var itens = new List<ExtratoMensalItemResponse>();
 
         itens.AddRange(transacoesDoMes
-            .Where(transacao => transacao.CartaoCreditoId is null)
+            .Where(transacao =>
+                transacao.CartaoCreditoId is null ||
+                (transacao.CompraParceladaId.HasValue && transacao.NumeroParcelaQuitada.HasValue))
             .Select(MapearTransacaoReal));
         itens.AddRange(transacoesFixas
             .Where(transacao => transacao.CartaoCreditoId is null)
@@ -117,6 +119,15 @@ public sealed class TransacaoService : ITransacaoService
         var totalInvestido = itensOrdenados
             .Where(item => item.Tipo == TipoTransacao.Investimento)
             .Sum(item => item.Valor);
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var itensConsolidadosAteHoje = itensOrdenados
+            .Where(item =>
+                item.Tipo == TipoTransacao.Receita
+                    ? item.DataOcorrencia <= hoje
+                    : item.IsPaga)
+            .ToList();
+        var saldoAtual = CalcularSaldo(itensConsolidadosAteHoje);
+        var saldoPrevistoFimDoMes = totalReceitas - totalDespesas - totalInvestido;
 
         return new ExtratoMensalResponse
         {
@@ -125,7 +136,9 @@ public sealed class TransacaoService : ITransacaoService
             TotalReceitas = totalReceitas,
             TotalDespesas = totalDespesas,
             TotalInvestido = totalInvestido,
-            Saldo = totalReceitas - totalDespesas - totalInvestido,
+            Saldo = saldoPrevistoFimDoMes,
+            SaldoAtual = saldoAtual,
+            SaldoPrevistoFimDoMes = saldoPrevistoFimDoMes,
             Itens = itensOrdenados
         };
     }
@@ -171,6 +184,7 @@ public sealed class TransacaoService : ITransacaoService
                 transacao.UsuarioId == usuarioId &&
                 transacao.CartaoCreditoId.HasValue &&
                 transacao.Tipo == TipoTransacao.Despesa &&
+                !transacao.CompraParceladaId.HasValue &&
                 transacao.DataOcorrencia >= menorInicioCompetencia &&
                 transacao.DataOcorrencia <= maiorFimCompetencia)
             .ToListAsync(cancellationToken);
@@ -215,6 +229,22 @@ public sealed class TransacaoService : ITransacaoService
             .Select(parcela => (parcela.CompraParceladaId, parcela.NumeroParcela))
             .ToHashSet();
 
+        var datasVencimento = cartoes
+            .Select(cartao => CalcularPeriodoFatura(cartao, mes, ano).DataVencimento)
+            .Distinct()
+            .ToList();
+
+        var pagamentosFaturas = await _dbContext.FaturasCartaoPagamentos
+            .AsNoTracking()
+            .Where(pagamento =>
+                pagamento.UsuarioId == usuarioId &&
+                datasVencimento.Contains(pagamento.DataVencimento))
+            .ToListAsync(cancellationToken);
+
+        var pagamentosFaturasMap = pagamentosFaturas.ToDictionary(
+            pagamento => (pagamento.CartaoCreditoId, pagamento.DataVencimento),
+            pagamento => pagamento.IsPaga);
+
         return cartoes
             .Select(cartao =>
             {
@@ -255,10 +285,26 @@ public sealed class TransacaoService : ITransacaoService
                     InicioCompetencia = periodo.InicioCompetencia,
                     FimCompetencia = periodo.FimCompetencia,
                     Status = CalcularStatusFatura(periodo.DataVencimento, periodo.FimCompetencia),
+                    IsPaga = pagamentosFaturasMap.GetValueOrDefault((cartao.Id, periodo.DataVencimento)),
                     Detalhes = detalhesOrdenados
                 };
             })
             .ToList();
+    }
+
+    private static decimal CalcularSaldo(IEnumerable<ExtratoMensalItemResponse> itens)
+    {
+        var totalReceitas = itens
+            .Where(item => item.Tipo == TipoTransacao.Receita)
+            .Sum(item => item.Valor);
+        var totalDespesas = itens
+            .Where(item => item.Tipo == TipoTransacao.Despesa)
+            .Sum(item => item.Valor);
+        var totalInvestido = itens
+            .Where(item => item.Tipo == TipoTransacao.Investimento)
+            .Sum(item => item.Valor);
+
+        return totalReceitas - totalDespesas - totalInvestido;
     }
 
     public async Task<TransacaoResponse> CriarAsync(
@@ -266,6 +312,7 @@ public sealed class TransacaoService : ITransacaoService
         Guid usuarioId,
         CancellationToken cancellationToken = default)
     {
+        ValidarDivisao(request);
         await ValidarRelacionamentosAsync(request, usuarioId, cancellationToken);
 
         var ultimoCodigo = await _dbContext.Transacoes
@@ -284,6 +331,11 @@ public sealed class TransacaoService : ITransacaoService
             FormaPagamento = request.FormaPagamento.Trim(),
             CartaoCreditoId = request.Tipo == TipoTransacao.Despesa ? request.CartaoCreditoId : null,
             IsFixa = request.IsFixa,
+            IsPaga = request.Tipo != TipoTransacao.Receita &&
+                request.DataOcorrencia == DateOnly.FromDateTime(DateTime.Today),
+            IsDividida = request.IsDividida,
+            ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null,
+            PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null,
             CompraParceladaId = request.CompraParceladaId,
             NumeroParcelaQuitada = request.NumeroParcelaQuitada
         };
@@ -300,6 +352,7 @@ public sealed class TransacaoService : ITransacaoService
         Guid usuarioId,
         CancellationToken cancellationToken = default)
     {
+        ValidarDivisao(request);
         await ValidarRelacionamentosAsync(request, usuarioId, cancellationToken);
 
         var transacao = await _dbContext.Transacoes
@@ -332,6 +385,11 @@ public sealed class TransacaoService : ITransacaoService
                 FormaPagamento = request.FormaPagamento.Trim(),
                 CartaoCreditoId = request.Tipo == TipoTransacao.Despesa ? request.CartaoCreditoId : null,
                 IsFixa = true,
+                IsPaga = request.Tipo != TipoTransacao.Receita &&
+                    request.DataOcorrencia == DateOnly.FromDateTime(DateTime.Today),
+                IsDividida = request.IsDividida,
+                ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null,
+                PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null,
                 CompraParceladaId = request.CompraParceladaId,
                 NumeroParcelaQuitada = request.NumeroParcelaQuitada
             };
@@ -350,12 +408,168 @@ public sealed class TransacaoService : ITransacaoService
         transacao.FormaPagamento = request.FormaPagamento.Trim();
         transacao.CartaoCreditoId = request.Tipo == TipoTransacao.Despesa ? request.CartaoCreditoId : null;
         transacao.IsFixa = request.IsFixa;
+        if (request.Tipo == TipoTransacao.Receita)
+        {
+            transacao.IsPaga = false;
+        }
+        transacao.IsDividida = request.IsDividida;
+        transacao.ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null;
+        transacao.PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null;
         transacao.CompraParceladaId = request.CompraParceladaId;
         transacao.NumeroParcelaQuitada = request.NumeroParcelaQuitada;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return MapearTransacaoResponse(transacao);
+    }
+
+    public async Task<TransacaoResponse> AnteciparParcelaAsync(
+        AnteciparParcelaRequest request,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.NumeroParcela < 1)
+        {
+            throw new InvalidOperationException("O número da parcela deve ser maior que zero.");
+        }
+
+        if (request.ValorPago <= 0)
+        {
+            throw new InvalidOperationException("O valor pago deve ser maior que zero.");
+        }
+
+        var compra = await _dbContext.ComprasParceladas
+            .Include(item => item.Categoria)
+            .Include(item => item.CartaoCredito)
+            .SingleOrDefaultAsync(
+                item => item.Id == request.IdCompraParcelada && item.UsuarioId == usuarioId,
+                cancellationToken);
+
+        if (compra is null)
+        {
+            throw new InvalidOperationException("Compra parcelada não encontrada para este usuário.");
+        }
+
+        if (request.NumeroParcela > compra.QuantidadeParcelas)
+        {
+            throw new InvalidOperationException("A parcela informada não existe para esta compra.");
+        }
+
+        var parcelaJaQuitada = await _dbContext.Transacoes
+            .AnyAsync(
+                transacao =>
+                    transacao.UsuarioId == usuarioId &&
+                    transacao.CompraParceladaId == compra.Id &&
+                    transacao.NumeroParcelaQuitada == request.NumeroParcela,
+                cancellationToken);
+
+        if (parcelaJaQuitada)
+        {
+            throw new InvalidOperationException("Esta parcela já foi quitada ou antecipada.");
+        }
+
+        var ultimoCodigo = await _dbContext.Transacoes
+            .Where(transacao => transacao.UsuarioId == usuarioId)
+            .MaxAsync(transacao => (int?)transacao.CodigoExibicao, cancellationToken);
+
+        var valorParcelaOriginal = compra.IsDividida && compra.ValorTotalOriginal.HasValue
+            ? CalcularValorParcela(compra.ValorTotalOriginal.Value, compra.QuantidadeParcelas, request.NumeroParcela)
+            : (decimal?)null;
+
+        var transacao = new Transacao
+        {
+            CodigoExibicao = (ultimoCodigo ?? 0) + 1,
+            UsuarioId = usuarioId,
+            Tipo = TipoTransacao.Despesa,
+            Descricao = $"{compra.Descricao} ({request.NumeroParcela}/{compra.QuantidadeParcelas}) - antecipada",
+            Valor = Math.Round(request.ValorPago, 2, MidpointRounding.AwayFromZero),
+            DataOcorrencia = DateOnly.FromDateTime(request.DataAntecipacao),
+            CategoriaId = compra.CategoriaId,
+            FormaPagamento = compra.FormaPagamento == FormaPagamentoCompraParcelada.Carne
+                ? "Carnê/Crediário"
+                : "Cartão de crédito",
+            CartaoCreditoId = compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito
+                ? compra.CartaoCreditoId
+                : null,
+            IsFixa = false,
+            IsPaga = true,
+            IsDividida = compra.IsDividida,
+            ValorTotalOriginal = valorParcelaOriginal,
+            PercentualDivisao = compra.PercentualDivisao,
+            CompraParceladaId = compra.Id,
+            NumeroParcelaQuitada = request.NumeroParcela
+        };
+
+        _dbContext.Transacoes.Add(transacao);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return MapearTransacaoResponse(transacao);
+    }
+
+    public async Task<bool?> AlternarStatusPagamentoAsync(
+        Guid id,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        var transacao = await _dbContext.Transacoes
+            .SingleOrDefaultAsync(
+                transacao => transacao.Id == id && transacao.UsuarioId == usuarioId,
+                cancellationToken);
+
+        if (transacao is null)
+        {
+            return null;
+        }
+
+        transacao.IsPaga = !transacao.IsPaga;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return transacao.IsPaga;
+    }
+
+    public async Task<bool?> AlternarStatusFaturaAsync(
+        Guid cartaoCreditoId,
+        DateOnly dataVencimento,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        var cartaoExiste = await _dbContext.CartoesCredito
+            .AnyAsync(
+                cartao => cartao.Id == cartaoCreditoId && cartao.UsuarioId == usuarioId,
+                cancellationToken);
+
+        if (!cartaoExiste)
+        {
+            return null;
+        }
+
+        var pagamento = await _dbContext.FaturasCartaoPagamentos
+            .SingleOrDefaultAsync(
+                item =>
+                    item.UsuarioId == usuarioId &&
+                    item.CartaoCreditoId == cartaoCreditoId &&
+                    item.DataVencimento == dataVencimento,
+                cancellationToken);
+
+        if (pagamento is null)
+        {
+            pagamento = new FaturaCartaoPagamento
+            {
+                UsuarioId = usuarioId,
+                CartaoCreditoId = cartaoCreditoId,
+                DataVencimento = dataVencimento,
+                IsPaga = true
+            };
+
+            _dbContext.FaturasCartaoPagamentos.Add(pagamento);
+        }
+        else
+        {
+            pagamento.IsPaga = !pagamento.IsPaga;
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return pagamento.IsPaga;
     }
 
     public async Task<bool> ExcluirAsync(
@@ -405,6 +619,10 @@ public sealed class TransacaoService : ITransacaoService
             CartaoCreditoId = transacao.CartaoCreditoId,
             CartaoCreditoApelido = transacao.CartaoCredito?.ApelidoCartao,
             IsFixa = transacao.IsFixa,
+            IsPaga = transacao.IsPaga,
+            IsDividida = transacao.IsDividida,
+            ValorTotalOriginal = transacao.ValorTotalOriginal,
+            PercentualDivisao = transacao.PercentualDivisao,
             IsProjetada = false,
             Origem = "Transacao",
             CompraParceladaId = transacao.CompraParceladaId,
@@ -426,6 +644,7 @@ public sealed class TransacaoService : ITransacaoService
             CartaoCreditoId = fatura.CartaoCreditoId,
             CartaoCreditoApelido = fatura.NomeCartao,
             IsFixa = false,
+            IsPaga = fatura.IsPaga,
             IsProjetada = true,
             Origem = "FaturaCartao"
         };
@@ -439,6 +658,9 @@ public sealed class TransacaoService : ITransacaoService
             DataOcorrencia = transacao.DataOcorrencia,
             Descricao = transacao.Descricao,
             Valor = transacao.Valor,
+            IsDividida = transacao.IsDividida,
+            ValorTotalOriginal = transacao.ValorTotalOriginal,
+            PercentualDivisao = transacao.PercentualDivisao,
             CategoriaId = transacao.CategoriaId,
             CategoriaNome = transacao.Categoria?.Nome ?? "Sem categoria",
             CategoriaCorHexa = transacao.Categoria?.CorHexa ?? "#64748B",
@@ -508,6 +730,51 @@ public sealed class TransacaoService : ITransacaoService
         }
     }
 
+    private static void ValidarDivisao(CriarTransacaoRequest request)
+    {
+        if (!request.IsDividida)
+        {
+            return;
+        }
+
+        if (request.Tipo != TipoTransacao.Despesa)
+        {
+            throw new InvalidOperationException("A divisão está disponível apenas para despesas.");
+        }
+
+        if (!request.ValorTotalOriginal.HasValue || !request.PercentualDivisao.HasValue)
+        {
+            throw new InvalidOperationException("Informe o valor total original e o percentual da divisão.");
+        }
+
+        if (request.ValorTotalOriginal.Value <= 0)
+        {
+            throw new InvalidOperationException("O valor total da compra deve ser maior que zero.");
+        }
+
+        if (request.PercentualDivisao.Value <= 0 || request.PercentualDivisao.Value > 100)
+        {
+            throw new InvalidOperationException("O percentual da divisão deve ser maior que zero e no máximo 100%.");
+        }
+
+        if (request.Valor <= 0 || request.Valor > request.ValorTotalOriginal.Value)
+        {
+            throw new InvalidOperationException(
+                "O valor da sua parte deve ser maior que zero e não pode superar o valor total da compra.");
+        }
+
+        var valorCalculado = Math.Round(
+            request.ValorTotalOriginal.Value * (request.PercentualDivisao.Value / 100m),
+            2,
+            MidpointRounding.AwayFromZero);
+
+        if (request.Valor != valorCalculado)
+        {
+            throw new InvalidOperationException(
+                $"O valor da sua parte deve ser {valorCalculado:C2} para o percentual informado.");
+        }
+    }
+
     private static TransacaoResponse MapearTransacaoResponse(Transacao transacao)
     {
         return new TransacaoResponse
@@ -523,6 +790,10 @@ public sealed class TransacaoService : ITransacaoService
             FormaPagamento = transacao.FormaPagamento,
             CartaoCreditoId = transacao.CartaoCreditoId,
             IsFixa = transacao.IsFixa,
+            IsPaga = transacao.IsPaga,
+            IsDividida = transacao.IsDividida,
+            ValorTotalOriginal = transacao.ValorTotalOriginal,
+            PercentualDivisao = transacao.PercentualDivisao,
             CompraParceladaId = transacao.CompraParceladaId,
             NumeroParcelaQuitada = transacao.NumeroParcelaQuitada
         };
@@ -563,6 +834,12 @@ public sealed class TransacaoService : ITransacaoService
             CartaoCreditoId = compra.CartaoCreditoId,
             CartaoCreditoApelido = compra.CartaoCredito?.ApelidoCartao,
             IsFixa = false,
+            IsPaga = false,
+            IsDividida = compra.IsDividida,
+            ValorTotalOriginal = compra.IsDividida && compra.ValorTotalOriginal.HasValue
+                ? CalcularValorParcela(compra.ValorTotalOriginal.Value, compra.QuantidadeParcelas, numeroParcela)
+                : null,
+            PercentualDivisao = compra.PercentualDivisao,
             IsProjetada = true,
             Origem = "CompraParcelada",
             CompraParceladaId = compra.Id,
@@ -615,6 +892,14 @@ public sealed class TransacaoService : ITransacaoService
                     DataOcorrencia = dataParcela,
                     Descricao = compra.Descricao,
                     Valor = CalcularValorParcela(compra.ValorTotal, compra.QuantidadeParcelas, numeroParcela),
+                    IsDividida = compra.IsDividida,
+                    ValorTotalOriginal = compra.IsDividida && compra.ValorTotalOriginal.HasValue
+                        ? CalcularValorParcela(
+                            compra.ValorTotalOriginal.Value,
+                            compra.QuantidadeParcelas,
+                            numeroParcela)
+                        : null,
+                    PercentualDivisao = compra.PercentualDivisao,
                     CategoriaId = compra.CategoriaId,
                     CategoriaNome = compra.Categoria.Nome,
                     CategoriaCorHexa = compra.Categoria.CorHexa,
@@ -654,6 +939,9 @@ public sealed class TransacaoService : ITransacaoService
                     DataOcorrencia = dataProjetada,
                     Descricao = transacao.Descricao,
                     Valor = transacao.Valor,
+                    IsDividida = transacao.IsDividida,
+                    ValorTotalOriginal = transacao.ValorTotalOriginal,
+                    PercentualDivisao = transacao.PercentualDivisao,
                     CategoriaId = transacao.CategoriaId,
                     CategoriaNome = transacao.Categoria?.Nome ?? "Sem categoria",
                     CategoriaCorHexa = transacao.Categoria?.CorHexa ?? "#64748B",
@@ -704,6 +992,15 @@ public sealed class TransacaoService : ITransacaoService
                     CategoriaCorHexa = compra.Categoria.CorHexa,
                     FormaPagamento = "Carnê/Crediário",
                     IsFixa = false,
+                    IsPaga = false,
+                    IsDividida = compra.IsDividida,
+                    ValorTotalOriginal = compra.IsDividida && compra.ValorTotalOriginal.HasValue
+                        ? CalcularValorParcela(
+                            compra.ValorTotalOriginal.Value,
+                            compra.QuantidadeParcelas,
+                            numeroParcela)
+                        : null,
+                    PercentualDivisao = compra.PercentualDivisao,
                     IsProjetada = true,
                     Origem = "Carne",
                     CompraParceladaId = compra.Id,
@@ -733,6 +1030,10 @@ public sealed class TransacaoService : ITransacaoService
             CartaoCreditoId = transacao.CartaoCreditoId,
             CartaoCreditoApelido = transacao.CartaoCredito?.ApelidoCartao,
             IsFixa = true,
+            IsPaga = transacao.IsPaga,
+            IsDividida = transacao.IsDividida,
+            ValorTotalOriginal = transacao.ValorTotalOriginal,
+            PercentualDivisao = transacao.PercentualDivisao,
             IsProjetada = true,
             Origem = transacao.Tipo switch
             {

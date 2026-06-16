@@ -14,4 +14,5 @@ export type ConfiguracoesNotificacao = {
   avisarVencimento: boolean;
   avisarMelhorDia: boolean;
   diasAntecedenciaVencimento: number;
+  percentualPadraoDivisao: number;
 };

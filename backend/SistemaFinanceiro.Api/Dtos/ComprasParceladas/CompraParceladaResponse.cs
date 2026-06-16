@@ -11,6 +11,9 @@ public sealed class CompraParceladaResponse
     public string Descricao { get; set; } = string.Empty;
     public int QuantidadeParcelas { get; set; }
     public decimal ValorTotal { get; set; }
+    public bool IsDividida { get; set; }
+    public decimal? ValorTotalOriginal { get; set; }
+    public decimal? PercentualDivisao { get; set; }
     public DateOnly DataCompra { get; set; }
     public DateOnly? DataPrimeiroVencimento { get; set; }
     public FormaPagamentoCompraParcelada FormaPagamento { get; set; }

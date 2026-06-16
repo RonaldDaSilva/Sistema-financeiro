@@ -10,7 +10,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
+    "@tanstack/react-query": "^5.101.0",
+    "@vitejs/plugin-react": "^6.0.2",
     "axios": "^1.7.9",
     "emoji-picker-react": "^4.19.1",
     "lucide-react": "^1.17.0",
@@ -18,7 +19,7 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1",
     "recharts": "^3.8.1",
-    "vite": "^6.0.5"
+    "vite": "^8.0.16"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

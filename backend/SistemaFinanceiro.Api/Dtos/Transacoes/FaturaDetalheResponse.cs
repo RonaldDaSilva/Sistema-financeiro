@@ -9,6 +9,9 @@ public sealed class FaturaDetalheResponse
     public DateOnly DataOcorrencia { get; set; }
     public string Descricao { get; set; } = string.Empty;
     public decimal Valor { get; set; }
+    public bool IsDividida { get; set; }
+    public decimal? ValorTotalOriginal { get; set; }
+    public decimal? PercentualDivisao { get; set; }
     public Guid? CategoriaId { get; set; }
     public string CategoriaNome { get; set; } = string.Empty;
     public string CategoriaCorHexa { get; set; } = string.Empty;

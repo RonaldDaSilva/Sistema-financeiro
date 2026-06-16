@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SistemaFinanceiro.Api.Data;
@@ -11,9 +12,11 @@ using SistemaFinanceiro.Api.Data;
 namespace SistemaFinanceiro.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260615230738_AddStatusPagamentoTransacao")]
+    partial class AddStatusPagamentoTransacao
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -248,40 +251,6 @@ namespace SistemaFinanceiro.Api.Migrations
                     b.HasKey("UsuarioId");
 
                     b.ToTable("configuracoes_usuario", (string)null);
-                });
-
-            modelBuilder.Entity("SistemaFinanceiro.Api.Models.FaturaCartaoPagamento", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("CartaoCreditoId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id_cartao_credito");
-
-                    b.Property<DateOnly>("DataVencimento")
-                        .HasColumnType("date")
-                        .HasColumnName("data_vencimento");
-
-                    b.Property<bool>("IsPaga")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("is_paga");
-
-                    b.Property<Guid>("UsuarioId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id_usuario");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CartaoCreditoId");
-
-                    b.HasIndex("UsuarioId", "CartaoCreditoId", "DataVencimento")
-                        .IsUnique();
-
-                    b.ToTable("faturas_cartao_pagamentos", (string)null);
                 });
 
             modelBuilder.Entity("SistemaFinanceiro.Api.Models.Notificacao", b =>
@@ -577,25 +546,6 @@ namespace SistemaFinanceiro.Api.Migrations
                     b.Navigation("Usuario");
                 });
 
-            modelBuilder.Entity("SistemaFinanceiro.Api.Models.FaturaCartaoPagamento", b =>
-                {
-                    b.HasOne("SistemaFinanceiro.Api.Models.CartaoCredito", "CartaoCredito")
-                        .WithMany("FaturasPagamentos")
-                        .HasForeignKey("CartaoCreditoId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("SistemaFinanceiro.Api.Models.Usuario", "Usuario")
-                        .WithMany("FaturasCartaoPagamentos")
-                        .HasForeignKey("UsuarioId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("CartaoCredito");
-
-                    b.Navigation("Usuario");
-                });
-
             modelBuilder.Entity("SistemaFinanceiro.Api.Models.Notificacao", b =>
                 {
                     b.HasOne("SistemaFinanceiro.Api.Models.Usuario", "Usuario")
@@ -654,8 +604,6 @@ namespace SistemaFinanceiro.Api.Migrations
                 {
                     b.Navigation("ComprasParceladas");
 
-                    b.Navigation("FaturasPagamentos");
-
                     b.Navigation("Transacoes");
                 });
 
@@ -680,8 +628,6 @@ namespace SistemaFinanceiro.Api.Migrations
                     b.Navigation("ComprasParceladas");
 
                     b.Navigation("Configuracoes");
-
-                    b.Navigation("FaturasCartaoPagamentos");
 
                     b.Navigation("Notificacoes");
 

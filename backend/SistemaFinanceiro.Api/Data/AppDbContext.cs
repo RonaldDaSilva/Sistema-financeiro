@@ -21,6 +21,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<CartaoCredito> CartoesCredito => Set<CartaoCredito>();
     public DbSet<CompraParcelada> ComprasParceladas => Set<CompraParcelada>();
     public DbSet<Transacao> Transacoes => Set<Transacao>();
+    public DbSet<FaturaCartaoPagamento> FaturasCartaoPagamentos => Set<FaturaCartaoPagamento>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Notificacao> Notificacoes => Set<Notificacao>();
     public DbSet<ConfiguracoesUsuario> ConfiguracoesUsuarios => Set<ConfiguracoesUsuario>();
@@ -36,6 +37,7 @@ public sealed class AppDbContext : DbContext
         ConfigureCartaoCredito(modelBuilder);
         ConfigureCompraParcelada(modelBuilder);
         ConfigureTransacao(modelBuilder);
+        ConfigureFaturaCartaoPagamento(modelBuilder);
         ConfigureRefreshToken(modelBuilder);
         ConfigureNotificacao(modelBuilder);
         ConfigureConfiguracoesUsuario(modelBuilder);
@@ -268,6 +270,19 @@ public sealed class AppDbContext : DbContext
                 .HasDefaultValue(FormaPagamentoCompraParcelada.CartaoCredito)
                 .IsRequired();
 
+            entity.Property(compra => compra.IsDividida)
+                .HasColumnName("is_dividida")
+                .HasDefaultValue(false)
+                .IsRequired();
+
+            entity.Property(compra => compra.ValorTotalOriginal)
+                .HasColumnName("valor_total_original")
+                .HasPrecision(18, 2);
+
+            entity.Property(compra => compra.PercentualDivisao)
+                .HasColumnName("percentual_divisao")
+                .HasPrecision(5, 2);
+
             entity.HasOne(compra => compra.Usuario)
                 .WithMany(usuario => usuario.ComprasParceladas)
                 .HasForeignKey(compra => compra.UsuarioId)
@@ -339,6 +354,24 @@ public sealed class AppDbContext : DbContext
             entity.Property(transacao => transacao.IsFixa)
                 .HasColumnName("is_fixa")
                 .IsRequired();
+
+            entity.Property(transacao => transacao.IsPaga)
+                .HasColumnName("is_paga")
+                .HasDefaultValue(false)
+                .IsRequired();
+
+            entity.Property(transacao => transacao.IsDividida)
+                .HasColumnName("is_dividida")
+                .HasDefaultValue(false)
+                .IsRequired();
+
+            entity.Property(transacao => transacao.ValorTotalOriginal)
+                .HasColumnName("valor_total_original")
+                .HasPrecision(18, 2);
+
+            entity.Property(transacao => transacao.PercentualDivisao)
+                .HasColumnName("percentual_divisao")
+                .HasPrecision(5, 2);
 
             entity.Property(transacao => transacao.CompraParceladaId)
                 .HasColumnName("id_compra_parcelada");
@@ -413,6 +446,54 @@ public sealed class AppDbContext : DbContext
                 .WithMany(usuario => usuario.RefreshTokens)
                 .HasForeignKey(refreshToken => refreshToken.UsuarioId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureFaturaCartaoPagamento(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<FaturaCartaoPagamento>(entity =>
+        {
+            entity.ToTable("faturas_cartao_pagamentos");
+
+            entity.HasKey(fatura => fatura.Id);
+
+            entity.Property(fatura => fatura.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(fatura => fatura.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+
+            entity.Property(fatura => fatura.CartaoCreditoId)
+                .HasColumnName("id_cartao_credito")
+                .IsRequired();
+
+            entity.Property(fatura => fatura.DataVencimento)
+                .HasColumnName("data_vencimento")
+                .IsRequired();
+
+            entity.Property(fatura => fatura.IsPaga)
+                .HasColumnName("is_paga")
+                .HasDefaultValue(false)
+                .IsRequired();
+
+            entity.HasOne(fatura => fatura.Usuario)
+                .WithMany(usuario => usuario.FaturasCartaoPagamentos)
+                .HasForeignKey(fatura => fatura.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(fatura => fatura.CartaoCredito)
+                .WithMany(cartao => cartao.FaturasPagamentos)
+                .HasForeignKey(fatura => fatura.CartaoCreditoId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(fatura => new
+            {
+                fatura.UsuarioId,
+                fatura.CartaoCreditoId,
+                fatura.DataVencimento
+            }).IsUnique();
         });
     }
 
@@ -503,6 +584,12 @@ public sealed class AppDbContext : DbContext
             entity.Property(configuracao => configuracao.DiasAntecedenciaVencimento)
                 .HasColumnName("dias_antecedencia_vencimento")
                 .HasDefaultValue(2)
+                .IsRequired();
+
+            entity.Property(configuracao => configuracao.PercentualPadraoDivisao)
+                .HasColumnName("percentual_padrao_divisao")
+                .HasPrecision(5, 2)
+                .HasDefaultValue(50m)
                 .IsRequired();
 
             entity.HasOne(configuracao => configuracao.Usuario)

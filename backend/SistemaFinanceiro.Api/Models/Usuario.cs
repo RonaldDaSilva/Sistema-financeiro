@@ -18,5 +18,6 @@ public sealed class Usuario : IHasGuidId
     public ICollection<Transacao> Transacoes { get; set; } = new List<Transacao>();
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
     public ICollection<Notificacao> Notificacoes { get; set; } = new List<Notificacao>();
+    public ICollection<FaturaCartaoPagamento> FaturasCartaoPagamentos { get; set; } = new List<FaturaCartaoPagamento>();
     public ConfiguracoesUsuario? Configuracoes { get; set; }
 }

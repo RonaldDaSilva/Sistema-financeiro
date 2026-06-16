@@ -10,4 +10,7 @@ public sealed class AtualizarConfiguracoesNotificacaoRequest
 
     [Range(0, 30)]
     public int DiasAntecedenciaVencimento { get; set; } = 2;
+
+    [Range(0.01, 100)]
+    public decimal PercentualPadraoDivisao { get; set; } = 50m;
 }

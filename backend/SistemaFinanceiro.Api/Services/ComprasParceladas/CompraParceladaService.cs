@@ -19,6 +19,7 @@ public sealed class CompraParceladaService : ICompraParceladaService
         Guid usuarioId,
         CancellationToken cancellationToken = default)
     {
+        ValidarDivisao(request);
         var categoriaExiste = await _dbContext.Categorias
             .AnyAsync(
                 categoria => categoria.Id == request.CategoriaId &&
@@ -44,7 +45,10 @@ public sealed class CompraParceladaService : ICompraParceladaService
             DataPrimeiroVencimento = request.FormaPagamento == FormaPagamentoCompraParcelada.Carne
                 ? request.DataPrimeiroVencimento
                 : null,
-            FormaPagamento = request.FormaPagamento
+            FormaPagamento = request.FormaPagamento,
+            IsDividida = request.IsDividida,
+            ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null,
+            PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null
         };
 
         _dbContext.ComprasParceladas.Add(compra);
@@ -70,6 +74,7 @@ public sealed class CompraParceladaService : ICompraParceladaService
         }
 
         ValidarNumeroParcela(compraOriginal, numeroParcela);
+        ValidarDivisao(request);
         await ValidarRelacionamentosAsync(request, usuarioId, cancellationToken);
 
         var parcelasRestantes = compraOriginal.QuantidadeParcelas - numeroParcela + 1;
@@ -87,7 +92,10 @@ public sealed class CompraParceladaService : ICompraParceladaService
             DataPrimeiroVencimento = request.FormaPagamento == FormaPagamentoCompraParcelada.Carne
                 ? request.DataPrimeiroVencimento ?? dataOcorrencia
                 : null,
-            FormaPagamento = request.FormaPagamento
+            FormaPagamento = request.FormaPagamento,
+            IsDividida = request.IsDividida,
+            ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null,
+            PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null
         };
 
         if (numeroParcela == 1)
@@ -96,6 +104,14 @@ public sealed class CompraParceladaService : ICompraParceladaService
         }
         else
         {
+            if (compraOriginal.IsDividida && compraOriginal.ValorTotalOriginal.HasValue)
+            {
+                compraOriginal.ValorTotalOriginal = SomarParcelas(
+                    compraOriginal.ValorTotalOriginal.Value,
+                    compraOriginal.QuantidadeParcelas,
+                    numeroParcela - 1);
+            }
+
             compraOriginal.ValorTotal = SomarParcelas(compraOriginal, numeroParcela - 1);
             compraOriginal.QuantidadeParcelas = numeroParcela - 1;
         }
@@ -128,6 +144,14 @@ public sealed class CompraParceladaService : ICompraParceladaService
         }
         else
         {
+            if (compra.IsDividida && compra.ValorTotalOriginal.HasValue)
+            {
+                compra.ValorTotalOriginal = SomarParcelas(
+                    compra.ValorTotalOriginal.Value,
+                    compra.QuantidadeParcelas,
+                    numeroParcela - 1);
+            }
+
             compra.ValorTotal = SomarParcelas(compra, numeroParcela - 1);
             compra.QuantidadeParcelas = numeroParcela - 1;
         }
@@ -206,10 +230,55 @@ public sealed class CompraParceladaService : ICompraParceladaService
         }
     }
 
+    private static void ValidarDivisao(CriarCompraParceladaRequest request)
+    {
+        if (!request.IsDividida)
+        {
+            return;
+        }
+
+        if (!request.ValorTotalOriginal.HasValue || !request.PercentualDivisao.HasValue)
+        {
+            throw new InvalidOperationException("Informe o valor total original e o percentual da divisão.");
+        }
+
+        if (request.ValorTotalOriginal.Value <= 0)
+        {
+            throw new InvalidOperationException("O valor total da compra deve ser maior que zero.");
+        }
+
+        if (request.PercentualDivisao.Value <= 0 || request.PercentualDivisao.Value > 100)
+        {
+            throw new InvalidOperationException("O percentual da divisão deve ser maior que zero e no máximo 100%.");
+        }
+
+        if (request.ValorTotal <= 0 || request.ValorTotal > request.ValorTotalOriginal.Value)
+        {
+            throw new InvalidOperationException(
+                "O valor da sua parte deve ser maior que zero e não pode superar o valor total da compra.");
+        }
+
+        var valorCalculado = Math.Round(
+            request.ValorTotalOriginal.Value * (request.PercentualDivisao.Value / 100m),
+            2,
+            MidpointRounding.AwayFromZero);
+
+        if (request.ValorTotal != valorCalculado)
+        {
+            throw new InvalidOperationException(
+                $"O valor da sua parte deve ser {valorCalculado:C2} para o percentual informado.");
+        }
+    }
+
     private static decimal SomarParcelas(CompraParcelada compra, int ateParcela)
     {
+        return SomarParcelas(compra.ValorTotal, compra.QuantidadeParcelas, ateParcela);
+    }
+
+    private static decimal SomarParcelas(decimal valorTotal, int quantidadeParcelas, int ateParcela)
+    {
         return Enumerable.Range(1, ateParcela)
-            .Sum(numero => CalcularValorParcela(compra.ValorTotal, compra.QuantidadeParcelas, numero));
+            .Sum(numero => CalcularValorParcela(valorTotal, quantidadeParcelas, numero));
     }
 
     private static decimal CalcularValorParcela(decimal valorTotal, int quantidadeParcelas, int numeroParcela)
@@ -231,6 +300,9 @@ public sealed class CompraParceladaService : ICompraParceladaService
             Descricao = compra.Descricao,
             QuantidadeParcelas = compra.QuantidadeParcelas,
             ValorTotal = compra.ValorTotal,
+            IsDividida = compra.IsDividida,
+            ValorTotalOriginal = compra.ValorTotalOriginal,
+            PercentualDivisao = compra.PercentualDivisao,
             DataCompra = compra.DataCompra,
             DataPrimeiroVencimento = compra.DataPrimeiroVencimento,
             FormaPagamento = compra.FormaPagamento

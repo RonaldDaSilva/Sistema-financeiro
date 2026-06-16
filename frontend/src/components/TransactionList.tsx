@@ -2,22 +2,28 @@ import { useState } from "react";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
+  CalendarClock,
   Car,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Circle,
   CreditCard,
   Pencil,
   Trash2,
+  UsersRound,
   Wallet,
 } from "lucide-react";
 import type { ExtratoMensalItem, FaturaConsolidada } from "../types/finance";
-import { formatCurrency, formatDate } from "../utils/date";
+import { formatCurrency, formatDate, parseLocalDate } from "../utils/date";
 
 type TransactionListProps = {
   items: ExtratoMensalItem[];
   faturas?: FaturaConsolidada[];
   onEdit: (item: ExtratoMensalItem) => void;
   onDelete: (item: ExtratoMensalItem) => void;
+  onAnticipate: (item: ExtratoMensalItem) => void;
+  onTogglePagamento: (item: ExtratoMensalItem) => void;
 };
 
 export function TransactionList({
@@ -25,6 +31,8 @@ export function TransactionList({
   faturas = [],
   onEdit,
   onDelete,
+  onAnticipate,
+  onTogglePagamento,
 }: TransactionListProps) {
   const [expandedFaturas, setExpandedFaturas] = useState<Set<string>>(
     new Set(),
@@ -40,7 +48,7 @@ export function TransactionList({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-[color:var(--app-card-border)] bg-slate-50/50 px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 md:grid-cols-[120px_1fr_170px_150px_120px]">
+      <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-[color:var(--app-card-border)] bg-slate-50/50 px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 md:grid-cols-[120px_1fr_170px_170px_120px]">
         <span>Data</span>
         <span>Movimentação</span>
         <span className="hidden md:block">Categoria</span>
@@ -52,6 +60,12 @@ export function TransactionList({
           const isReceita = item.tipo === 1 || item.tipo === "Receita";
           const isInvestimento =
             item.tipo === 3 || item.tipo === "Investimento";
+          const hojeInicio = new Date();
+          hojeInicio.setHours(0, 0, 0, 0);
+          const isAtrasada =
+            !isReceita &&
+            !item.isPaga &&
+            parseLocalDate(item.dataOcorrencia) < hojeInicio;
           const valueClass = isReceita
             ? "text-emerald-700"
             : isInvestimento
@@ -79,15 +93,36 @@ export function TransactionList({
               (item.origem === "CompraParcelada" || item.origem === "Carne") &&
               Boolean(item.compraParceladaId) &&
               Boolean(item.numeroParcela));
+          const canAnticipate =
+            item.isProjetada &&
+            (item.origem === "CompraParcelada" || item.origem === "Carne") &&
+            Boolean(item.compraParceladaId) &&
+            Boolean(item.numeroParcela) &&
+            isFutureMonth(item.dataOcorrencia);
 
           return (
             <div
               key={`${item.id ?? item.compraParceladaId ?? item.descricao}-${item.dataOcorrencia}-${item.numeroParcela ?? index}`}
             >
-              <div className="group grid grid-cols-[1fr_auto] gap-3 px-6 py-5 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/40 md:grid-cols-[120px_1fr_170px_150px_120px] md:items-center">
-                <span className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300">
-                  {formatDate(item.dataOcorrencia)}
-                </span>
+              <div className="group grid grid-cols-[1fr_auto] gap-3 px-6 py-5 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/40 md:grid-cols-[120px_1fr_170px_170px_120px] md:items-center">
+                <div className="relative min-h-[42px] overflow-visible">
+                  <StatusButton item={item} onToggle={onTogglePagamento} />
+                  <div className="transition-transform duration-200 ease-out group-hover:translate-x-8">
+                    <span className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300">
+                      {formatDate(item.dataOcorrencia)}
+                    </span>
+                    {item.isPaga && !isReceita && (
+                      <span className="mt-1 block w-fit rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                        Pago
+                      </span>
+                    )}
+                    {isAtrasada && (
+                      <span className="mt-1 block w-fit rounded-full bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                        Atrasada
+                      </span>
+                    )}
+                  </div>
+                </div>
                 <div className="flex min-w-0 items-center gap-4">
                   <MovementIcon
                     size={36}
@@ -141,6 +176,12 @@ export function TransactionList({
                         Fixa
                       </span>
                     )}
+                    {item.isDividida && (
+                      <span className="inline-flex items-center gap-1 rounded bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+                        <UsersRound size={12} />
+                        Dividida
+                      </span>
+                    )}
                     </div>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                       {item.formaPagamento}
@@ -153,12 +194,22 @@ export function TransactionList({
                     {item.categoriaNome}
                   </span>
                 </div>
-                <span
-                  className={`text-right font-semibold ${valueClass}`}
-                >
-                  {isReceita ? "+" : "-"} {formatCurrency(item.valor)}
-                </span>
+                <div className="flex items-center justify-end gap-3">
+                  <span className={`text-right font-semibold ${valueClass}`}>
+                    {isReceita ? "+" : "-"} {formatCurrency(item.valor)}
+                  </span>
+                </div>
                 <div className="col-span-2 flex justify-end gap-2 md:col-span-1">
+                  {canAnticipate && (
+                    <button
+                      className="rounded-xl p-2 text-slate-300 opacity-100 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
+                      type="button"
+                      onClick={() => onAnticipate(item)}
+                      title="Antecipar parcela"
+                    >
+                      <CalendarClock size={18} />
+                    </button>
+                  )}
                   <button
                     className="rounded-xl p-2 text-slate-300 opacity-100 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-100 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
                     type="button"
@@ -218,6 +269,12 @@ export function TransactionList({
                                   {detalhe.quantidadeParcelas}
                                 </span>
                               )}
+                            {detalhe.isDividida && (
+                              <span className="ml-2 inline-flex items-center gap-1 rounded bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+                                <UsersRound size={12} />
+                                Dividida
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             <span
@@ -234,6 +291,26 @@ export function TransactionList({
                             - {formatCurrency(detalhe.valor)}
                           </span>
                           <div className="flex justify-end gap-2">
+                            {detalhe.compraParceladaId &&
+                              detalhe.numeroParcela &&
+                              detalhe.origem !== "Transacao" &&
+                              isFutureMonth(fatura.dataVencimento) && (
+                                <button
+                                  className="rounded-full p-2 text-slate-400 hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)]"
+                                  type="button"
+                                  onClick={() =>
+                                    onAnticipate(
+                                      mapFaturaDetalheToExtratoItem(
+                                        fatura,
+                                        detalhe,
+                                      ),
+                                    )
+                                  }
+                                  title="Antecipar parcela"
+                                >
+                                  <CalendarClock size={16} />
+                                </button>
+                              )}
                             <button
                               className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                               type="button"
@@ -277,6 +354,41 @@ export function TransactionList({
   );
 }
 
+function StatusButton({
+  item,
+  onToggle,
+}: {
+  item: ExtratoMensalItem;
+  onToggle: (item: ExtratoMensalItem) => void;
+}) {
+  const isReceita = item.tipo === 1 || item.tipo === "Receita";
+  const isFatura = item.origem === "FaturaCartao" && item.cartaoCreditoId;
+  const canToggle =
+    !isReceita &&
+    (Boolean(item.id) && (!item.isProjetada || item.isFixa) || Boolean(isFatura));
+  const Icon = item.isPaga ? CheckCircle2 : Circle;
+
+  if (!canToggle) {
+    return null;
+  }
+
+  return (
+    <button
+      className={`absolute left-0 top-0 -translate-x-2 rounded-full p-1 opacity-0 transition-all duration-200 ease-out group-hover:translate-x-0 group-hover:opacity-100 ${
+        item.isPaga
+          ? "text-emerald-600 hover:bg-emerald-50"
+          : "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+      }`}
+      type="button"
+      onClick={() => onToggle(item)}
+      title={item.isPaga ? "Marcar como pendente" : "Marcar como pago"}
+      aria-label={item.isPaga ? "Marcar como pendente" : "Marcar como pago"}
+    >
+      <Icon size={20} />
+    </button>
+  );
+}
+
 function CategoryIcon({ item }: { item: ExtratoMensalItem }) {
   const Icon =
     item.origem === "FaturaCartao" || item.formaPagamento === "Cartão de crédito"
@@ -298,6 +410,15 @@ function faturaKey(fatura: FaturaConsolidada) {
   return `${fatura.cartaoCreditoId}-${fatura.dataVencimento}`;
 }
 
+function isFutureMonth(value: string) {
+  const data = parseLocalDate(value);
+  const hoje = new Date();
+  const mesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const mesDaParcela = new Date(data.getFullYear(), data.getMonth(), 1);
+
+  return mesDaParcela > mesAtual;
+}
+
 function mapFaturaDetalheToExtratoItem(
   fatura: FaturaConsolidada,
   detalhe: FaturaConsolidada["detalhes"][number],
@@ -316,6 +437,10 @@ function mapFaturaDetalheToExtratoItem(
     cartaoCreditoId: fatura.cartaoCreditoId,
     cartaoCreditoApelido: fatura.nomeCartao,
     isFixa: detalhe.origem === "DespesaFixa",
+    isPaga: false,
+    isDividida: detalhe.isDividida,
+    valorTotalOriginal: detalhe.valorTotalOriginal,
+    percentualDivisao: detalhe.percentualDivisao,
     isProjetada: detalhe.origem !== "Transacao",
     origem: detalhe.origem,
     compraParceladaId: detalhe.compraParceladaId,

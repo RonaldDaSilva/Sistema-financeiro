@@ -1,8 +1,8 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { CreditCard, Pencil, Plus, Trash2 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
 import * as financeService from "../services/financeService";
-import type { CartaoCredito, ExtratoMensalItem } from "../types/finance";
+import type { CartaoCredito } from "../types/finance";
 import {
   formatCurrency,
   formatCurrencyInput,
@@ -28,7 +28,6 @@ const emptyForm: CardForm = {
 
 export function CardsPage() {
   const [cartoes, setCartoes] = useState<CartaoCredito[]>([]);
-  const [movimentacoes, setMovimentacoes] = useState<ExtratoMensalItem[]>([]);
   const [form, setForm] = useState<CardForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -39,17 +38,8 @@ export function CardsPage() {
     setErro(null);
 
     try {
-      const hoje = new Date();
-      const [cartoesResponse, extrato] = await Promise.all([
-        financeService.listarCartoesCredito(),
-        financeService.getExtratoMensal(
-          hoje.getMonth() + 1,
-          hoje.getFullYear(),
-        ),
-      ]);
-
+      const cartoesResponse = await financeService.listarCartoesCredito();
       setCartoes(cartoesResponse);
-      setMovimentacoes(extrato.itens);
     } catch {
       setErro("Nao foi possivel carregar os cartões.");
     } finally {
@@ -60,24 +50,6 @@ export function CardsPage() {
   useEffect(() => {
     carregar();
   }, [carregar]);
-
-  const gastoPorCartao = useMemo(() => {
-    const map = new Map<string, number>();
-
-    movimentacoes
-      .filter(
-        (item) =>
-          (item.tipo === 2 || item.tipo === "Despesa") && item.cartaoCreditoId,
-      )
-      .forEach((item) => {
-        map.set(
-          item.cartaoCreditoId!,
-          (map.get(item.cartaoCreditoId!) ?? 0) + item.valor,
-        );
-      });
-
-    return map;
-  }, [movimentacoes]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -202,8 +174,7 @@ export function CardsPage() {
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               {cartoes.map((cartao) => {
-                const gasto = gastoPorCartao.get(cartao.id) ?? 0;
-                const disponivel = cartao.limiteTotal - gasto;
+                const disponivel = cartao.limiteDisponivel;
 
                 return (
                   <article
@@ -345,8 +316,11 @@ function NumberField({
         min={min ?? 0}
         max={max}
         step={1}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
+        value={value || ""}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          onChange(nextValue === "" ? 0 : Number(nextValue));
+        }}
         required
       />
     </label>

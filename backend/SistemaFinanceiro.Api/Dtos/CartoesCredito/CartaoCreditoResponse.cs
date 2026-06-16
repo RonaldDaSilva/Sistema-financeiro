@@ -9,4 +9,5 @@ public sealed class CartaoCreditoResponse
     public int DiaVencimento { get; set; }
     public int MelhorDiaCompra { get; set; }
     public decimal LimiteTotal { get; set; }
+    public decimal LimiteDisponivel { get; set; }
 }

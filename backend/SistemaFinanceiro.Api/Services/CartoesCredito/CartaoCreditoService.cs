@@ -22,13 +22,22 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             .OrderBy(cartao => cartao.ApelidoCartao)
             .ToListAsync(cancellationToken);
 
-        return cartoes.Select(Mapear).ToList();
+        var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
+        return cartoes
+            .Select(cartao => Mapear(cartao, usoPorCartao.GetValueOrDefault(cartao.Id)))
+            .ToList();
     }
 
     public async Task<CartaoCreditoResponse?> ObterPorIdAsync(Guid id, Guid usuarioId, CancellationToken cancellationToken = default)
     {
         var cartao = await BuscarCartao(id, usuarioId, cancellationToken);
-        return cartao is null ? null : Mapear(cartao);
+        if (cartao is null)
+        {
+            return null;
+        }
+
+        var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
+        return Mapear(cartao, usoPorCartao.GetValueOrDefault(cartao.Id));
     }
 
     public async Task<CartaoCreditoResponse> CriarAsync(
@@ -49,7 +58,7 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         _dbContext.CartoesCredito.Add(cartao);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return Mapear(cartao);
+        return Mapear(cartao, 0m);
     }
 
     public async Task<CartaoCreditoResponse?> AtualizarAsync(
@@ -71,7 +80,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         cartao.LimiteTotal = request.LimiteTotal;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
-        return Mapear(cartao);
+        var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
+        return Mapear(cartao, usoPorCartao.GetValueOrDefault(cartao.Id));
     }
 
     public async Task<bool> ExcluirAsync(Guid id, Guid usuarioId, CancellationToken cancellationToken = default)
@@ -93,7 +103,100 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             .SingleOrDefaultAsync(cartao => cartao.Id == id && cartao.UsuarioId == usuarioId, cancellationToken);
     }
 
-    private static CartaoCreditoResponse Mapear(CartaoCredito cartao)
+    private async Task<Dictionary<Guid, decimal>> CalcularUsoPorCartaoAsync(
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var transacoes = await _dbContext.Transacoes
+            .AsNoTracking()
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.CartaoCreditoId.HasValue &&
+                !transacao.CompraParceladaId.HasValue)
+            .Select(transacao => new
+            {
+                CartaoId = transacao.CartaoCreditoId!.Value,
+                ValorLimite = transacao.IsDividida && transacao.ValorTotalOriginal.HasValue
+                    ? transacao.ValorTotalOriginal.Value
+                    : transacao.Valor
+            })
+            .ToListAsync(cancellationToken);
+
+        var comprasParceladas = await _dbContext.ComprasParceladas
+            .AsNoTracking()
+            .Where(compra =>
+                compra.UsuarioId == usuarioId &&
+                compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito &&
+                compra.CartaoCreditoId.HasValue)
+            .Select(compra => new
+            {
+                compra.Id,
+                CartaoId = compra.CartaoCreditoId!.Value,
+                compra.QuantidadeParcelas,
+                compra.IsDividida,
+                compra.ValorTotalOriginal,
+                compra.ValorTotal,
+                ValorLimite = compra.IsDividida && compra.ValorTotalOriginal.HasValue
+                    ? compra.ValorTotalOriginal.Value
+                    : compra.ValorTotal
+            })
+            .ToListAsync(cancellationToken);
+
+        var comprasIds = comprasParceladas.Select(compra => compra.Id).ToList();
+        var parcelasQuitadas = await _dbContext.Transacoes
+            .AsNoTracking()
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.CompraParceladaId.HasValue &&
+                comprasIds.Contains(transacao.CompraParceladaId.Value) &&
+                transacao.NumeroParcelaQuitada.HasValue)
+            .Select(transacao => new
+            {
+                CompraParceladaId = transacao.CompraParceladaId!.Value,
+                NumeroParcela = transacao.NumeroParcelaQuitada!.Value
+            })
+            .ToListAsync(cancellationToken);
+
+        var parcelasQuitadasPorCompra = parcelasQuitadas
+            .GroupBy(parcela => parcela.CompraParceladaId)
+            .ToDictionary(
+                grupo => grupo.Key,
+                grupo => grupo.Select(parcela => parcela.NumeroParcela).Distinct().ToList());
+
+        var usoComprasParceladas = comprasParceladas.Select(compra =>
+        {
+            var valorRestituido = parcelasQuitadasPorCompra
+                .GetValueOrDefault(compra.Id, [])
+                .Where(numeroParcela => numeroParcela >= 1 && numeroParcela <= compra.QuantidadeParcelas)
+                .Sum(numeroParcela => CalcularValorParcela(
+                    compra.IsDividida && compra.ValorTotalOriginal.HasValue
+                        ? compra.ValorTotalOriginal.Value
+                        : compra.ValorTotal,
+                    compra.QuantidadeParcelas,
+                    numeroParcela));
+
+            return new
+            {
+                compra.CartaoId,
+                ValorLimite = Math.Max(0m, compra.ValorLimite - valorRestituido)
+            };
+        });
+
+        return transacoes
+            .Concat(usoComprasParceladas)
+            .GroupBy(item => item.CartaoId)
+            .ToDictionary(grupo => grupo.Key, grupo => grupo.Sum(item => item.ValorLimite));
+    }
+
+    private static decimal CalcularValorParcela(decimal valorTotal, int quantidadeParcelas, int numeroParcela)
+    {
+        var valorBase = Math.Round(valorTotal / quantidadeParcelas, 2, MidpointRounding.AwayFromZero);
+        return numeroParcela == quantidadeParcelas
+            ? valorTotal - (valorBase * (quantidadeParcelas - 1))
+            : valorBase;
+    }
+
+    private static CartaoCreditoResponse Mapear(CartaoCredito cartao, decimal valorUtilizado)
     {
         return new CartaoCreditoResponse
         {
@@ -103,7 +206,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             Banco = cartao.Banco,
             DiaVencimento = cartao.DiaVencimento,
             MelhorDiaCompra = cartao.MelhorDiaCompra,
-            LimiteTotal = cartao.LimiteTotal
+            LimiteTotal = cartao.LimiteTotal,
+            LimiteDisponivel = cartao.LimiteTotal - valorUtilizado
         };
     }
 }

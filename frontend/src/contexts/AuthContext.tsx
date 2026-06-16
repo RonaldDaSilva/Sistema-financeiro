@@ -2,15 +2,20 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import * as authService from '../services/authService';
 import {
+  AUTH_STORAGE_EVENT,
   clearStoredAuth,
   getStoredAuth,
   setStoredAuth,
+  touchSessionActivity,
 } from '../services/authStorage';
 import type { AuthSession, AuthUser, LoginRequest, RegisterRequest } from '../types/auth';
 
@@ -31,11 +36,18 @@ type AuthProviderProps = {
 };
 
 export function AuthProvider({ children }: AuthProviderProps) {
+  const queryClient = useQueryClient();
   const [session, setSession] = useState<AuthSession | null>(() => getStoredAuth());
+  const lastActivitySyncRef = useRef(0);
 
   const persistSession = useCallback((nextSession: AuthSession) => {
-    setStoredAuth(nextSession);
-    setSession(nextSession);
+    const sessionWithActivity = {
+      ...nextSession,
+      lastActivityAt: new Date().toISOString(),
+    };
+
+    setStoredAuth(sessionWithActivity);
+    setSession(sessionWithActivity);
   }, []);
 
   const handleLogin = useCallback(
@@ -56,8 +68,74 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = useCallback(() => {
     clearStoredAuth();
+    queryClient.clear();
     setSession(null);
-  }, []);
+  }, [queryClient]);
+
+  useEffect(() => {
+    function syncSessionFromStorage() {
+      const storedSession = getStoredAuth();
+      setSession(storedSession);
+
+      if (!storedSession) {
+        queryClient.clear();
+      }
+    }
+
+    window.addEventListener(AUTH_STORAGE_EVENT, syncSessionFromStorage);
+    window.addEventListener("storage", syncSessionFromStorage);
+
+    return () => {
+      window.removeEventListener(AUTH_STORAGE_EVENT, syncSessionFromStorage);
+      window.removeEventListener("storage", syncSessionFromStorage);
+    };
+  }, [queryClient]);
+
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
+    function handleActivity() {
+      const now = Date.now();
+      if (now - lastActivitySyncRef.current < 60_000) {
+        return;
+      }
+
+      lastActivitySyncRef.current = now;
+      const updatedSession = touchSessionActivity();
+      if (updatedSession) {
+        setSession(updatedSession);
+      }
+    }
+
+    function handleIdleCheck() {
+      const storedSession = getStoredAuth();
+      if (!storedSession) {
+        logout();
+      }
+    }
+
+    const activityEvents = [
+      "click",
+      "keydown",
+      "mousemove",
+      "scroll",
+      "touchstart",
+    ] as const;
+
+    activityEvents.forEach((eventName) =>
+      window.addEventListener(eventName, handleActivity, { passive: true }),
+    );
+    const interval = window.setInterval(handleIdleCheck, 60_000);
+
+    return () => {
+      activityEvents.forEach((eventName) =>
+        window.removeEventListener(eventName, handleActivity),
+      );
+      window.clearInterval(interval);
+    };
+  }, [logout, session]);
 
   const updateUser = useCallback((nextUser: Partial<AuthUser>) => {
     setSession((current) => {

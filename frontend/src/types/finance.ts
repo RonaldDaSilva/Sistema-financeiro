@@ -14,6 +14,10 @@ export type ExtratoMensalItem = {
   cartaoCreditoId: string | null;
   cartaoCreditoApelido: string | null;
   isFixa: boolean;
+  isPaga: boolean;
+  isDividida: boolean;
+  valorTotalOriginal: number | null;
+  percentualDivisao: number | null;
   isProjetada: boolean;
   origem: string;
   compraParceladaId: string | null;
@@ -28,7 +32,16 @@ export type ExtratoMensal = {
   totalDespesas: number;
   totalInvestido: number;
   saldo: number;
+  saldoAtual: number;
+  saldoPrevistoFimDoMes: number;
   itens: ExtratoMensalItem[];
+};
+
+export type AnteciparParcelaRequest = {
+  idCompraParcelada: string;
+  numeroParcela: number;
+  dataAntecipacao: string;
+  valorPago: number;
 };
 
 export type Categoria = {
@@ -47,6 +60,7 @@ export type CartaoCredito = {
   diaVencimento: number;
   melhorDiaCompra: number;
   limiteTotal: number;
+  limiteDisponivel: number;
 };
 
 export type FaturaDetalhe = {
@@ -57,6 +71,9 @@ export type FaturaDetalhe = {
   dataOcorrencia: string;
   descricao: string;
   valor: number;
+  isDividida: boolean;
+  valorTotalOriginal: number | null;
+  percentualDivisao: number | null;
   categoriaId: string | null;
   categoriaNome: string;
   categoriaCorHexa: string;
@@ -71,6 +88,7 @@ export type FaturaConsolidada = {
   inicioCompetencia: string;
   fimCompetencia: string;
   status: string;
+  isPaga: boolean;
   detalhes: FaturaDetalhe[];
 };
 
@@ -83,6 +101,9 @@ export type CriarTransacaoRequest = {
   formaPagamento: string;
   cartaoCreditoId?: string | null;
   isFixa: boolean;
+  isDividida: boolean;
+  valorTotalOriginal?: number | null;
+  percentualDivisao?: number | null;
   compraParceladaId?: string | null;
   numeroParcelaQuitada?: number | null;
 };
@@ -93,6 +114,9 @@ export type CriarCompraParceladaRequest = {
   descricao: string;
   quantidadeParcelas: number;
   valorTotal: number;
+  isDividida: boolean;
+  valorTotalOriginal?: number | null;
+  percentualDivisao?: number | null;
   dataCompra: string;
   dataPrimeiroVencimento?: string | null;
   formaPagamento: 1 | 2 | 'CartaoCredito' | 'Carne';

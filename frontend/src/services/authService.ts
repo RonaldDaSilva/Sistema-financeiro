@@ -14,3 +14,11 @@ export async function register(request: RegisterRequest) {
   const { data } = await api.post<AuthResponse>('/api/auth/cadastro', request);
   return data;
 }
+
+export async function refreshSession(refreshToken: string) {
+  const { data } = await api.post<AuthResponse>('/api/auth/refresh', {
+    refreshToken,
+  });
+
+  return data;
+}

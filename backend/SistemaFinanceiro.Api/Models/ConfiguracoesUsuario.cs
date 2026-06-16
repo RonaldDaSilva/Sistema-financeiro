@@ -9,6 +9,7 @@ public sealed class ConfiguracoesUsuario : IMustHaveTenant
     public bool AvisarVencimento { get; set; } = true;
     public bool AvisarMelhorDia { get; set; } = true;
     public int DiasAntecedenciaVencimento { get; set; } = 2;
+    public decimal PercentualPadraoDivisao { get; set; } = 50m;
 
     public Usuario Usuario { get; set; } = null!;
 }

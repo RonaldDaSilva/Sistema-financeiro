@@ -15,6 +15,10 @@ public sealed class Transacao : IHasGuidId, IMustHaveTenant
     public string FormaPagamento { get; set; } = string.Empty;
     public Guid? CartaoCreditoId { get; set; }
     public bool IsFixa { get; set; }
+    public bool IsPaga { get; set; }
+    public bool IsDividida { get; set; }
+    public decimal? ValorTotalOriginal { get; set; }
+    public decimal? PercentualDivisao { get; set; }
     public Guid? CompraParceladaId { get; set; }
     public int? NumeroParcelaQuitada { get; set; }
 

@@ -14,6 +14,9 @@ public sealed class CompraParcelada : IHasGuidId, IMustHaveTenant
     public DateOnly DataCompra { get; set; }
     public DateOnly? DataPrimeiroVencimento { get; set; }
     public FormaPagamentoCompraParcelada FormaPagamento { get; set; } = FormaPagamentoCompraParcelada.CartaoCredito;
+    public bool IsDividida { get; set; }
+    public decimal? ValorTotalOriginal { get; set; }
+    public decimal? PercentualDivisao { get; set; }
 
     public Usuario Usuario { get; set; } = null!;
     public CartaoCredito? CartaoCredito { get; set; }

@@ -129,13 +129,49 @@ public sealed class AuthService : IAuthService
         return authResponse;
     }
 
+    public async Task<AuthResponse?> RenovarSessaoAsync(
+        RefreshTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.RefreshToken))
+        {
+            return null;
+        }
+
+        var tokenHash = CalcularHashToken(request.RefreshToken);
+        var refreshToken = await _dbContext.Set<RefreshToken>()
+            .Include(token => token.Usuario)
+            .SingleOrDefaultAsync(
+                token => token.TokenHash == tokenHash,
+                cancellationToken);
+
+        if (refreshToken is null || !refreshToken.EstaAtivo)
+        {
+            return null;
+        }
+
+        refreshToken.RevogadoEm = DateTimeOffset.UtcNow;
+
+        var authResponse = CriarCredenciais(refreshToken.Usuario);
+        _dbContext.Set<RefreshToken>().Add(new RefreshToken
+        {
+            UsuarioId = refreshToken.UsuarioId,
+            TokenHash = CalcularHashToken(authResponse.RefreshToken),
+            ExpiraEm = authResponse.RefreshTokenExpiraEm
+        });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return authResponse;
+    }
+
     private AuthResponse CriarCredenciais(Usuario usuario)
     {
         ValidarConfiguracaoJwt();
 
         var agora = DateTimeOffset.UtcNow;
         var accessTokenExpiraEm = agora.AddMinutes(_jwtOptions.AccessTokenMinutes);
-        var refreshTokenExpiraEm = agora.AddDays(_jwtOptions.RefreshTokenDays);
+        var refreshTokenExpiraEm = agora.AddHours(_jwtOptions.RefreshTokenIdleHours);
 
         return new AuthResponse
         {
@@ -200,7 +236,9 @@ public sealed class AuthService : IAuthService
             throw new InvalidOperationException("A configuração Jwt:Secret deve ter pelo menos 32 bytes.");
         }
 
-        if (_jwtOptions.AccessTokenMinutes <= 0 || _jwtOptions.RefreshTokenDays <= 0)
+        if (_jwtOptions.AccessTokenMinutes <= 0 ||
+            _jwtOptions.RefreshTokenDays <= 0 ||
+            _jwtOptions.RefreshTokenIdleHours <= 0)
         {
             throw new InvalidOperationException("Os tempos de expiração do JWT devem ser maiores que zero.");
         }

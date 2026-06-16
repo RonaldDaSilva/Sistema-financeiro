@@ -44,8 +44,11 @@ const fallbackColors = [
   "#475569",
 ];
 
-function formatPieLabel({ value }: { value?: number }) {
-  return formatCurrency(Number(value ?? 0));
+function formatPercent(value: number) {
+  return `${value.toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`;
 }
 
 const chartGridColor = "#f1f5f9";
@@ -71,6 +74,9 @@ export function ReportsPage() {
   const [serieFluxo, setSerieFluxo] = useState<
     Array<{ mes: string; receitas: number; despesas: number; saldo: number }>
   >([]);
+  const [modoGraficoCategoria, setModoGraficoCategoria] = useState<
+    "valor" | "percentual"
+  >("valor");
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -165,6 +171,26 @@ export function ReportsPage() {
     return Array.from(map.values()).sort((a, b) => b.value - a.value);
   }, [faturasMes, itensMes]);
 
+  const totalDespesasCategoria = useMemo(
+    () => despesasPorCategoria.reduce((total, item) => total + item.value, 0),
+    [despesasPorCategoria],
+  );
+
+  const despesasPorCategoriaGrafico = useMemo(
+    () =>
+      despesasPorCategoria.map((item) => ({
+        ...item,
+        percentual:
+          totalDespesasCategoria > 0
+            ? (item.value / totalDespesasCategoria) * 100
+            : 0,
+      })),
+    [despesasPorCategoria, totalDespesasCategoria],
+  );
+
+  const dataKeyCategoria =
+    modoGraficoCategoria === "valor" ? "value" : "percentual";
+
   const saldoAnual = useMemo(
     () =>
       extratosAno.map((item) => ({
@@ -202,8 +228,11 @@ export function ReportsPage() {
             <input
               className="w-28 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
               type="number"
-              value={ano}
-              onChange={(event) => setAno(Number(event.target.value))}
+              value={ano || ""}
+              onChange={(event) => {
+                const value = event.target.value;
+                setAno(value === "" ? 0 : Number(value));
+              }}
             />
           </div>
         </div>
@@ -222,13 +251,39 @@ export function ReportsPage() {
         {!isLoading && (
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="flex min-h-[350px] flex-col rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-              <div className="flex items-center gap-3">
-                <span className="rounded-full bg-red-50 p-2 text-red-500">
-                  <PieChartIcon size={20} />
-                </span>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                  Despesas por categoria
-                </h3>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="rounded-full bg-red-50 p-2 text-red-500">
+                    <PieChartIcon size={20} />
+                  </span>
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    Despesas por categoria
+                  </h3>
+                </div>
+                <div className="inline-flex w-fit rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-1 dark:border-slate-800 dark:bg-slate-950">
+                  <button
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                      modoGraficoCategoria === "valor"
+                        ? "bg-[var(--app-primary)] text-white shadow-sm"
+                        : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                    }`}
+                    type="button"
+                    onClick={() => setModoGraficoCategoria("valor")}
+                  >
+                    Valor
+                  </button>
+                  <button
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                      modoGraficoCategoria === "percentual"
+                        ? "bg-[var(--app-primary)] text-white shadow-sm"
+                        : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                    }`}
+                    type="button"
+                    onClick={() => setModoGraficoCategoria("percentual")}
+                  >
+                    Percentual
+                  </button>
+                </div>
               </div>
               <div className="mt-6 h-80 flex-grow">
                 {despesasPorCategoria.length === 0 ? (
@@ -239,8 +294,8 @@ export function ReportsPage() {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={despesasPorCategoria}
-                        dataKey="value"
+                        data={despesasPorCategoriaGrafico}
+                        dataKey={dataKeyCategoria}
                         nameKey="name"
                         cx="50%"
                         cy="50%"
@@ -248,9 +303,13 @@ export function ReportsPage() {
                         outerRadius={105}
                         paddingAngle={2}
                         labelLine={false}
-                        label={formatPieLabel}
+                        label={({ value }) =>
+                          modoGraficoCategoria === "valor"
+                            ? formatCurrency(Number(value ?? 0))
+                            : formatPercent(Number(value ?? 0))
+                        }
                       >
-                        {despesasPorCategoria.map((entry, index) => (
+                        {despesasPorCategoriaGrafico.map((entry, index) => (
                           <Cell
                             key={entry.name}
                             fill={
@@ -262,7 +321,21 @@ export function ReportsPage() {
                       </Pie>
                       <Tooltip
                         contentStyle={lightTooltipStyle}
-                        formatter={(value) => formatCurrency(Number(value))}
+                        formatter={(value, _name, props) => {
+                          const payload = props.payload as
+                            | { value: number; percentual: number }
+                            | undefined;
+
+                          return modoGraficoCategoria === "valor"
+                            ? [
+                                formatCurrency(Number(value)),
+                                `Total (${formatPercent(payload?.percentual ?? 0)})`,
+                              ]
+                            : [
+                                formatPercent(Number(value)),
+                                `Percentual (${formatCurrency(payload?.value ?? 0)})`,
+                              ];
+                        }}
                       />
                       <Legend
                         align="center"

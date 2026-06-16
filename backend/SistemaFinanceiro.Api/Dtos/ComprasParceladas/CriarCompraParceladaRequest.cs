@@ -20,6 +20,14 @@ public sealed class CriarCompraParceladaRequest
     [Range(0.01, 999999999999.99)]
     public decimal ValorTotal { get; set; }
 
+    public bool IsDividida { get; set; }
+
+    [Range(0.01, 999999999999.99)]
+    public decimal? ValorTotalOriginal { get; set; }
+
+    [Range(0.01, 100)]
+    public decimal? PercentualDivisao { get; set; }
+
     [Required]
     public DateOnly DataCompra { get; set; }
 
