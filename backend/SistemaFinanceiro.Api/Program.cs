@@ -95,4 +95,5 @@ app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapControllers();
 
+app.MapGet("/", () => Results.Ok("API Financeira rodando perfeitamente!"));
 app.Run();
