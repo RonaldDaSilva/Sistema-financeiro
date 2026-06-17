@@ -73,7 +73,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <main
-      className="min-h-screen font-sans text-slate-800 selection:bg-slate-900 selection:text-white dark:bg-slate-950 dark:text-slate-100"
+      className="min-h-screen min-h-dvh w-full overflow-x-hidden font-sans text-slate-800 selection:bg-slate-900 selection:text-white dark:bg-slate-950 dark:text-slate-100"
       style={{ background: theme === "dark" ? undefined : "var(--app-bg)" }}
     >
       <header
