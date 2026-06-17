@@ -20,7 +20,8 @@ export function LoginPage() {
 
     try {
       await login({ email, senha });
-      const redirectTo = location.state?.from?.pathname ?? "/";
+      const redirectParam = new URLSearchParams(location.search).get("redirect");
+      const redirectTo = redirectParam || location.state?.from?.pathname || "/";
       navigate(redirectTo, { replace: true });
     } catch {
       setErro("E-mail ou senha invalidos.");

@@ -14,7 +14,7 @@ export const api = axios.create({
   },
 });
 
-const publicApi = axios.create({
+export const publicApi = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:5000',
   headers: {
     'Content-Type': 'application/json',
@@ -33,6 +33,18 @@ function redirectToLogin() {
   const currentUrl = `${window.location.pathname}${window.location.search}`;
   window.location.href = `/login?redirect=${encodeURIComponent(currentUrl)}`;
   return true;
+}
+
+function isPublicAuthRequest(url?: string) {
+  if (!url) {
+    return false;
+  }
+
+  return (
+    url.includes('/api/auth/login') ||
+    url.includes('/api/auth/cadastro') ||
+    url.includes('/api/auth/refresh')
+  );
 }
 
 function tokenExpiraEmBreve(expiraEm: string) {
@@ -93,6 +105,10 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    if (isPublicAuthRequest(originalRequest?.url)) {
+      return Promise.reject(error);
+    }
 
     if (
       error.response?.status === 401 &&
