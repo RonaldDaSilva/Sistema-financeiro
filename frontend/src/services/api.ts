@@ -24,6 +24,11 @@ export const publicApi = axios.create({
 let refreshPromise: Promise<AuthResponse | null> | null = null;
 let isRedirectingToLogin = false;
 
+type AuthenticatedRequestConfig = typeof api.defaults & {
+  __isRetryRequest?: boolean;
+  __authToken?: string;
+};
+
 function redirectToLogin() {
   if (isRedirectingToLogin || window.location.pathname === '/login') {
     return false;
@@ -96,6 +101,7 @@ api.interceptors.request.use(async (config) => {
 
   if (auth?.accessToken) {
     config.headers.Authorization = `Bearer ${auth.accessToken}`;
+    (config as typeof config & { __authToken?: string }).__authToken = auth.accessToken;
   }
 
   return config;
@@ -104,9 +110,23 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config;
+    const originalRequest = error.config as
+      | (typeof error.config & {
+          __isRetryRequest?: boolean;
+          __authToken?: string;
+          url?: string;
+          headers?: Record<string, string>;
+        })
+      | undefined;
 
     if (isPublicAuthRequest(originalRequest?.url)) {
+      return Promise.reject(error);
+    }
+
+    const failedToken = originalRequest?.__authToken;
+    const currentAuth = getStoredAuth();
+
+    if (error.response?.status === 401 && (!failedToken || currentAuth?.accessToken !== failedToken)) {
       return Promise.reject(error);
     }
 
