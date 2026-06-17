@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -19,11 +20,16 @@ using SistemaFinanceiro.Api.Services.Usuarios;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+
 QuestPDF.Settings.License = LicenseType.Community;
 
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
 
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+ValidarConfiguracaoJwt(jwtOptions);
+
 var allowedOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")
     .Get<string[]>();
@@ -33,29 +39,22 @@ if (allowedOrigins is null || allowedOrigins.Length == 0)
     allowedOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
 }
 
-if (!string.IsNullOrWhiteSpace(jwtOptions.Secret))
-{
-    builder.Services
-        .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(options =>
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
         {
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidIssuer = jwtOptions.Issuer,
-                ValidateAudience = true,
-                ValidAudience = jwtOptions.Audience,
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Secret)),
-                ValidateLifetime = true,
-                ClockSkew = TimeSpan.FromMinutes(1)
-            };
-        });
-}
-else
-{
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme);
-}
+            ValidateIssuer = true,
+            ValidIssuer = jwtOptions.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwtOptions.Audience,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Secret)),
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+    });
 
 builder.Services.AddAuthorization();
 builder.Services.AddCors(options =>
@@ -70,6 +69,14 @@ builder.Services.AddCors(options =>
 });
 builder.Services.AddControllers();
 builder.Services.AddHttpContextAccessor();
+
+if (builder.Environment.IsDevelopment())
+{
+    var keysDirectory = Path.Combine(builder.Environment.ContentRootPath, ".keys");
+    Directory.CreateDirectory(keysDirectory);
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(keysDirectory));
+}
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -97,3 +104,40 @@ app.MapControllers();
 
 app.MapGet("/", () => Results.Ok("API Financeira rodando perfeitamente!"));
 app.Run();
+
+static void ValidarConfiguracaoJwt(JwtOptions jwtOptions)
+{
+    var configuracoesAusentes = new List<string>();
+
+    if (string.IsNullOrWhiteSpace(jwtOptions.Issuer))
+    {
+        configuracoesAusentes.Add("Jwt__Issuer");
+    }
+
+    if (string.IsNullOrWhiteSpace(jwtOptions.Audience))
+    {
+        configuracoesAusentes.Add("Jwt__Audience");
+    }
+
+    if (string.IsNullOrWhiteSpace(jwtOptions.Secret))
+    {
+        configuracoesAusentes.Add("Jwt__Secret");
+    }
+
+    if (configuracoesAusentes.Count > 0)
+    {
+        throw new InvalidOperationException(
+            $"Configuração JWT incompleta. Defina as variáveis: {string.Join(", ", configuracoesAusentes)}.");
+    }
+
+    if (Encoding.UTF8.GetByteCount(jwtOptions.Secret) < 32)
+    {
+        throw new InvalidOperationException("Jwt__Secret deve ter pelo menos 32 bytes.");
+    }
+
+    if (jwtOptions.AccessTokenMinutes <= 0 || jwtOptions.RefreshTokenIdleHours <= 0)
+    {
+        throw new InvalidOperationException(
+            "Jwt__AccessTokenMinutes e Jwt__RefreshTokenIdleHours devem ser maiores que zero.");
+    }
+}

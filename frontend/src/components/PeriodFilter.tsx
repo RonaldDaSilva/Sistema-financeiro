@@ -96,9 +96,9 @@ export function PeriodFilter({ value, categorias, onChange }: PeriodFilterProps)
   }
 
   return (
-    <div className="rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end">
-        <div className="relative" ref={menuRef}>
+    <div className="w-full min-w-0 overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-end">
+        <div className="relative min-w-0" ref={menuRef}>
           <button
             className="flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800"
             type="button"
@@ -165,25 +165,25 @@ export function PeriodFilter({ value, categorias, onChange }: PeriodFilterProps)
           )}
         </div>
 
-        <div className="grid flex-1 gap-3 md:grid-cols-2">
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+        <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 md:grid-cols-2">
+          <label className="block min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">
             Data inicial
-            <div className="relative mt-1">
+            <div className="relative mt-1 min-w-0 overflow-hidden rounded-xl">
               <Calendar size={18} className="pointer-events-none absolute left-3 top-2.5 text-slate-500 dark:text-slate-400" />
               <input
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-10 py-2.5 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:ring-white"
+                className="block w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-slate-50 px-10 py-2.5 text-sm outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:ring-white sm:text-base"
                 type="date"
                 value={inicio}
                 onChange={(event) => aplicarIntervalo(event.target.value, fim)}
               />
             </div>
           </label>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+          <label className="block min-w-0 text-sm font-medium text-slate-700 dark:text-slate-200">
             Data final
-            <div className="relative mt-1">
+            <div className="relative mt-1 min-w-0 overflow-hidden rounded-xl">
               <Calendar size={18} className="pointer-events-none absolute left-3 top-2.5 text-slate-500 dark:text-slate-400" />
               <input
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-10 py-2.5 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:ring-white"
+                className="block w-full min-w-0 max-w-full rounded-xl border border-slate-200 bg-slate-50 px-10 py-2.5 text-sm outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:ring-white sm:text-base"
                 type="date"
                 value={fim}
                 onChange={(event) => aplicarIntervalo(inicio, event.target.value)}

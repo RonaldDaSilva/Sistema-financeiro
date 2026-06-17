@@ -18,8 +18,11 @@ appsettings.*.json
 !appsettings.*.example.json
 
 # .NET
+.dotnet/
 bin/
 obj/
+.keys/
+.local-publish/
 publish/
 TestResults/
 *.user
