@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import EmojiPicker, { type EmojiClickData } from "emoji-picker-react";
 import { Folder, Pencil, Plus, Trash2 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
+import { hasUsableStoredAuth } from "../services/authStorage";
 import * as financeService from "../services/financeService";
 import type { Categoria } from "../types/finance";
 
@@ -22,6 +23,11 @@ export function CategoriesPage() {
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
 
   const carregar = useCallback(async () => {
+    if (!hasUsableStoredAuth()) {
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setErro(null);
 

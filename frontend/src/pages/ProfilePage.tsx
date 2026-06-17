@@ -2,6 +2,7 @@ import { FormEvent, type InputHTMLAttributes, useEffect, useState } from "react"
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import { useAuth } from "../contexts/AuthContext";
+import { hasUsableStoredAuth } from "../services/authStorage";
 import * as userService from "../services/userService";
 import { maskCpf } from "../utils/cpf";
 
@@ -23,6 +24,11 @@ export function ProfilePage() {
 
   useEffect(() => {
     async function carregarPerfil() {
+      if (!hasUsableStoredAuth()) {
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
 

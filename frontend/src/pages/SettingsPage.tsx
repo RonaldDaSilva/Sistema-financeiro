@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import { useAuth } from "../contexts/AuthContext";
+import { hasUsableStoredAuth } from "../services/authStorage";
 import * as notificationService from "../services/notificationService";
 import * as userService from "../services/userService";
 import type { ConfiguracoesNotificacao } from "../types/notification";
@@ -38,6 +39,10 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!hasUsableStoredAuth()) {
+      return;
+    }
+
     notificationService
       .obterConfiguracoes()
       .then((configuracoes) => {

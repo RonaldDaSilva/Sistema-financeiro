@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { CreditCard, Pencil, Plus, Trash2 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
+import { hasUsableStoredAuth } from "../services/authStorage";
 import * as financeService from "../services/financeService";
 import type { CartaoCredito } from "../types/finance";
 import {
@@ -34,6 +35,11 @@ export function CardsPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   const carregar = useCallback(async () => {
+    if (!hasUsableStoredAuth()) {
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setErro(null);
 

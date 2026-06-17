@@ -22,6 +22,18 @@ const publicApi = axios.create({
 });
 
 let refreshPromise: Promise<AuthResponse | null> | null = null;
+let isRedirectingToLogin = false;
+
+function redirectToLogin() {
+  if (isRedirectingToLogin || window.location.pathname === '/login') {
+    return false;
+  }
+
+  isRedirectingToLogin = true;
+  const currentUrl = `${window.location.pathname}${window.location.search}`;
+  window.location.href = `/login?redirect=${encodeURIComponent(currentUrl)}`;
+  return true;
+}
 
 function tokenExpiraEmBreve(expiraEm: string) {
   return new Date(expiraEm).getTime() - Date.now() <= 60_000;
@@ -96,6 +108,16 @@ api.interceptors.response.use(
       }
 
       clearStoredAuth();
+      if (redirectToLogin()) {
+        return new Promise(() => undefined);
+      }
+    }
+
+    if (error.response?.status === 401) {
+      clearStoredAuth();
+      if (redirectToLogin()) {
+        return new Promise(() => undefined);
+      }
     }
 
     return Promise.reject(error);

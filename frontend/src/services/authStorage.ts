@@ -65,3 +65,8 @@ export function isSessionIdle(auth: AuthSession) {
 
   return Date.now() - new Date(auth.lastActivityAt).getTime() > SESSION_IDLE_TIMEOUT_MS;
 }
+
+export function hasUsableStoredAuth() {
+  const auth = getStoredAuth();
+  return Boolean(auth?.accessToken && !isSessionIdle(auth));
+}

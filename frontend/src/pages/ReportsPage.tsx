@@ -16,6 +16,7 @@ import {
   YAxis,
 } from "recharts";
 import { AppLayout } from "../components/AppLayout";
+import { hasUsableStoredAuth } from "../services/authStorage";
 import * as financeService from "../services/financeService";
 import type { ExtratoMensalItem, FaturaConsolidada } from "../types/finance";
 import { formatCurrency } from "../utils/date";
@@ -82,6 +83,11 @@ export function ReportsPage() {
 
   useEffect(() => {
     async function carregarRelatorios() {
+      if (!hasUsableStoredAuth()) {
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       setErro(null);
 
