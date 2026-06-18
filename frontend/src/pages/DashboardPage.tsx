@@ -213,7 +213,19 @@ export function DashboardPage() {
     id: string,
     request: CriarTransacaoRequest,
   ) {
-    await financeService.atualizarTransacao(id, request);
+    let replicarFuturas = true;
+
+    if (editingTransaction?.isFixa) {
+      replicarFuturas = await confirm({
+        title: "Editar transação fixa",
+        message:
+          "Deseja aplicar esta alteração também para os meses seguintes? Se escolher somente este mês, as próximas ocorrências continuam com os dados atuais.",
+        confirmLabel: "Replicar futuras",
+        cancelLabel: "Somente este mês",
+      });
+    }
+
+    await financeService.atualizarTransacao(id, request, replicarFuturas);
     await invalidarDadosFinanceiros();
   }
 
@@ -261,21 +273,35 @@ export function DashboardPage() {
       return;
     }
 
-    const confirmed = await confirm({
-      title: item.isProjetada ? "Excluir recorrência" : "Excluir transação",
-      message: item.isProjetada
-        ? `Excluir a recorrência "${item.descricao}" a partir desta ocorrência?`
-        : `Excluir a transação "${item.descricao}"?`,
-      confirmLabel: "Excluir",
-      variant: "danger",
-    });
-    if (!confirmed) {
-      return;
+    let replicarFuturas = true;
+
+    if (item.isFixa) {
+      replicarFuturas = await confirm({
+        title: "Excluir transação fixa",
+        message:
+          "Deseja excluir também as ocorrências dos meses seguintes? Se escolher somente este mês, as próximas ocorrências continuam aparecendo normalmente.",
+        confirmLabel: "Excluir futuras",
+        cancelLabel: "Somente este mês",
+        variant: "danger",
+      });
+    } else {
+      const confirmed = await confirm({
+        title: item.isProjetada ? "Excluir recorrência" : "Excluir transação",
+        message: item.isProjetada
+          ? `Excluir a recorrência "${item.descricao}" a partir desta ocorrência?`
+          : `Excluir a transação "${item.descricao}"?`,
+        confirmLabel: "Excluir",
+        variant: "danger",
+      });
+      if (!confirmed) {
+        return;
+      }
     }
 
     await financeService.excluirTransacao(
       item.id,
-      item.isProjetada ? item.dataOcorrencia : undefined,
+      item.isProjetada || item.isFixa ? item.dataOcorrencia : undefined,
+      replicarFuturas,
     );
     await invalidarDadosFinanceiros();
   }
@@ -293,7 +319,27 @@ export function DashboardPage() {
     dataAntecipacao: string;
     valorPago: number;
   }) {
-    await financeService.anteciparParcela(request);
+    let anteciparParcelasFuturas = false;
+
+    if (
+      anticipatingInstallment?.numeroParcela &&
+      anticipatingInstallment?.quantidadeParcelas &&
+      anticipatingInstallment.numeroParcela <
+        anticipatingInstallment.quantidadeParcelas
+    ) {
+      anteciparParcelasFuturas = await confirm({
+        title: "Antecipar próximas parcelas?",
+        message:
+          "Esta compra possui parcelas nos meses seguintes. Deseja antecipar também todas as parcelas futuras ainda pendentes?",
+        confirmLabel: "Antecipar futuras",
+        cancelLabel: "Somente esta parcela",
+      });
+    }
+
+    await financeService.anteciparParcela({
+      ...request,
+      anteciparParcelasFuturas,
+    });
     await invalidarDadosFinanceiros();
   }
 

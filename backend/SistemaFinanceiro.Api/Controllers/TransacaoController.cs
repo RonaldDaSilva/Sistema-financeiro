@@ -100,7 +100,8 @@ public sealed class TransacaoController : ControllerBase
     public async Task<ActionResult<TransacaoResponse>> Atualizar(
         Guid id,
         CriarTransacaoRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery] bool replicarFuturas = true)
     {
         var usuarioId = ObterUsuarioId();
         if (usuarioId is null)
@@ -110,7 +111,12 @@ public sealed class TransacaoController : ControllerBase
 
         try
         {
-            var transacao = await _transacaoService.AtualizarAsync(id, request, usuarioId.Value, cancellationToken);
+            var transacao = await _transacaoService.AtualizarAsync(
+                id,
+                request,
+                usuarioId.Value,
+                replicarFuturas,
+                cancellationToken);
             return transacao is null ? NotFound() : Ok(transacao);
         }
         catch (InvalidOperationException exception)
@@ -120,7 +126,7 @@ public sealed class TransacaoController : ControllerBase
     }
 
     [HttpPost("antecipar-parcela")]
-    public async Task<ActionResult<TransacaoResponse>> AnteciparParcela(
+    public async Task<ActionResult<IReadOnlyList<TransacaoResponse>>> AnteciparParcela(
         AnteciparParcelaRequest request,
         CancellationToken cancellationToken)
     {
@@ -132,12 +138,12 @@ public sealed class TransacaoController : ControllerBase
 
         try
         {
-            var transacao = await _transacaoService.AnteciparParcelaAsync(
+            var transacoes = await _transacaoService.AnteciparParcelaAsync(
                 request,
                 usuarioId.Value,
                 cancellationToken);
 
-            return CreatedAtAction(nameof(Criar), new { id = transacao.Id }, transacao);
+            return CreatedAtAction(nameof(Criar), null, transacoes);
         }
         catch (InvalidOperationException exception)
         {
@@ -149,7 +155,8 @@ public sealed class TransacaoController : ControllerBase
     public async Task<IActionResult> Excluir(
         Guid id,
         [FromQuery] DateOnly? dataOcorrencia,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery] bool replicarFuturas = true)
     {
         var usuarioId = ObterUsuarioId();
         if (usuarioId is null)
@@ -157,7 +164,12 @@ public sealed class TransacaoController : ControllerBase
             return Unauthorized(new { message = "Usuário não identificado no token." });
         }
 
-        var excluiu = await _transacaoService.ExcluirAsync(id, usuarioId.Value, dataOcorrencia, cancellationToken);
+        var excluiu = await _transacaoService.ExcluirAsync(
+            id,
+            usuarioId.Value,
+            dataOcorrencia,
+            replicarFuturas,
+            cancellationToken);
         return excluiu ? NoContent() : NotFound();
     }
 

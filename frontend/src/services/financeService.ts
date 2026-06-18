@@ -38,14 +38,24 @@ export async function criarTransacao(request: CriarTransacaoRequest) {
   return data;
 }
 
-export async function atualizarTransacao(id: string, request: CriarTransacaoRequest) {
-  const { data } = await api.put(`/api/transacoes/${id}`, request);
+export async function atualizarTransacao(
+  id: string,
+  request: CriarTransacaoRequest,
+  replicarFuturas = true,
+) {
+  const { data } = await api.put(`/api/transacoes/${id}`, request, {
+    params: { replicarFuturas },
+  });
   return data;
 }
 
-export async function excluirTransacao(id: string, dataOcorrencia?: string) {
+export async function excluirTransacao(
+  id: string,
+  dataOcorrencia?: string,
+  replicarFuturas = true,
+) {
   await api.delete(`/api/transacoes/${id}`, {
-    params: dataOcorrencia ? { dataOcorrencia } : undefined,
+    params: dataOcorrencia ? { dataOcorrencia, replicarFuturas } : { replicarFuturas },
   });
 }
 

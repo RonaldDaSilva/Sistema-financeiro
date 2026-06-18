@@ -21,6 +21,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<CartaoCredito> CartoesCredito => Set<CartaoCredito>();
     public DbSet<CompraParcelada> ComprasParceladas => Set<CompraParcelada>();
     public DbSet<Transacao> Transacoes => Set<Transacao>();
+    public DbSet<TransacaoFixaExcecao> TransacoesFixasExcecoes => Set<TransacaoFixaExcecao>();
     public DbSet<FaturaCartaoPagamento> FaturasCartaoPagamentos => Set<FaturaCartaoPagamento>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Notificacao> Notificacoes => Set<Notificacao>();
@@ -37,6 +38,7 @@ public sealed class AppDbContext : DbContext
         ConfigureCartaoCredito(modelBuilder);
         ConfigureCompraParcelada(modelBuilder);
         ConfigureTransacao(modelBuilder);
+        ConfigureTransacaoFixaExcecao(modelBuilder);
         ConfigureFaturaCartaoPagamento(modelBuilder);
         ConfigureRefreshToken(modelBuilder);
         ConfigureNotificacao(modelBuilder);
@@ -446,6 +448,49 @@ public sealed class AppDbContext : DbContext
                 .WithMany(usuario => usuario.RefreshTokens)
                 .HasForeignKey(refreshToken => refreshToken.UsuarioId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureTransacaoFixaExcecao(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<TransacaoFixaExcecao>(entity =>
+        {
+            entity.ToTable("transacoes_fixas_excecoes");
+
+            entity.HasKey(excecao => excecao.Id);
+
+            entity.Property(excecao => excecao.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(excecao => excecao.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+
+            entity.Property(excecao => excecao.TransacaoFixaId)
+                .HasColumnName("id_transacao_fixa")
+                .IsRequired();
+
+            entity.Property(excecao => excecao.DataOcorrencia)
+                .HasColumnName("data_ocorrencia")
+                .IsRequired();
+
+            entity.HasOne(excecao => excecao.Usuario)
+                .WithMany()
+                .HasForeignKey(excecao => excecao.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(excecao => excecao.TransacaoFixa)
+                .WithMany()
+                .HasForeignKey(excecao => excecao.TransacaoFixaId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(excecao => new
+            {
+                excecao.UsuarioId,
+                excecao.TransacaoFixaId,
+                excecao.DataOcorrencia
+            }).IsUnique();
         });
     }
 

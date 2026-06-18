@@ -53,6 +53,25 @@ public sealed class TransacaoService : ITransacaoService
                 transacao.DataOcorrencia < inicioMes)
             .ToListAsync(cancellationToken);
 
+        var transacoesFixasIds = transacoesFixas.Select(transacao => transacao.Id).ToList();
+        var excecoesFixas = await _dbContext.TransacoesFixasExcecoes
+            .AsNoTracking()
+            .Where(excecao =>
+                excecao.UsuarioId == usuarioId &&
+                transacoesFixasIds.Contains(excecao.TransacaoFixaId) &&
+                excecao.DataOcorrencia >= inicioMes &&
+                excecao.DataOcorrencia <= fimMes)
+            .Select(excecao => new
+            {
+                excecao.TransacaoFixaId,
+                excecao.DataOcorrencia
+            })
+            .ToListAsync(cancellationToken);
+
+        var excecoesFixasSet = excecoesFixas
+            .Select(excecao => (excecao.TransacaoFixaId, excecao.DataOcorrencia))
+            .ToHashSet();
+
         var comprasCarne = await _dbContext.ComprasParceladas
             .AsNoTracking()
             .Include(compra => compra.Categoria)
@@ -91,7 +110,8 @@ public sealed class TransacaoService : ITransacaoService
             .Select(MapearTransacaoReal));
         itens.AddRange(transacoesFixas
             .Where(transacao => transacao.CartaoCreditoId is null)
-            .Select(transacao => ProjetarTransacaoFixa(transacao, inicioMes)));
+            .Select(transacao => ProjetarTransacaoFixa(transacao, inicioMes))
+            .Where(item => !excecoesFixasSet.Contains((item.Id!.Value, item.DataOcorrencia))));
         itens.AddRange(ProjetarParcelasCarneParaExtrato(
             comprasCarne,
             inicioMes,
@@ -200,6 +220,27 @@ public sealed class TransacaoService : ITransacaoService
                 transacao.DataOcorrencia <= maiorFimCompetencia)
             .ToListAsync(cancellationToken);
 
+        var transacoesFixasCreditoIds = transacoesFixasCredito
+            .Select(transacao => transacao.Id)
+            .ToList();
+        var excecoesFixasCredito = await _dbContext.TransacoesFixasExcecoes
+            .AsNoTracking()
+            .Where(excecao =>
+                excecao.UsuarioId == usuarioId &&
+                transacoesFixasCreditoIds.Contains(excecao.TransacaoFixaId) &&
+                excecao.DataOcorrencia >= menorInicioCompetencia &&
+                excecao.DataOcorrencia <= maiorFimCompetencia)
+            .Select(excecao => new
+            {
+                excecao.TransacaoFixaId,
+                excecao.DataOcorrencia
+            })
+            .ToListAsync(cancellationToken);
+
+        var excecoesFixasCreditoSet = excecoesFixasCredito
+            .Select(excecao => (excecao.TransacaoFixaId, excecao.DataOcorrencia))
+            .ToHashSet();
+
         var comprasParceladas = await _dbContext.ComprasParceladas
             .AsNoTracking()
             .Include(compra => compra.Categoria)
@@ -262,7 +303,8 @@ public sealed class TransacaoService : ITransacaoService
                     transacoesFixasCredito,
                     cartao.Id,
                     periodo.InicioCompetencia,
-                    periodo.FimCompetencia));
+                    periodo.FimCompetencia,
+                    excecoesFixasCreditoSet));
 
                 detalhes.AddRange(ProjetarParcelasParaFatura(
                     comprasParceladas,
@@ -350,6 +392,7 @@ public sealed class TransacaoService : ITransacaoService
         Guid id,
         CriarTransacaoRequest request,
         Guid usuarioId,
+        bool replicarFuturas = true,
         CancellationToken cancellationToken = default)
     {
         ValidarDivisao(request);
@@ -365,34 +408,56 @@ public sealed class TransacaoService : ITransacaoService
             return null;
         }
 
+        if (transacao.IsFixa && !replicarFuturas)
+        {
+            var ultimoCodigoPontual = await ObterUltimoCodigoExibicaoAsync(usuarioId, cancellationToken);
+
+            if (request.DataOcorrencia > transacao.DataOcorrencia)
+            {
+                await RegistrarExcecaoFixaAsync(
+                    transacao.Id,
+                    request.DataOcorrencia,
+                    usuarioId,
+                    cancellationToken);
+
+                var transacaoPontual = CriarTransacaoAPartirRequest(
+                    request,
+                    usuarioId,
+                    ultimoCodigoPontual + 1,
+                    isFixa: false);
+
+                _dbContext.Transacoes.Add(transacaoPontual);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+
+                return MapearTransacaoResponse(transacaoPontual);
+            }
+
+            var proximaOcorrencia = CriarDataNoMes(
+                transacao.DataOcorrencia.AddMonths(1),
+                transacao.DataOcorrencia.Day);
+            var novaRecorrenciaOriginal = ClonarTransacaoFixa(
+                transacao,
+                ultimoCodigoPontual + 1,
+                proximaOcorrencia);
+
+            _dbContext.Transacoes.Add(novaRecorrenciaOriginal);
+
+            AplicarRequestNaTransacao(transacao, request, isFixa: false);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return MapearTransacaoResponse(transacao);
+        }
+
         if (transacao.IsFixa && request.IsFixa && request.DataOcorrencia > transacao.DataOcorrencia)
         {
             transacao.IsFixa = false;
 
-            var ultimoCodigo = await _dbContext.Transacoes
-                .Where(item => item.UsuarioId == usuarioId)
-                .MaxAsync(item => (int?)item.CodigoExibicao, cancellationToken);
-
-            var novaRecorrencia = new Transacao
-            {
-                CodigoExibicao = (ultimoCodigo ?? 0) + 1,
-                UsuarioId = usuarioId,
-                Tipo = request.Tipo,
-                Descricao = request.Descricao.Trim(),
-                Valor = request.Valor,
-                DataOcorrencia = request.DataOcorrencia,
-                CategoriaId = request.Tipo == TipoTransacao.Receita ? null : request.CategoriaId,
-                FormaPagamento = request.FormaPagamento.Trim(),
-                CartaoCreditoId = request.Tipo == TipoTransacao.Despesa ? request.CartaoCreditoId : null,
-                IsFixa = true,
-                IsPaga = request.Tipo != TipoTransacao.Receita &&
-                    request.DataOcorrencia == DateOnly.FromDateTime(DateTime.Today),
-                IsDividida = request.IsDividida,
-                ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null,
-                PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null,
-                CompraParceladaId = request.CompraParceladaId,
-                NumeroParcelaQuitada = request.NumeroParcelaQuitada
-            };
+            var ultimoCodigo = await ObterUltimoCodigoExibicaoAsync(usuarioId, cancellationToken);
+            var novaRecorrencia = CriarTransacaoAPartirRequest(
+                request,
+                usuarioId,
+                ultimoCodigo + 1,
+                isFixa: true);
 
             _dbContext.Transacoes.Add(novaRecorrencia);
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -400,30 +465,14 @@ public sealed class TransacaoService : ITransacaoService
             return MapearTransacaoResponse(novaRecorrencia);
         }
 
-        transacao.Tipo = request.Tipo;
-        transacao.Descricao = request.Descricao.Trim();
-        transacao.Valor = request.Valor;
-        transacao.DataOcorrencia = request.DataOcorrencia;
-        transacao.CategoriaId = request.Tipo == TipoTransacao.Receita ? null : request.CategoriaId;
-        transacao.FormaPagamento = request.FormaPagamento.Trim();
-        transacao.CartaoCreditoId = request.Tipo == TipoTransacao.Despesa ? request.CartaoCreditoId : null;
-        transacao.IsFixa = request.IsFixa;
-        if (request.Tipo == TipoTransacao.Receita)
-        {
-            transacao.IsPaga = false;
-        }
-        transacao.IsDividida = request.IsDividida;
-        transacao.ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null;
-        transacao.PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null;
-        transacao.CompraParceladaId = request.CompraParceladaId;
-        transacao.NumeroParcelaQuitada = request.NumeroParcelaQuitada;
+        AplicarRequestNaTransacao(transacao, request, request.IsFixa);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return MapearTransacaoResponse(transacao);
     }
 
-    public async Task<TransacaoResponse> AnteciparParcelaAsync(
+    public async Task<IReadOnlyList<TransacaoResponse>> AnteciparParcelaAsync(
         AnteciparParcelaRequest request,
         Guid usuarioId,
         CancellationToken cancellationToken = default)
@@ -455,55 +504,80 @@ public sealed class TransacaoService : ITransacaoService
             throw new InvalidOperationException("A parcela informada não existe para esta compra.");
         }
 
-        var parcelaJaQuitada = await _dbContext.Transacoes
-            .AnyAsync(
-                transacao =>
-                    transacao.UsuarioId == usuarioId &&
-                    transacao.CompraParceladaId == compra.Id &&
-                    transacao.NumeroParcelaQuitada == request.NumeroParcela,
-                cancellationToken);
+        var ultimaParcela = request.AnteciparParcelasFuturas
+            ? compra.QuantidadeParcelas
+            : request.NumeroParcela;
+        var numerosParcelas = Enumerable.Range(
+                request.NumeroParcela,
+                ultimaParcela - request.NumeroParcela + 1)
+            .ToList();
 
-        if (parcelaJaQuitada)
+        var parcelasJaQuitadas = await _dbContext.Transacoes
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.CompraParceladaId == compra.Id &&
+                transacao.NumeroParcelaQuitada.HasValue &&
+                numerosParcelas.Contains(transacao.NumeroParcelaQuitada.Value))
+            .Select(transacao => transacao.NumeroParcelaQuitada!.Value)
+            .ToListAsync(cancellationToken);
+
+        if (parcelasJaQuitadas.Count > 0 && !request.AnteciparParcelasFuturas)
         {
             throw new InvalidOperationException("Esta parcela já foi quitada ou antecipada.");
         }
 
-        var ultimoCodigo = await _dbContext.Transacoes
-            .Where(transacao => transacao.UsuarioId == usuarioId)
-            .MaxAsync(transacao => (int?)transacao.CodigoExibicao, cancellationToken);
+        var parcelasJaQuitadasSet = parcelasJaQuitadas.ToHashSet();
+        var ultimoCodigo = await ObterUltimoCodigoExibicaoAsync(usuarioId, cancellationToken);
+        var transacoes = new List<Transacao>();
 
-        var valorParcelaOriginal = compra.IsDividida && compra.ValorTotalOriginal.HasValue
-            ? CalcularValorParcela(compra.ValorTotalOriginal.Value, compra.QuantidadeParcelas, request.NumeroParcela)
-            : (decimal?)null;
-
-        var transacao = new Transacao
+        foreach (var numeroParcela in numerosParcelas)
         {
-            CodigoExibicao = (ultimoCodigo ?? 0) + 1,
-            UsuarioId = usuarioId,
-            Tipo = TipoTransacao.Despesa,
-            Descricao = $"{compra.Descricao} ({request.NumeroParcela}/{compra.QuantidadeParcelas}) - antecipada",
-            Valor = Math.Round(request.ValorPago, 2, MidpointRounding.AwayFromZero),
-            DataOcorrencia = DateOnly.FromDateTime(request.DataAntecipacao),
-            CategoriaId = compra.CategoriaId,
-            FormaPagamento = compra.FormaPagamento == FormaPagamentoCompraParcelada.Carne
-                ? "Carnê/Crediário"
-                : "Cartão de crédito",
-            CartaoCreditoId = compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito
-                ? compra.CartaoCreditoId
-                : null,
-            IsFixa = false,
-            IsPaga = true,
-            IsDividida = compra.IsDividida,
-            ValorTotalOriginal = valorParcelaOriginal,
-            PercentualDivisao = compra.PercentualDivisao,
-            CompraParceladaId = compra.Id,
-            NumeroParcelaQuitada = request.NumeroParcela
-        };
+            if (parcelasJaQuitadasSet.Contains(numeroParcela))
+            {
+                continue;
+            }
 
-        _dbContext.Transacoes.Add(transacao);
+            var valorParcela = numeroParcela == request.NumeroParcela
+                ? request.ValorPago
+                : CalcularValorParcela(compra.ValorTotal, compra.QuantidadeParcelas, numeroParcela);
+            var valorParcelaOriginal = compra.IsDividida && compra.ValorTotalOriginal.HasValue
+                ? CalcularValorParcela(compra.ValorTotalOriginal.Value, compra.QuantidadeParcelas, numeroParcela)
+                : (decimal?)null;
+
+            transacoes.Add(new Transacao
+            {
+                CodigoExibicao = ++ultimoCodigo,
+                UsuarioId = usuarioId,
+                Tipo = TipoTransacao.Despesa,
+                Descricao = $"{compra.Descricao} ({numeroParcela}/{compra.QuantidadeParcelas}) - antecipada",
+                Valor = Math.Round(valorParcela, 2, MidpointRounding.AwayFromZero),
+                DataOcorrencia = DateOnly.FromDateTime(request.DataAntecipacao),
+                CategoriaId = compra.CategoriaId,
+                FormaPagamento = compra.FormaPagamento == FormaPagamentoCompraParcelada.Carne
+                    ? "Carnê/Crediário"
+                    : "Cartão de crédito",
+                CartaoCreditoId = compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito
+                    ? compra.CartaoCreditoId
+                    : null,
+                IsFixa = false,
+                IsPaga = true,
+                IsDividida = compra.IsDividida,
+                ValorTotalOriginal = valorParcelaOriginal,
+                PercentualDivisao = compra.PercentualDivisao,
+                CompraParceladaId = compra.Id,
+                NumeroParcelaQuitada = numeroParcela
+            });
+        }
+
+        if (transacoes.Count == 0)
+        {
+            throw new InvalidOperationException("Todas as parcelas selecionadas já foram quitadas ou antecipadas.");
+        }
+
+        _dbContext.Transacoes.AddRange(transacoes);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return MapearTransacaoResponse(transacao);
+        return transacoes.Select(MapearTransacaoResponse).ToList();
     }
 
     public async Task<bool?> AlternarStatusPagamentoAsync(
@@ -576,6 +650,7 @@ public sealed class TransacaoService : ITransacaoService
         Guid id,
         Guid usuarioId,
         DateOnly? dataOcorrencia = null,
+        bool replicarFuturas = true,
         CancellationToken cancellationToken = default)
     {
         var transacao = await _dbContext.Transacoes
@@ -590,9 +665,41 @@ public sealed class TransacaoService : ITransacaoService
 
         if (transacao.IsFixa &&
             dataOcorrencia.HasValue &&
+            dataOcorrencia.Value == transacao.DataOcorrencia &&
+            !replicarFuturas)
+        {
+            var ultimoCodigo = await ObterUltimoCodigoExibicaoAsync(usuarioId, cancellationToken);
+            var proximaOcorrencia = CriarDataNoMes(
+                transacao.DataOcorrencia.AddMonths(1),
+                transacao.DataOcorrencia.Day);
+            var novaRecorrencia = ClonarTransacaoFixa(
+                transacao,
+                ultimoCodigo + 1,
+                proximaOcorrencia);
+
+            _dbContext.Transacoes.Add(novaRecorrencia);
+            _dbContext.Transacoes.Remove(transacao);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+
+        if (transacao.IsFixa &&
+            dataOcorrencia.HasValue &&
             dataOcorrencia.Value > transacao.DataOcorrencia)
         {
-            transacao.IsFixa = false;
+            if (replicarFuturas)
+            {
+                transacao.IsFixa = false;
+            }
+            else
+            {
+                await RegistrarExcecaoFixaAsync(
+                    transacao.Id,
+                    dataOcorrencia.Value,
+                    usuarioId,
+                    cancellationToken);
+            }
+
             await _dbContext.SaveChangesAsync(cancellationToken);
             return true;
         }
@@ -600,6 +707,104 @@ public sealed class TransacaoService : ITransacaoService
         _dbContext.Transacoes.Remove(transacao);
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    private async Task<int> ObterUltimoCodigoExibicaoAsync(
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        return await _dbContext.Transacoes
+            .Where(transacao => transacao.UsuarioId == usuarioId)
+            .MaxAsync(transacao => (int?)transacao.CodigoExibicao, cancellationToken) ?? 0;
+    }
+
+    private async Task RegistrarExcecaoFixaAsync(
+        Guid transacaoFixaId,
+        DateOnly dataOcorrencia,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var excecaoExiste = await _dbContext.TransacoesFixasExcecoes
+            .AnyAsync(
+                excecao =>
+                    excecao.UsuarioId == usuarioId &&
+                    excecao.TransacaoFixaId == transacaoFixaId &&
+                    excecao.DataOcorrencia == dataOcorrencia,
+                cancellationToken);
+
+        if (excecaoExiste)
+        {
+            return;
+        }
+
+        _dbContext.TransacoesFixasExcecoes.Add(new TransacaoFixaExcecao
+        {
+            UsuarioId = usuarioId,
+            TransacaoFixaId = transacaoFixaId,
+            DataOcorrencia = dataOcorrencia
+        });
+    }
+
+    private static Transacao CriarTransacaoAPartirRequest(
+        CriarTransacaoRequest request,
+        Guid usuarioId,
+        int codigoExibicao,
+        bool isFixa)
+    {
+        var transacao = new Transacao
+        {
+            CodigoExibicao = codigoExibicao,
+            UsuarioId = usuarioId
+        };
+
+        AplicarRequestNaTransacao(transacao, request, isFixa);
+        return transacao;
+    }
+
+    private static void AplicarRequestNaTransacao(
+        Transacao transacao,
+        CriarTransacaoRequest request,
+        bool isFixa)
+    {
+        transacao.Tipo = request.Tipo;
+        transacao.Descricao = request.Descricao.Trim();
+        transacao.Valor = request.Valor;
+        transacao.DataOcorrencia = request.DataOcorrencia;
+        transacao.CategoriaId = request.Tipo == TipoTransacao.Receita ? null : request.CategoriaId;
+        transacao.FormaPagamento = request.FormaPagamento.Trim();
+        transacao.CartaoCreditoId = request.Tipo == TipoTransacao.Despesa ? request.CartaoCreditoId : null;
+        transacao.IsFixa = isFixa;
+        transacao.IsPaga = request.Tipo != TipoTransacao.Receita &&
+            request.DataOcorrencia == DateOnly.FromDateTime(DateTime.Today);
+        transacao.IsDividida = request.IsDividida;
+        transacao.ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null;
+        transacao.PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null;
+        transacao.CompraParceladaId = request.CompraParceladaId;
+        transacao.NumeroParcelaQuitada = request.NumeroParcelaQuitada;
+    }
+
+    private static Transacao ClonarTransacaoFixa(
+        Transacao transacao,
+        int codigoExibicao,
+        DateOnly dataOcorrencia)
+    {
+        return new Transacao
+        {
+            CodigoExibicao = codigoExibicao,
+            UsuarioId = transacao.UsuarioId,
+            Tipo = transacao.Tipo,
+            Descricao = transacao.Descricao,
+            Valor = transacao.Valor,
+            DataOcorrencia = dataOcorrencia,
+            CategoriaId = transacao.CategoriaId,
+            FormaPagamento = transacao.FormaPagamento,
+            CartaoCreditoId = transacao.CartaoCreditoId,
+            IsFixa = true,
+            IsPaga = false,
+            IsDividida = transacao.IsDividida,
+            ValorTotalOriginal = transacao.ValorTotalOriginal,
+            PercentualDivisao = transacao.PercentualDivisao
+        };
     }
 
     private static ExtratoMensalItemResponse MapearTransacaoReal(Transacao transacao)
@@ -915,7 +1120,8 @@ public sealed class TransacaoService : ITransacaoService
         IReadOnlyList<Transacao> transacoesFixas,
         Guid cartaoCreditoId,
         DateOnly inicioCompetencia,
-        DateOnly fimCompetencia)
+        DateOnly fimCompetencia,
+        HashSet<(Guid TransacaoFixaId, DateOnly DataOcorrencia)> excecoesFixas)
     {
         var detalhes = new List<FaturaDetalheResponse>();
 
@@ -928,7 +1134,8 @@ public sealed class TransacaoService : ITransacaoService
                 // No mês de origem a transação real já entra na fatura; aqui projetamos apenas meses futuros.
                 if (dataProjetada <= transacao.DataOcorrencia ||
                     dataProjetada < inicioCompetencia ||
-                    dataProjetada > fimCompetencia)
+                    dataProjetada > fimCompetencia ||
+                    excecoesFixas.Contains((transacao.Id, dataProjetada)))
                 {
                     continue;
                 }

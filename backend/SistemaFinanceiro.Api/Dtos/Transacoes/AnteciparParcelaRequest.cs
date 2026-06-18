@@ -6,4 +6,5 @@ public sealed class AnteciparParcelaRequest
     public int NumeroParcela { get; set; }
     public DateTime DataAntecipacao { get; set; }
     public decimal ValorPago { get; set; }
+    public bool AnteciparParcelasFuturas { get; set; }
 }

@@ -42,6 +42,7 @@ export type AnteciparParcelaRequest = {
   numeroParcela: number;
   dataAntecipacao: string;
   valorPago: number;
+  anteciparParcelasFuturas?: boolean;
 };
 
 export type Categoria = {
