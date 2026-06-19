@@ -461,7 +461,62 @@ public sealed class TransacaoService : ITransacaoService
             ? 0
             : somasFixasPagas.Receitas - somasFixasPagas.Despesas - somasFixasPagas.Investimentos;
 
-        return saldoTransacoesReais + saldoFixasPagas;
+        var totalFaturasPagas = await CalcularTotalFaturasPagasAsync(
+            usuarioId,
+            hoje,
+            cancellationToken);
+
+        return saldoTransacoesReais + saldoFixasPagas - totalFaturasPagas;
+    }
+
+    private async Task<decimal> CalcularTotalFaturasPagasAsync(
+        Guid usuarioId,
+        DateOnly hoje,
+        CancellationToken cancellationToken)
+    {
+        var pagamentos = await _dbContext.FaturasCartaoPagamentos
+            .AsNoTracking()
+            .Where(pagamento =>
+                pagamento.UsuarioId == usuarioId &&
+                pagamento.IsPaga &&
+                pagamento.DataVencimento <= hoje)
+            .Select(pagamento => new
+            {
+                pagamento.CartaoCreditoId,
+                pagamento.DataVencimento
+            })
+            .ToListAsync(cancellationToken);
+
+        if (pagamentos.Count == 0)
+        {
+            return 0;
+        }
+
+        var pagamentosSet = pagamentos
+            .Select(pagamento => (pagamento.CartaoCreditoId, pagamento.DataVencimento))
+            .ToHashSet();
+
+        decimal total = 0;
+        foreach (var referencia in pagamentos
+            .Select(pagamento => new
+            {
+                Mes = pagamento.DataVencimento.Month,
+                Ano = pagamento.DataVencimento.Year
+            })
+            .Distinct())
+        {
+            var faturasDoMes = await GetFaturasDoMesAsync(
+                referencia.Mes,
+                referencia.Ano,
+                usuarioId,
+                cancellationToken);
+
+            total += faturasDoMes
+                .Where(fatura => pagamentosSet.Contains((fatura.CartaoCreditoId, fatura.DataVencimento)))
+                .Sum(fatura => fatura.ValorTotal);
+        }
+
+        return total;
     }
 
     public async Task<TransacaoResponse> CriarAsync(

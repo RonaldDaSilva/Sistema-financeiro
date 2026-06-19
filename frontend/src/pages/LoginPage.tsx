@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import axios from "axios";
 import { Eye, EyeOff, LockKeyhole, Mail, WalletCards } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
@@ -23,8 +24,18 @@ export function LoginPage() {
       const redirectParam = new URLSearchParams(location.search).get("redirect");
       const redirectTo = redirectParam || location.state?.from?.pathname || "/";
       navigate(redirectTo, { replace: true });
-    } catch {
-      setErro("E-mail ou senha invalidos.");
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        setErro("E-mail ou senha invalidos.");
+        return;
+      }
+
+      if (axios.isAxiosError(error) && !error.response) {
+        setErro("Nao foi possivel conectar ao backend local. Verifique se a API esta rodando em http://localhost:5000.");
+        return;
+      }
+
+      setErro("Nao foi possivel entrar agora. Tente novamente em instantes.");
     } finally {
       setIsSubmitting(false);
     }

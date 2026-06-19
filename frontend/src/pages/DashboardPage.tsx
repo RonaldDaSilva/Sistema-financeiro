@@ -104,7 +104,16 @@ export function DashboardPage() {
 
   const movimentacoes = useMemo(() => {
     return extratosQueries
-      .flatMap((query) => query.data?.itens ?? [])
+      .flatMap((query, index) => {
+        const referencia = mesesPeriodo[index];
+        const data = query.data;
+
+        if (!data || !referencia || data.mes !== referencia.mes || data.ano !== referencia.ano) {
+          return [];
+        }
+
+        return data.itens;
+      })
       .filter((item) => {
         const data = parseLocalDate(item.dataOcorrencia);
         if (data < rangePeriodo.inicio || data > rangePeriodo.fim) {
@@ -133,6 +142,7 @@ export function DashboardPage() {
       );
   }, [
     extratosQueries,
+    mesesPeriodo,
     periodo.categoriaId,
     periodo.tipoTransacao,
     rangePeriodo.fim,
@@ -162,7 +172,17 @@ export function DashboardPage() {
 
   const resumoApi = useMemo(() => {
     const extratos = extratosQueries
-      .map((query) => query.data)
+      .map((query, index) => {
+        const data = query.data;
+        const referencia = mesesPeriodo[index];
+
+        return data &&
+          referencia &&
+          data.mes === referencia.mes &&
+          data.ano === referencia.ano
+          ? data
+          : null;
+      })
       .filter((data): data is ExtratoMensal => Boolean(data));
 
     return extratos.reduce(
@@ -193,7 +213,7 @@ export function DashboardPage() {
         saldoPrevistoFimDoMes: null as number | null,
       },
     );
-  }, [extratosQueries]);
+  }, [extratosQueries, mesesPeriodo]);
 
   const resumo = {
     totalGasto: resumoApi.totalGasto,
