@@ -22,6 +22,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<CompraParcelada> ComprasParceladas => Set<CompraParcelada>();
     public DbSet<Transacao> Transacoes => Set<Transacao>();
     public DbSet<TransacaoFixaExcecao> TransacoesFixasExcecoes => Set<TransacaoFixaExcecao>();
+    public DbSet<TransacaoFixaPagamento> TransacoesFixasPagamentos => Set<TransacaoFixaPagamento>();
     public DbSet<FaturaCartaoPagamento> FaturasCartaoPagamentos => Set<FaturaCartaoPagamento>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Notificacao> Notificacoes => Set<Notificacao>();
@@ -39,6 +40,7 @@ public sealed class AppDbContext : DbContext
         ConfigureCompraParcelada(modelBuilder);
         ConfigureTransacao(modelBuilder);
         ConfigureTransacaoFixaExcecao(modelBuilder);
+        ConfigureTransacaoFixaPagamento(modelBuilder);
         ConfigureFaturaCartaoPagamento(modelBuilder);
         ConfigureRefreshToken(modelBuilder);
         ConfigureNotificacao(modelBuilder);
@@ -490,6 +492,54 @@ public sealed class AppDbContext : DbContext
                 excecao.UsuarioId,
                 excecao.TransacaoFixaId,
                 excecao.DataOcorrencia
+            }).IsUnique();
+        });
+    }
+
+    private static void ConfigureTransacaoFixaPagamento(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<TransacaoFixaPagamento>(entity =>
+        {
+            entity.ToTable("transacoes_fixas_pagamentos");
+
+            entity.HasKey(pagamento => pagamento.Id);
+
+            entity.Property(pagamento => pagamento.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(pagamento => pagamento.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+
+            entity.Property(pagamento => pagamento.TransacaoFixaId)
+                .HasColumnName("id_transacao_fixa")
+                .IsRequired();
+
+            entity.Property(pagamento => pagamento.DataOcorrencia)
+                .HasColumnName("data_ocorrencia")
+                .IsRequired();
+
+            entity.Property(pagamento => pagamento.IsPaga)
+                .HasColumnName("is_paga")
+                .HasDefaultValue(false)
+                .IsRequired();
+
+            entity.HasOne(pagamento => pagamento.Usuario)
+                .WithMany()
+                .HasForeignKey(pagamento => pagamento.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(pagamento => pagamento.TransacaoFixa)
+                .WithMany()
+                .HasForeignKey(pagamento => pagamento.TransacaoFixaId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(pagamento => new
+            {
+                pagamento.UsuarioId,
+                pagamento.TransacaoFixaId,
+                pagamento.DataOcorrencia
             }).IsUnique();
         });
     }

@@ -178,7 +178,8 @@ public sealed class TransacaoController : ControllerBase
     [HttpPatch("{id:guid}/alternar-status")]
     public async Task<IActionResult> AlternarStatusPagamento(
         Guid id,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery] DateOnly? dataOcorrencia = null)
     {
         var usuarioId = ObterUsuarioId();
         if (usuarioId is null)
@@ -189,6 +190,7 @@ public sealed class TransacaoController : ControllerBase
         var isPaga = await _transacaoService.AlternarStatusPagamentoAsync(
             id,
             usuarioId.Value,
+            dataOcorrencia,
             cancellationToken);
 
         return isPaga.HasValue ? Ok(new { isPaga = isPaga.Value }) : NotFound();

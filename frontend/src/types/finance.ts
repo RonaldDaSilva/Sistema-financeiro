@@ -33,6 +33,11 @@ export type ExtratoMensal = {
   totalInvestido: number;
   saldo: number;
   saldoAtual: number;
+  saldoAtualGlobal: number;
+  receitasDoMes: number;
+  despesasDoMes: number;
+  investimentosDoMes: number;
+  balancoDoMes: number;
   saldoPrevistoFimDoMes: number;
   resumoDivididas: {
     totalSuaParte: number;

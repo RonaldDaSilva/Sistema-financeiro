@@ -496,6 +496,40 @@ namespace SistemaFinanceiro.Api.Migrations
                     b.ToTable("transacoes_fixas_excecoes", (string)null);
                 });
 
+            modelBuilder.Entity("SistemaFinanceiro.Api.Models.TransacaoFixaPagamento", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly>("DataOcorrencia")
+                        .HasColumnType("date")
+                        .HasColumnName("data_ocorrencia");
+
+                    b.Property<bool>("IsPaga")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_paga");
+
+                    b.Property<Guid>("TransacaoFixaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_transacao_fixa");
+
+                    b.Property<Guid>("UsuarioId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_usuario");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TransacaoFixaId");
+
+                    b.HasIndex("UsuarioId", "TransacaoFixaId", "DataOcorrencia")
+                        .IsUnique();
+
+                    b.ToTable("transacoes_fixas_pagamentos", (string)null);
+                });
+
             modelBuilder.Entity("SistemaFinanceiro.Api.Models.Usuario", b =>
                 {
                     b.Property<Guid>("Id")
@@ -679,6 +713,25 @@ namespace SistemaFinanceiro.Api.Migrations
                 });
 
             modelBuilder.Entity("SistemaFinanceiro.Api.Models.TransacaoFixaExcecao", b =>
+                {
+                    b.HasOne("SistemaFinanceiro.Api.Models.Transacao", "TransacaoFixa")
+                        .WithMany()
+                        .HasForeignKey("TransacaoFixaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SistemaFinanceiro.Api.Models.Usuario", "Usuario")
+                        .WithMany()
+                        .HasForeignKey("UsuarioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TransacaoFixa");
+
+                    b.Navigation("Usuario");
+                });
+
+            modelBuilder.Entity("SistemaFinanceiro.Api.Models.TransacaoFixaPagamento", b =>
                 {
                     b.HasOne("SistemaFinanceiro.Api.Models.Transacao", "TransacaoFixa")
                         .WithMany()

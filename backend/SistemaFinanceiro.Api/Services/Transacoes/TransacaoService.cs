@@ -54,7 +54,13 @@ public sealed class TransacaoService : ITransacaoService
                 transacao.DataOcorrencia < inicioMes)
             .ToListAsync(cancellationToken);
 
-        var transacoesFixasIds = transacoesFixas.Select(transacao => transacao.Id).ToList();
+        var transacoesFixasIds = transacoesFixas
+            .Select(transacao => transacao.Id)
+            .Concat(transacoesDoMes
+                .Where(transacao => transacao.IsFixa)
+                .Select(transacao => transacao.Id))
+            .Distinct()
+            .ToList();
         var excecoesFixas = await _dbContext.TransacoesFixasExcecoes
             .AsNoTracking()
             .Where(excecao =>
@@ -72,6 +78,25 @@ public sealed class TransacaoService : ITransacaoService
         var excecoesFixasSet = excecoesFixas
             .Select(excecao => (excecao.TransacaoFixaId, excecao.DataOcorrencia))
             .ToHashSet();
+
+        var pagamentosFixas = await _dbContext.TransacoesFixasPagamentos
+            .AsNoTracking()
+            .Where(pagamento =>
+                pagamento.UsuarioId == usuarioId &&
+                transacoesFixasIds.Contains(pagamento.TransacaoFixaId) &&
+                pagamento.DataOcorrencia >= inicioMes &&
+                pagamento.DataOcorrencia <= fimMes)
+            .Select(pagamento => new
+            {
+                pagamento.TransacaoFixaId,
+                pagamento.DataOcorrencia,
+                pagamento.IsPaga
+            })
+            .ToListAsync(cancellationToken);
+
+        var pagamentosFixasMap = pagamentosFixas.ToDictionary(
+            pagamento => (pagamento.TransacaoFixaId, pagamento.DataOcorrencia),
+            pagamento => pagamento.IsPaga);
 
         var comprasCarne = await _dbContext.ComprasParceladas
             .AsNoTracking()
@@ -108,10 +133,10 @@ public sealed class TransacaoService : ITransacaoService
             .Where(transacao =>
                 transacao.CartaoCreditoId is null ||
                 (transacao.CompraParceladaId.HasValue && transacao.NumeroParcelaQuitada.HasValue))
-            .Select(MapearTransacaoReal));
+            .Select(transacao => MapearTransacaoReal(transacao, pagamentosFixasMap)));
         itens.AddRange(transacoesFixas
             .Where(transacao => transacao.CartaoCreditoId is null)
-            .Select(transacao => ProjetarTransacaoFixa(transacao, inicioMes))
+            .Select(transacao => ProjetarTransacaoFixa(transacao, inicioMes, pagamentosFixasMap))
             .Where(item => !excecoesFixasSet.Contains((item.Id!.Value, item.DataOcorrencia))));
         itens.AddRange(ProjetarParcelasCarneParaExtrato(
             comprasCarne,
@@ -144,35 +169,43 @@ public sealed class TransacaoService : ITransacaoService
             };
         }
 
-        var totalReceitas = itensOrdenados
+        var receitasDoMes = itensOrdenados
             .Where(item => item.Tipo == TipoTransacao.Receita)
             .Sum(item => item.Valor);
 
-        var totalDespesas = itensOrdenados
+        var despesasDoMes = itensOrdenados
             .Where(item => item.Tipo == TipoTransacao.Despesa)
             .Sum(item => item.Valor);
-        var totalInvestido = itensOrdenados
+        var investimentosDoMes = itensOrdenados
             .Where(item => item.Tipo == TipoTransacao.Investimento)
             .Sum(item => item.Valor);
         var hoje = DateOnly.FromDateTime(DateTime.Today);
-        var itensConsolidadosAteHoje = itensOrdenados
+        var saldoAtualGlobal = await CalcularSaldoAtualGlobalAsync(usuarioId, hoje, cancellationToken);
+        var transacoesFuturasNaoPagasDoMes = itensOrdenados
             .Where(item =>
-                item.Tipo == TipoTransacao.Receita
-                    ? item.DataOcorrencia <= hoje
-                    : item.IsPaga)
+                item.DataOcorrencia > hoje &&
+                item.Tipo != TipoTransacao.Receita &&
+                !item.IsPaga)
             .ToList();
-        var saldoAtual = CalcularSaldo(itensConsolidadosAteHoje);
-        var saldoPrevistoFimDoMes = totalReceitas - totalDespesas - totalInvestido;
+        var balancoDoMes = receitasDoMes - despesasDoMes - investimentosDoMes;
+        var saldoPrevistoFimDoMes = saldoAtualGlobal - transacoesFuturasNaoPagasDoMes
+            .Where(item => item.Tipo is TipoTransacao.Despesa or TipoTransacao.Investimento)
+            .Sum(item => item.Valor);
 
         return new ExtratoMensalResponse
         {
             Mes = mes,
             Ano = ano,
-            TotalReceitas = totalReceitas,
-            TotalDespesas = totalDespesas,
-            TotalInvestido = totalInvestido,
-            Saldo = saldoPrevistoFimDoMes,
-            SaldoAtual = saldoAtual,
+            TotalReceitas = receitasDoMes,
+            TotalDespesas = despesasDoMes,
+            TotalInvestido = investimentosDoMes,
+            Saldo = balancoDoMes,
+            SaldoAtual = saldoAtualGlobal,
+            SaldoAtualGlobal = saldoAtualGlobal,
+            ReceitasDoMes = receitasDoMes,
+            DespesasDoMes = despesasDoMes,
+            InvestimentosDoMes = investimentosDoMes,
+            BalancoDoMes = balancoDoMes,
             SaldoPrevistoFimDoMes = saldoPrevistoFimDoMes,
             ResumoDivididas = resumoDivididas,
             Itens = itensOrdenados
@@ -363,6 +396,72 @@ public sealed class TransacaoService : ITransacaoService
             .Sum(item => item.Valor);
 
         return totalReceitas - totalDespesas - totalInvestido;
+    }
+
+    private async Task<decimal> CalcularSaldoAtualGlobalAsync(
+        Guid usuarioId,
+        DateOnly hoje,
+        CancellationToken cancellationToken)
+    {
+        var somas = await _dbContext.Transacoes
+            .AsNoTracking()
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.DataOcorrencia <= hoje &&
+                (
+                    transacao.CartaoCreditoId == null ||
+                    (transacao.CompraParceladaId.HasValue && transacao.NumeroParcelaQuitada.HasValue)
+                ) &&
+                (
+                    transacao.Tipo == TipoTransacao.Receita ||
+                    transacao.IsPaga
+                ))
+            .GroupBy(_ => 1)
+            .Select(grupo => new
+            {
+                Receitas = grupo
+                    .Where(transacao => transacao.Tipo == TipoTransacao.Receita)
+                    .Sum(transacao => transacao.Valor),
+                Despesas = grupo
+                    .Where(transacao => transacao.Tipo == TipoTransacao.Despesa)
+                    .Sum(transacao => transacao.Valor),
+                Investimentos = grupo
+                    .Where(transacao => transacao.Tipo == TipoTransacao.Investimento)
+                    .Sum(transacao => transacao.Valor)
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        var saldoTransacoesReais = somas is null
+            ? 0
+            : somas.Receitas - somas.Despesas - somas.Investimentos;
+
+        var somasFixasPagas = await _dbContext.TransacoesFixasPagamentos
+            .AsNoTracking()
+            .Where(pagamento =>
+                pagamento.UsuarioId == usuarioId &&
+                pagamento.IsPaga &&
+                pagamento.DataOcorrencia <= hoje)
+            .Select(pagamento => pagamento.TransacaoFixa)
+            .GroupBy(_ => 1)
+            .Select(grupo => new
+            {
+                Receitas = grupo
+                    .Where(transacao => transacao.Tipo == TipoTransacao.Receita)
+                    .Sum(transacao => transacao.Valor),
+                Despesas = grupo
+                    .Where(transacao => transacao.Tipo == TipoTransacao.Despesa)
+                    .Sum(transacao => transacao.Valor),
+                Investimentos = grupo
+                    .Where(transacao => transacao.Tipo == TipoTransacao.Investimento)
+                    .Sum(transacao => transacao.Valor)
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        var saldoFixasPagas = somasFixasPagas is null
+            ? 0
+            : somasFixasPagas.Receitas - somasFixasPagas.Despesas - somasFixasPagas.Investimentos;
+
+        return saldoTransacoesReais + saldoFixasPagas;
     }
 
     public async Task<TransacaoResponse> CriarAsync(
@@ -599,6 +698,7 @@ public sealed class TransacaoService : ITransacaoService
     public async Task<bool?> AlternarStatusPagamentoAsync(
         Guid id,
         Guid usuarioId,
+        DateOnly? dataOcorrencia = null,
         CancellationToken cancellationToken = default)
     {
         var transacao = await _dbContext.Transacoes
@@ -609,6 +709,41 @@ public sealed class TransacaoService : ITransacaoService
         if (transacao is null)
         {
             return null;
+        }
+
+        if (transacao.IsFixa && dataOcorrencia.HasValue)
+        {
+            var pagamento = await _dbContext.TransacoesFixasPagamentos
+                .SingleOrDefaultAsync(
+                    item =>
+                        item.UsuarioId == usuarioId &&
+                        item.TransacaoFixaId == transacao.Id &&
+                        item.DataOcorrencia == dataOcorrencia.Value,
+                    cancellationToken);
+
+            var isPagaAtual = pagamento?.IsPaga ??
+                (dataOcorrencia.Value == transacao.DataOcorrencia && transacao.IsPaga);
+
+            if (pagamento is null)
+            {
+                pagamento = new TransacaoFixaPagamento
+                {
+                    UsuarioId = usuarioId,
+                    TransacaoFixaId = transacao.Id,
+                    DataOcorrencia = dataOcorrencia.Value,
+                    IsPaga = !isPagaAtual
+                };
+
+                _dbContext.TransacoesFixasPagamentos.Add(pagamento);
+            }
+            else
+            {
+                pagamento.IsPaga = !pagamento.IsPaga;
+            }
+
+            transacao.IsPaga = false;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return pagamento.IsPaga;
         }
 
         transacao.IsPaga = !transacao.IsPaga;
@@ -823,8 +958,14 @@ public sealed class TransacaoService : ITransacaoService
         };
     }
 
-    private static ExtratoMensalItemResponse MapearTransacaoReal(Transacao transacao)
+    private static ExtratoMensalItemResponse MapearTransacaoReal(
+        Transacao transacao,
+        IReadOnlyDictionary<(Guid TransacaoFixaId, DateOnly DataOcorrencia), bool>? pagamentosFixas = null)
     {
+        var isPaga = transacao.IsFixa && pagamentosFixas is not null
+            ? pagamentosFixas.GetValueOrDefault((transacao.Id, transacao.DataOcorrencia), transacao.IsPaga)
+            : transacao.IsPaga;
+
         return new ExtratoMensalItemResponse
         {
             Id = transacao.Id,
@@ -840,7 +981,7 @@ public sealed class TransacaoService : ITransacaoService
             CartaoCreditoId = transacao.CartaoCreditoId,
             CartaoCreditoApelido = transacao.CartaoCredito?.ApelidoCartao,
             IsFixa = transacao.IsFixa,
-            IsPaga = transacao.IsPaga,
+            IsPaga = isPaga,
             IsDividida = transacao.IsDividida,
             ValorTotalOriginal = transacao.ValorTotalOriginal,
             PercentualDivisao = transacao.PercentualDivisao,
@@ -1236,8 +1377,13 @@ public sealed class TransacaoService : ITransacaoService
         return itens;
     }
 
-    private static ExtratoMensalItemResponse ProjetarTransacaoFixa(Transacao transacao, DateOnly inicioMes)
+    private static ExtratoMensalItemResponse ProjetarTransacaoFixa(
+        Transacao transacao,
+        DateOnly inicioMes,
+        IReadOnlyDictionary<(Guid TransacaoFixaId, DateOnly DataOcorrencia), bool> pagamentosFixas)
     {
+        var dataProjetada = CriarDataNoMes(inicioMes, transacao.DataOcorrencia.Day);
+
         return new ExtratoMensalItemResponse
         {
             Id = transacao.Id,
@@ -1245,7 +1391,7 @@ public sealed class TransacaoService : ITransacaoService
             Tipo = transacao.Tipo,
             Descricao = transacao.Descricao,
             Valor = transacao.Valor,
-            DataOcorrencia = CriarDataNoMes(inicioMes, transacao.DataOcorrencia.Day),
+            DataOcorrencia = dataProjetada,
             CategoriaId = transacao.CategoriaId,
             CategoriaNome = transacao.Categoria?.Nome ?? "Sem categoria",
             CategoriaCorHexa = transacao.Categoria?.CorHexa ?? "#64748B",
@@ -1253,7 +1399,7 @@ public sealed class TransacaoService : ITransacaoService
             CartaoCreditoId = transacao.CartaoCreditoId,
             CartaoCreditoApelido = transacao.CartaoCredito?.ApelidoCartao,
             IsFixa = true,
-            IsPaga = transacao.IsPaga,
+            IsPaga = pagamentosFixas.GetValueOrDefault((transacao.Id, dataProjetada)),
             IsDividida = transacao.IsDividida,
             ValorTotalOriginal = transacao.ValorTotalOriginal,
             PercentualDivisao = transacao.PercentualDivisao,

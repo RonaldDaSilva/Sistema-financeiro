@@ -68,9 +68,11 @@ export async function anteciparParcela(request: AnteciparParcelaRequest) {
   return data;
 }
 
-export async function alternarStatusPagamento(id: string) {
+export async function alternarStatusPagamento(id: string, dataOcorrencia?: string) {
   const { data } = await api.patch<{ isPaga: boolean }>(
     `/api/transacoes/${id}/alternar-status`,
+    null,
+    { params: dataOcorrencia ? { dataOcorrencia } : undefined },
   );
 
   return data;

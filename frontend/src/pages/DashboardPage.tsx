@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   FileSpreadsheet,
   FileText,
+  Eye,
+  EyeOff,
   Plus,
   TrendingDown,
   TrendingUp,
@@ -63,6 +65,13 @@ export function DashboardPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [toastErro, setToastErro] = useState<string | null>(null);
   const [apenasDivididas, setApenasDivididas] = useState(false);
+  const [valoresOcultos, setValoresOcultos] = useState(() => {
+    return localStorage.getItem("dashboard-values-hidden") === "true";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("dashboard-values-hidden", String(valoresOcultos));
+  }, [valoresOcultos]);
 
   const rangePeriodo = useMemo(() => obterRangePeriodo(periodo), [periodo]);
   const mesesPeriodo = useMemo(
@@ -151,49 +160,49 @@ export function DashboardPage() {
     ]);
   }
 
-  const resumo = useMemo(() => {
-    const hojeInicio = new Date();
-    hojeInicio.setHours(0, 0, 0, 0);
+  const resumoApi = useMemo(() => {
+    const extratos = extratosQueries
+      .map((query) => query.data)
+      .filter((data): data is ExtratoMensal => Boolean(data));
 
-    return movimentacoes.reduce(
+    return extratos.reduce(
       (acc, item) => {
-        const isReceita = item.tipo === 1 || item.tipo === "Receita";
-        const isInvestimento = item.tipo === 3 || item.tipo === "Investimento";
-        const dataOcorrencia = parseLocalDate(item.dataOcorrencia);
-        const entraNoSaldoAtual = isReceita
-          ? dataOcorrencia <= hojeInicio
-          : item.isPaga;
+        acc.totalRecebido += item.receitasDoMes ?? item.totalReceitas;
+        acc.totalGasto += item.despesasDoMes ?? item.totalDespesas;
+        acc.totalInvestido += item.investimentosDoMes ?? item.totalInvestido;
+        acc.balancoDoMes +=
+          item.balancoDoMes ??
+          (item.totalReceitas - item.totalDespesas - item.totalInvestido);
 
-        if (isReceita) {
-          acc.totalRecebido += item.valor;
-          if (entraNoSaldoAtual) {
-            acc.saldoAtual += item.valor;
-          }
-        } else if (isInvestimento) {
-          acc.totalInvestido += item.valor;
-          if (entraNoSaldoAtual) {
-            acc.saldoAtual -= item.valor;
-          }
-        } else {
-          acc.totalGasto += item.valor;
-          if (entraNoSaldoAtual) {
-            acc.saldoAtual -= item.valor;
-          }
+        if (acc.saldoAtualGlobal === null) {
+          acc.saldoAtualGlobal = item.saldoAtualGlobal ?? item.saldoAtual;
         }
 
-        acc.saldoPrevistoFimDoMes =
-          acc.totalRecebido - acc.totalGasto - acc.totalInvestido;
+        if (acc.saldoPrevistoFimDoMes === null) {
+          acc.saldoPrevistoFimDoMes = item.saldoPrevistoFimDoMes;
+        }
+
         return acc;
       },
       {
         totalGasto: 0,
         totalRecebido: 0,
         totalInvestido: 0,
-        saldoAtual: 0,
-        saldoPrevistoFimDoMes: 0,
+        balancoDoMes: 0,
+        saldoAtualGlobal: null as number | null,
+        saldoPrevistoFimDoMes: null as number | null,
       },
     );
-  }, [movimentacoes]);
+  }, [extratosQueries]);
+
+  const resumo = {
+    totalGasto: resumoApi.totalGasto,
+    totalRecebido: resumoApi.totalRecebido,
+    totalInvestido: resumoApi.totalInvestido,
+    balancoDoMes: resumoApi.balancoDoMes,
+    saldoAtualGlobal: resumoApi.saldoAtualGlobal ?? 0,
+    saldoPrevistoFimDoMes: resumoApi.saldoPrevistoFimDoMes ?? 0,
+  };
 
   const resumoDivididas = useMemo(() => {
     return movimentacoes.reduce(
@@ -363,7 +372,11 @@ export function DashboardPage() {
     await invalidarDadosFinanceiros();
   }
 
-  function atualizarStatusPagamentoLocal(id: string, isPaga: boolean) {
+  function atualizarStatusPagamentoLocal(
+    id: string,
+    isPaga: boolean,
+    dataOcorrencia?: string,
+  ) {
     queryClient.setQueriesData<ExtratoMensal>(
       { queryKey: ["extrato"] },
       (current) =>
@@ -371,8 +384,39 @@ export function DashboardPage() {
           ? {
               ...current,
               itens: current.itens.map((item) =>
-                atualizarStatusItem(item, id, isPaga),
+                atualizarStatusItem(item, id, isPaga, dataOcorrencia),
               ),
+            }
+          : current,
+    );
+  }
+
+  function aplicarImpactoSaldoGlobalLocal(
+    item: ExtratoMensalItem,
+    isPagaAnterior: boolean,
+    isPagaAtual: boolean,
+  ) {
+    const isReceita = item.tipo === 1 || item.tipo === "Receita";
+    const dataOcorrencia = parseLocalDate(item.dataOcorrencia);
+    const hojeInicio = new Date();
+    hojeInicio.setHours(0, 0, 0, 0);
+
+    if (isReceita || dataOcorrencia > hojeInicio || isPagaAnterior === isPagaAtual) {
+      return;
+    }
+
+    const multiplicador = isPagaAtual ? -1 : 1;
+    const impacto = item.valor * multiplicador;
+
+    queryClient.setQueriesData<ExtratoMensal>(
+      { queryKey: ["extrato"] },
+      (current) =>
+        current
+          ? {
+              ...current,
+              saldoAtual: current.saldoAtual + impacto,
+              saldoAtualGlobal:
+                (current.saldoAtualGlobal ?? current.saldoAtual) + impacto,
             }
           : current,
     );
@@ -419,6 +463,7 @@ export function DashboardPage() {
       item.numeroParcela
     ) {
       setToastErro(null);
+      aplicarImpactoSaldoGlobalLocal(item, item.isPaga, true);
 
       try {
         await financeService.anteciparParcela({
@@ -430,6 +475,7 @@ export function DashboardPage() {
         });
         await invalidarDadosFinanceiros();
       } catch {
+        aplicarImpactoSaldoGlobalLocal(item, true, item.isPaga);
         setToastErro("Não foi possível marcar a parcela de carnê como paga.");
         window.setTimeout(() => setToastErro(null), 3500);
       }
@@ -444,6 +490,7 @@ export function DashboardPage() {
         item.dataOcorrencia,
         nextStatus,
       );
+      aplicarImpactoSaldoGlobalLocal(item, item.isPaga, nextStatus);
       setToastErro(null);
 
       try {
@@ -462,6 +509,7 @@ export function DashboardPage() {
           item.dataOcorrencia,
           item.isPaga,
         );
+        aplicarImpactoSaldoGlobalLocal(item, nextStatus, item.isPaga);
         setToastErro("Não foi possível atualizar o status da fatura.");
         window.setTimeout(() => setToastErro(null), 3500);
       }
@@ -474,14 +522,21 @@ export function DashboardPage() {
     }
 
     const nextStatus = !item.isPaga;
-    atualizarStatusPagamentoLocal(item.id, nextStatus);
+    const dataOcorrenciaStatus = item.isFixa ? item.dataOcorrencia : undefined;
+    atualizarStatusPagamentoLocal(item.id, nextStatus, dataOcorrenciaStatus);
+    aplicarImpactoSaldoGlobalLocal(item, item.isPaga, nextStatus);
     setToastErro(null);
 
     try {
-      const response = await financeService.alternarStatusPagamento(item.id);
-      atualizarStatusPagamentoLocal(item.id, response.isPaga);
+      const response = await financeService.alternarStatusPagamento(
+        item.id,
+        dataOcorrenciaStatus,
+      );
+      aplicarImpactoSaldoGlobalLocal(item, nextStatus, response.isPaga);
+      atualizarStatusPagamentoLocal(item.id, response.isPaga, dataOcorrenciaStatus);
     } catch {
-      atualizarStatusPagamentoLocal(item.id, item.isPaga);
+      atualizarStatusPagamentoLocal(item.id, item.isPaga, dataOcorrenciaStatus);
+      aplicarImpactoSaldoGlobalLocal(item, nextStatus, item.isPaga);
       setToastErro("Não foi possível atualizar o status de pagamento.");
       window.setTimeout(() => setToastErro(null), 3500);
     }
@@ -565,6 +620,19 @@ export function DashboardPage() {
           </div>
         </div>
 
+        <div className="flex justify-end">
+          <button
+            className="inline-flex items-center gap-2 rounded-full border border-[color:var(--app-card-border)] bg-[var(--app-card)] px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-[var(--app-card-muted)] dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            type="button"
+            onClick={() => setValoresOcultos((current) => !current)}
+            aria-pressed={valoresOcultos}
+            aria-label={valoresOcultos ? "Mostrar valores" : "Ocultar valores"}
+          >
+            {valoresOcultos ? <Eye size={16} /> : <EyeOff size={16} />}
+            {valoresOcultos ? "Mostrar valores" : "Ocultar valores"}
+          </button>
+        </div>
+
         <div className="relative z-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           {apenasDivididas ? (
             <>
@@ -573,42 +641,61 @@ export function DashboardPage() {
                 value={resumoDivididas.totalSuaParte}
                 tone="investment"
                 icon="shared"
+                hiddenValues={valoresOcultos}
               />
               <ResumoCard
                 label="Valor total original"
                 value={resumoDivididas.totalOriginal}
                 tone="danger"
                 icon="expense"
+                hiddenValues={valoresOcultos}
               />
             </>
           ) : (
             <>
               <ResumoCard
+                label="Saldo Atual (Global)"
+                value={resumo.saldoAtualGlobal}
+                secondaryLabel={`Previsto para o fim do mês: ${formatCurrency(
+                  resumo.saldoPrevistoFimDoMes,
+                )}`}
+                tone={resumo.saldoAtualGlobal >= 0 ? "success" : "danger"}
+                icon="balance"
+                featured
+                hiddenValues={valoresOcultos}
+              />
+              <ResumoCard
                 label="Total gasto"
                 value={resumo.totalGasto}
                 tone="danger"
                 icon="expense"
+                hiddenValues={valoresOcultos}
               />
               <ResumoCard
                 label="Total recebido"
                 value={resumo.totalRecebido}
                 tone="success"
                 icon="income"
+                hiddenValues={valoresOcultos}
               />
               <ResumoCard
                 label="Total investido"
                 value={resumo.totalInvestido}
                 tone="investment"
                 icon="investment"
+                hiddenValues={valoresOcultos}
               />
               <ResumoCard
-                label="Saldo atual"
-                value={resumo.saldoAtual}
-                secondaryLabel={`Previsto para o fim do mês: ${formatCurrency(
-                  resumo.saldoPrevistoFimDoMes,
-                )}`}
-                tone={resumo.saldoAtual >= 0 ? "success" : "danger"}
-                icon="balance"
+                label="Balanço do Mês"
+                value={resumo.balancoDoMes}
+                secondaryLabel={
+                  resumo.balancoDoMes >= 0
+                    ? `Sobrando: + ${formatCurrency(resumo.balancoDoMes)}`
+                    : `Déficit: - ${formatCurrency(Math.abs(resumo.balancoDoMes))}`
+                }
+                tone={resumo.balancoDoMes >= 0 ? "success" : "danger"}
+                icon={resumo.balancoDoMes >= 0 ? "income" : "expense"}
+                hiddenValues={valoresOcultos}
               />
             </>
           )}
@@ -696,8 +783,17 @@ function atualizarStatusItem(
   item: ExtratoMensalItem,
   id: string,
   isPaga: boolean,
+  dataOcorrencia?: string,
 ) {
-  return item.id === id ? { ...item, isPaga } : item;
+  if (item.id !== id) {
+    return item;
+  }
+
+  if (dataOcorrencia && item.dataOcorrencia !== dataOcorrencia) {
+    return item;
+  }
+
+  return { ...item, isPaga };
 }
 
 function obterRangePeriodo(periodo: PeriodoFiltro) {
@@ -749,6 +845,8 @@ type ResumoCardProps = {
   secondaryLabel?: string;
   tone: "success" | "danger" | "investment";
   icon: "expense" | "income" | "investment" | "balance" | "shared";
+  featured?: boolean;
+  hiddenValues?: boolean;
 };
 
 function ResumoCard({
@@ -757,6 +855,8 @@ function ResumoCard({
   secondaryLabel,
   tone,
   icon,
+  featured = false,
+  hiddenValues = false,
 }: ResumoCardProps) {
   const toneClass =
     tone === "success"
@@ -794,7 +894,11 @@ function ResumoCard({
   const Icon = iconConfig.Icon;
 
   return (
-    <div className="flex flex-col rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900">
+    <div
+      className={`flex flex-col rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${
+        featured ? "md:col-span-2" : ""
+      }`}
+    >
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
           {label}
@@ -803,12 +907,12 @@ function ResumoCard({
           <Icon size={20} className={iconConfig.color} />
         </div>
       </div>
-      <p className={`text-2xl font-bold ${toneClass}`}>
-        {formatCurrency(value)}
+      <p className={`${featured ? "text-3xl" : "text-2xl"} font-bold ${toneClass}`}>
+        {hiddenValues ? "R$ ••••••" : formatCurrency(value)}
       </p>
       {secondaryLabel && (
         <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">
-          {secondaryLabel}
+          {hiddenValues ? "Valores ocultos" : secondaryLabel}
         </p>
       )}
     </div>
