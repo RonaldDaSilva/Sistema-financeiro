@@ -10,5 +10,6 @@ public sealed class ExtratoMensalResponse
     public decimal Saldo { get; set; }
     public decimal SaldoAtual { get; set; }
     public decimal SaldoPrevistoFimDoMes { get; set; }
+    public ResumoDivididasResponse? ResumoDivididas { get; set; }
     public IReadOnlyList<ExtratoMensalItemResponse> Itens { get; set; } = [];
 }

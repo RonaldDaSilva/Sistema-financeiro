@@ -34,6 +34,10 @@ export type ExtratoMensal = {
   saldo: number;
   saldoAtual: number;
   saldoPrevistoFimDoMes: number;
+  resumoDivididas: {
+    totalSuaParte: number;
+    totalOriginal: number;
+  } | null;
   itens: ExtratoMensalItem[];
 };
 

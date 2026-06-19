@@ -8,23 +8,27 @@ type MesAno = {
   ano: number;
 };
 
-export function useExtratoMensal(mes: number, ano: number) {
+export function useExtratoMensal(
+  mes: number,
+  ano: number,
+  apenasDivididas = false,
+) {
   const canFetch = hasUsableStoredAuth();
 
   return useQuery({
-    queryKey: queryKeys.extrato(mes, ano),
-    queryFn: () => financeService.getExtratoMensal(mes, ano),
+    queryKey: queryKeys.extrato(mes, ano, apenasDivididas),
+    queryFn: () => financeService.getExtratoMensal(mes, ano, apenasDivididas),
     enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
   });
 }
 
-export function useExtratosMensais(meses: MesAno[]) {
+export function useExtratosMensais(meses: MesAno[], apenasDivididas = false) {
   const canFetch = hasUsableStoredAuth();
 
   return useQueries({
     queries: meses.map(({ mes, ano }) => ({
-      queryKey: queryKeys.extrato(mes, ano),
-      queryFn: () => financeService.getExtratoMensal(mes, ano),
+      queryKey: queryKeys.extrato(mes, ano, apenasDivididas),
+      queryFn: () => financeService.getExtratoMensal(mes, ano, apenasDivididas),
       enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
     })),
   });

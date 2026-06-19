@@ -363,9 +363,16 @@ function StatusButton({
 }) {
   const isReceita = item.tipo === 1 || item.tipo === "Receita";
   const isFatura = item.origem === "FaturaCartao" && item.cartaoCreditoId;
+  const isParcelaCarneProjetada =
+    item.origem === "Carne" &&
+    item.isProjetada &&
+    Boolean(item.compraParceladaId) &&
+    Boolean(item.numeroParcela);
   const canToggle =
     !isReceita &&
-    (Boolean(item.id) && (!item.isProjetada || item.isFixa) || Boolean(isFatura));
+    (Boolean(item.id) && (!item.isProjetada || item.isFixa) ||
+      Boolean(isFatura) ||
+      isParcelaCarneProjetada);
   const Icon = item.isPaga ? CheckCircle2 : Circle;
 
   if (!canToggle) {

@@ -22,6 +22,7 @@ public sealed class TransacaoController : ControllerBase
     public async Task<ActionResult<ExtratoMensalResponse>> GetExtratoMensal(
         [FromQuery] int mes,
         [FromQuery] int ano,
+        [FromQuery] bool? apenasDivididas,
         CancellationToken cancellationToken)
     {
         var usuarioId = ObterUsuarioId();
@@ -36,6 +37,7 @@ public sealed class TransacaoController : ControllerBase
                 mes,
                 ano,
                 usuarioId.Value,
+                apenasDivididas,
                 cancellationToken);
 
             return Ok(extrato);

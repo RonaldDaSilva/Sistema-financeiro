@@ -228,7 +228,7 @@ public sealed class ExportacaoService : IExportacaoService
                 referencia.Month,
                 referencia.Year,
                 usuarioId,
-                cancellationToken);
+                cancellationToken: cancellationToken);
 
             itens.AddRange(extrato.Itens);
         }

@@ -7,6 +7,7 @@ import {
   Plus,
   TrendingDown,
   TrendingUp,
+  UsersRound,
   Wallet,
 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
@@ -61,6 +62,7 @@ export function DashboardPage() {
   const [exportando, setExportando] = useState<"excel" | "pdf" | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [toastErro, setToastErro] = useState<string | null>(null);
+  const [apenasDivididas, setApenasDivididas] = useState(false);
 
   const rangePeriodo = useMemo(() => obterRangePeriodo(periodo), [periodo]);
   const mesesPeriodo = useMemo(
@@ -70,7 +72,7 @@ export function DashboardPage() {
   const categoriasQuery = useCategorias();
   const cartoesQuery = useCartoes();
   const configuracoesQuery = useConfiguracoesNotificacao();
-  const extratosQueries = useExtratosMensais(mesesPeriodo);
+  const extratosQueries = useExtratosMensais(mesesPeriodo, apenasDivididas);
   const faturasQueries = useFaturasMensais(mesesPeriodo);
   const categorias = categoriasQuery.data ?? [];
   const cartoes = cartoesQuery.data ?? [];
@@ -189,6 +191,24 @@ export function DashboardPage() {
         totalInvestido: 0,
         saldoAtual: 0,
         saldoPrevistoFimDoMes: 0,
+      },
+    );
+  }, [movimentacoes]);
+
+  const resumoDivididas = useMemo(() => {
+    return movimentacoes.reduce(
+      (acc, item) => {
+        if (!item.isDividida) {
+          return acc;
+        }
+
+        acc.totalSuaParte += item.valor;
+        acc.totalOriginal += item.valorTotalOriginal ?? item.valor;
+        return acc;
+      },
+      {
+        totalSuaParte: 0,
+        totalOriginal: 0,
       },
     );
   }, [movimentacoes]);
@@ -392,6 +412,31 @@ export function DashboardPage() {
   }
 
   async function handleTogglePagamento(item: ExtratoMensalItem) {
+    if (
+      item.origem === "Carne" &&
+      item.isProjetada &&
+      item.compraParceladaId &&
+      item.numeroParcela
+    ) {
+      setToastErro(null);
+
+      try {
+        await financeService.anteciparParcela({
+          idCompraParcelada: item.compraParceladaId,
+          numeroParcela: item.numeroParcela,
+          dataAntecipacao: item.dataOcorrencia,
+          valorPago: item.valor,
+          anteciparParcelasFuturas: false,
+        });
+        await invalidarDadosFinanceiros();
+      } catch {
+        setToastErro("Não foi possível marcar a parcela de carnê como paga.");
+        window.setTimeout(() => setToastErro(null), 3500);
+      }
+
+      return;
+    }
+
     if (item.origem === "FaturaCartao" && item.cartaoCreditoId) {
       const nextStatus = !item.isPaga;
       atualizarStatusFaturaLocal(
@@ -492,7 +537,7 @@ export function DashboardPage() {
           </button>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-stretch">
+        <div className="relative z-30 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-stretch">
           <PeriodFilter
             value={periodo}
             categorias={categorias}
@@ -520,46 +565,80 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-          <ResumoCard
-            label="Total gasto"
-            value={resumo.totalGasto}
-            tone="danger"
-            icon="expense"
-          />
-          <ResumoCard
-            label="Total recebido"
-            value={resumo.totalRecebido}
-            tone="success"
-            icon="income"
-          />
-          <ResumoCard
-            label="Total investido"
-            value={resumo.totalInvestido}
-            tone="investment"
-            icon="investment"
-          />
-          <ResumoCard
-            label="Saldo atual"
-            value={resumo.saldoAtual}
-            secondaryLabel={`Previsto para o fim do mês: ${formatCurrency(
-              resumo.saldoPrevistoFimDoMes,
-            )}`}
-            tone={resumo.saldoAtual >= 0 ? "success" : "danger"}
-            icon="balance"
-          />
+        <div className="relative z-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+          {apenasDivididas ? (
+            <>
+              <ResumoCard
+                label="Sua parte nestas despesas"
+                value={resumoDivididas.totalSuaParte}
+                tone="investment"
+                icon="shared"
+              />
+              <ResumoCard
+                label="Valor total original"
+                value={resumoDivididas.totalOriginal}
+                tone="danger"
+                icon="expense"
+              />
+            </>
+          ) : (
+            <>
+              <ResumoCard
+                label="Total gasto"
+                value={resumo.totalGasto}
+                tone="danger"
+                icon="expense"
+              />
+              <ResumoCard
+                label="Total recebido"
+                value={resumo.totalRecebido}
+                tone="success"
+                icon="income"
+              />
+              <ResumoCard
+                label="Total investido"
+                value={resumo.totalInvestido}
+                tone="investment"
+                icon="investment"
+              />
+              <ResumoCard
+                label="Saldo atual"
+                value={resumo.saldoAtual}
+                secondaryLabel={`Previsto para o fim do mês: ${formatCurrency(
+                  resumo.saldoPrevistoFimDoMes,
+                )}`}
+                tone={resumo.saldoAtual >= 0 ? "success" : "danger"}
+                icon="balance"
+              />
+            </>
+          )}
         </div>
 
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-xl font-bold text-slate-900 dark:text-white">
               Movimentações recentes
             </h3>
-            {isLoading && (
-              <span className="text-sm text-slate-500 dark:text-slate-400">
-                Carregando...
-              </span>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-bold transition-all ${
+                  apenasDivididas
+                    ? "border-violet-300 bg-violet-50 text-violet-700 shadow-sm dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-200"
+                    : "border-[color:var(--app-card-border)] bg-[var(--app-card)] text-slate-600 hover:bg-[var(--app-card-muted)] dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                }`}
+                type="button"
+                aria-pressed={apenasDivididas}
+                onClick={() => setApenasDivididas((current) => !current)}
+              >
+                <UsersRound size={16} />
+                Apenas Divididas
+              </button>
+              {isLoading && (
+                <span className="text-sm text-slate-500 dark:text-slate-400">
+                  Carregando...
+                </span>
+              )}
+            </div>
           </div>
           {(erro || hasLoadError) && (
             <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -669,7 +748,7 @@ type ResumoCardProps = {
   value: number;
   secondaryLabel?: string;
   tone: "success" | "danger" | "investment";
-  icon: "expense" | "income" | "investment" | "balance";
+  icon: "expense" | "income" | "investment" | "balance" | "shared";
 };
 
 function ResumoCard({
@@ -705,6 +784,11 @@ function ResumoCard({
       Icon: Wallet,
       wrapper: "bg-slate-100",
       color: "text-slate-600",
+    },
+    shared: {
+      Icon: UsersRound,
+      wrapper: "bg-violet-50",
+      color: "text-violet-600",
     },
   }[icon];
   const Icon = iconConfig.Icon;

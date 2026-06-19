@@ -96,7 +96,7 @@ export function PeriodFilter({ value, categorias, onChange }: PeriodFilterProps)
   }
 
   return (
-    <div className="w-full min-w-0 overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div className="relative z-30 w-full min-w-0 overflow-visible rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-end">
         <div className="relative min-w-0" ref={menuRef}>
           <button
@@ -109,7 +109,7 @@ export function PeriodFilter({ value, categorias, onChange }: PeriodFilterProps)
           </button>
 
           {isOpen && (
-            <div className="absolute left-0 z-20 mt-2 w-72 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-xl dark:border-slate-800 dark:bg-slate-900">
+            <div className="absolute left-0 z-[80] mt-2 w-72 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Período
               </p>

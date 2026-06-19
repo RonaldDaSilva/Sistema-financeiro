@@ -1,5 +1,6 @@
 export const queryKeys = {
-  extrato: (mes: number, ano: number) => ["extrato", mes, ano] as const,
+  extrato: (mes: number, ano: number, apenasDivididas = false) =>
+    ["extrato", mes, ano, apenasDivididas] as const,
   faturas: (mes: number, ano: number) => ["faturas", mes, ano] as const,
   notificacoesNaoLidas: ["notificacoes", "nao-lidas"] as const,
   categorias: ["categorias"] as const,

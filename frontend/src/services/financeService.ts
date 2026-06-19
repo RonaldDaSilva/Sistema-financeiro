@@ -17,9 +17,13 @@ export type ExportacaoParams = {
   tipoTransacao?: TipoTransacaoFiltro;
 };
 
-export async function getExtratoMensal(mes: number, ano: number) {
+export async function getExtratoMensal(
+  mes: number,
+  ano: number,
+  apenasDivididas = false,
+) {
   const { data } = await api.get<ExtratoMensal>('/api/transacoes/extrato-mensal', {
-    params: { mes, ano },
+    params: { mes, ano, apenasDivididas: apenasDivididas || undefined },
   });
 
   return data;

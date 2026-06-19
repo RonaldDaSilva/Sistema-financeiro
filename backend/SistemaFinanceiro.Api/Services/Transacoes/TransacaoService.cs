@@ -18,6 +18,7 @@ public sealed class TransacaoService : ITransacaoService
         int mes,
         int ano,
         Guid usuarioId,
+        bool? apenasDivididas = null,
         CancellationToken cancellationToken = default)
     {
         if (mes is < 1 or > 12)
@@ -129,6 +130,20 @@ public sealed class TransacaoService : ITransacaoService
             .ThenBy(item => item.Descricao)
             .ToList();
 
+        ResumoDivididasResponse? resumoDivididas = null;
+        if (apenasDivididas == true)
+        {
+            itensOrdenados = itensOrdenados
+                .Where(item => item.IsDividida)
+                .ToList();
+
+            resumoDivididas = new ResumoDivididasResponse
+            {
+                TotalSuaParte = itensOrdenados.Sum(item => item.Valor),
+                TotalOriginal = itensOrdenados.Sum(item => item.ValorTotalOriginal ?? item.Valor)
+            };
+        }
+
         var totalReceitas = itensOrdenados
             .Where(item => item.Tipo == TipoTransacao.Receita)
             .Sum(item => item.Valor);
@@ -159,6 +174,7 @@ public sealed class TransacaoService : ITransacaoService
             Saldo = saldoPrevistoFimDoMes,
             SaldoAtual = saldoAtual,
             SaldoPrevistoFimDoMes = saldoPrevistoFimDoMes,
+            ResumoDivididas = resumoDivididas,
             Itens = itensOrdenados
         };
     }
