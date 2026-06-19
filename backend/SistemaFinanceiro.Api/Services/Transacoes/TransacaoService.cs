@@ -334,6 +334,7 @@ public sealed class TransacaoService : ITransacaoService
         var pagamentosFaturasMap = pagamentosFaturas.ToDictionary(
             pagamento => (pagamento.CartaoCreditoId, pagamento.DataVencimento),
             pagamento => pagamento.IsPaga);
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
 
         return cartoes
             .Select(cartao =>
@@ -376,7 +377,9 @@ public sealed class TransacaoService : ITransacaoService
                     InicioCompetencia = periodo.InicioCompetencia,
                     FimCompetencia = periodo.FimCompetencia,
                     Status = CalcularStatusFatura(periodo.DataVencimento, periodo.FimCompetencia),
-                    IsPaga = pagamentosFaturasMap.GetValueOrDefault((cartao.Id, periodo.DataVencimento)),
+                    IsPaga = pagamentosFaturasMap.TryGetValue((cartao.Id, periodo.DataVencimento), out var isPaga)
+                        ? isPaga
+                        : periodo.DataVencimento <= hoje,
                     Detalhes = detalhesOrdenados
                 };
             })
@@ -465,8 +468,12 @@ public sealed class TransacaoService : ITransacaoService
             usuarioId,
             hoje,
             cancellationToken);
+        var totalCarnesPagos = await CalcularTotalCarnesPagosAsync(
+            usuarioId,
+            hoje,
+            cancellationToken);
 
-        return saldoTransacoesReais + saldoFixasPagas - totalFaturasPagas;
+        return saldoTransacoesReais + saldoFixasPagas - totalFaturasPagas - totalCarnesPagos;
     }
 
     private async Task<decimal> CalcularTotalFaturasPagasAsync(
@@ -474,46 +481,111 @@ public sealed class TransacaoService : ITransacaoService
         DateOnly hoje,
         CancellationToken cancellationToken)
     {
-        var pagamentos = await _dbContext.FaturasCartaoPagamentos
+        var primeiraTransacaoCredito = await _dbContext.Transacoes
             .AsNoTracking()
-            .Where(pagamento =>
-                pagamento.UsuarioId == usuarioId &&
-                pagamento.IsPaga &&
-                pagamento.DataVencimento <= hoje)
-            .Select(pagamento => new
-            {
-                pagamento.CartaoCreditoId,
-                pagamento.DataVencimento
-            })
-            .ToListAsync(cancellationToken);
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.CartaoCreditoId.HasValue &&
+                transacao.Tipo == TipoTransacao.Despesa)
+            .MinAsync(transacao => (DateOnly?)transacao.DataOcorrencia, cancellationToken);
 
-        if (pagamentos.Count == 0)
+        var primeiraCompraParceladaCredito = await _dbContext.ComprasParceladas
+            .AsNoTracking()
+            .Where(compra =>
+                compra.UsuarioId == usuarioId &&
+                compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito &&
+                compra.CartaoCreditoId.HasValue)
+            .MinAsync(compra => (DateOnly?)compra.DataCompra, cancellationToken);
+
+        var primeiraDataCredito = new[] { primeiraTransacaoCredito, primeiraCompraParceladaCredito }
+            .Where(data => data.HasValue)
+            .Select(data => data!.Value)
+            .DefaultIfEmpty()
+            .Min();
+
+        if (primeiraDataCredito == default)
         {
             return 0;
         }
 
-        var pagamentosSet = pagamentos
-            .Select(pagamento => (pagamento.CartaoCreditoId, pagamento.DataVencimento))
-            .ToHashSet();
-
         decimal total = 0;
-        foreach (var referencia in pagamentos
-            .Select(pagamento => new
-            {
-                Mes = pagamento.DataVencimento.Month,
-                Ano = pagamento.DataVencimento.Year
-            })
-            .Distinct())
+        var cursor = new DateOnly(primeiraDataCredito.Year, primeiraDataCredito.Month, 1);
+        var ultimoMes = new DateOnly(hoje.Year, hoje.Month, 1);
+
+        while (cursor <= ultimoMes)
         {
             var faturasDoMes = await GetFaturasDoMesAsync(
-                referencia.Mes,
-                referencia.Ano,
+                cursor.Month,
+                cursor.Year,
                 usuarioId,
                 cancellationToken);
 
             total += faturasDoMes
-                .Where(fatura => pagamentosSet.Contains((fatura.CartaoCreditoId, fatura.DataVencimento)))
+                .Where(fatura => fatura.IsPaga && fatura.DataVencimento <= hoje)
                 .Sum(fatura => fatura.ValorTotal);
+
+            cursor = cursor.AddMonths(1);
+        }
+
+        return total;
+    }
+
+    private async Task<decimal> CalcularTotalCarnesPagosAsync(
+        Guid usuarioId,
+        DateOnly hoje,
+        CancellationToken cancellationToken)
+    {
+        var compras = await _dbContext.ComprasParceladas
+            .AsNoTracking()
+            .Where(compra =>
+                compra.UsuarioId == usuarioId &&
+                compra.FormaPagamento == FormaPagamentoCompraParcelada.Carne &&
+                compra.DataPrimeiroVencimento.HasValue &&
+                compra.DataPrimeiroVencimento.Value <= hoje)
+            .ToListAsync(cancellationToken);
+
+        if (compras.Count == 0)
+        {
+            return 0;
+        }
+
+        var comprasIds = compras.Select(compra => compra.Id).ToList();
+        var parcelasQuitadas = await _dbContext.Transacoes
+            .AsNoTracking()
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.CompraParceladaId.HasValue &&
+                comprasIds.Contains(transacao.CompraParceladaId.Value) &&
+                transacao.NumeroParcelaQuitada.HasValue)
+            .Select(transacao => new
+            {
+                CompraParceladaId = transacao.CompraParceladaId!.Value,
+                NumeroParcela = transacao.NumeroParcelaQuitada!.Value
+            })
+            .ToListAsync(cancellationToken);
+
+        var parcelasQuitadasSet = parcelasQuitadas
+            .Select(parcela => (parcela.CompraParceladaId, parcela.NumeroParcela))
+            .ToHashSet();
+
+        decimal total = 0;
+        foreach (var compra in compras)
+        {
+            var primeiroVencimento = compra.DataPrimeiroVencimento!.Value;
+
+            for (var numeroParcela = 1; numeroParcela <= compra.QuantidadeParcelas; numeroParcela++)
+            {
+                if (parcelasQuitadasSet.Contains((compra.Id, numeroParcela)))
+                {
+                    continue;
+                }
+
+                var dataVencimento = primeiroVencimento.AddMonths(numeroParcela - 1);
+                if (dataVencimento <= hoje)
+                {
+                    total += CalcularValorParcela(compra.ValorTotal, compra.QuantidadeParcelas, numeroParcela);
+                }
+            }
         }
 
         return total;
@@ -543,8 +615,7 @@ public sealed class TransacaoService : ITransacaoService
             FormaPagamento = request.FormaPagamento.Trim(),
             CartaoCreditoId = request.Tipo == TipoTransacao.Despesa ? request.CartaoCreditoId : null,
             IsFixa = request.IsFixa,
-            IsPaga = request.Tipo != TipoTransacao.Receita &&
-                request.DataOcorrencia == DateOnly.FromDateTime(DateTime.Today),
+            IsPaga = DeveEntrarComoPaga(request.DataOcorrencia),
             IsDividida = request.IsDividida,
             ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null,
             PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null,
@@ -980,8 +1051,7 @@ public sealed class TransacaoService : ITransacaoService
         transacao.FormaPagamento = request.FormaPagamento.Trim();
         transacao.CartaoCreditoId = request.Tipo == TipoTransacao.Despesa ? request.CartaoCreditoId : null;
         transacao.IsFixa = isFixa;
-        transacao.IsPaga = request.Tipo != TipoTransacao.Receita &&
-            request.DataOcorrencia == DateOnly.FromDateTime(DateTime.Today);
+        transacao.IsPaga = DeveEntrarComoPaga(request.DataOcorrencia);
         transacao.IsDividida = request.IsDividida;
         transacao.ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null;
         transacao.PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null;
@@ -1006,7 +1076,7 @@ public sealed class TransacaoService : ITransacaoService
             FormaPagamento = transacao.FormaPagamento,
             CartaoCreditoId = transacao.CartaoCreditoId,
             IsFixa = true,
-            IsPaga = false,
+            IsPaga = DeveEntrarComoPaga(dataOcorrencia),
             IsDividida = transacao.IsDividida,
             ValorTotalOriginal = transacao.ValorTotalOriginal,
             PercentualDivisao = transacao.PercentualDivisao
@@ -1251,7 +1321,7 @@ public sealed class TransacaoService : ITransacaoService
             CartaoCreditoId = compra.CartaoCreditoId,
             CartaoCreditoApelido = compra.CartaoCredito?.ApelidoCartao,
             IsFixa = false,
-            IsPaga = false,
+            IsPaga = DeveEntrarComoPaga(dataProjetada > fimMes ? fimMes : dataProjetada),
             IsDividida = compra.IsDividida,
             ValorTotalOriginal = compra.IsDividida && compra.ValorTotalOriginal.HasValue
                 ? CalcularValorParcela(compra.ValorTotalOriginal.Value, compra.QuantidadeParcelas, numeroParcela)
@@ -1411,7 +1481,7 @@ public sealed class TransacaoService : ITransacaoService
                     CategoriaCorHexa = compra.Categoria.CorHexa,
                     FormaPagamento = "Carnê/Crediário",
                     IsFixa = false,
-                    IsPaga = false,
+                    IsPaga = DeveEntrarComoPaga(dataVencimento),
                     IsDividida = compra.IsDividida,
                     ValorTotalOriginal = compra.IsDividida && compra.ValorTotalOriginal.HasValue
                         ? CalcularValorParcela(
@@ -1518,6 +1588,11 @@ public sealed class TransacaoService : ITransacaoService
         return numeroParcela == quantidadeParcelas
             ? valorTotal - (valorBase * (quantidadeParcelas - 1))
             : valorBase;
+    }
+
+    private static bool DeveEntrarComoPaga(DateOnly dataOcorrencia)
+    {
+        return dataOcorrencia <= DateOnly.FromDateTime(DateTime.Today);
     }
 
     private sealed record FaturaPeriodo(
