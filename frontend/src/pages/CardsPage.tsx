@@ -1,7 +1,9 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, Pencil, Plus, Trash2 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
-import { hasUsableStoredAuth } from "../services/authStorage";
+import { useCartoes } from "../hooks/queries/useFinanceQueries";
+import { queryKeys } from "../hooks/queries/queryKeys";
 import * as financeService from "../services/financeService";
 import type { CartaoCredito } from "../types/finance";
 import {
@@ -28,34 +30,13 @@ const emptyForm: CardForm = {
 };
 
 export function CardsPage() {
-  const [cartoes, setCartoes] = useState<CartaoCredito[]>([]);
+  const queryClient = useQueryClient();
+  const cartoesQuery = useCartoes();
+  const cartoes = cartoesQuery.data ?? [];
   const [form, setForm] = useState<CardForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const carregar = useCallback(async () => {
-    if (!hasUsableStoredAuth()) {
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    setErro(null);
-
-    try {
-      const cartoesResponse = await financeService.listarCartoesCredito();
-      setCartoes(cartoesResponse);
-    } catch {
-      setErro("Nao foi possivel carregar os cartões.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    carregar();
-  }, [carregar]);
+  const isLoading = cartoesQuery.isLoading;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -70,7 +51,7 @@ export function CardsPage() {
 
       setForm(emptyForm);
       setEditingId(null);
-      await carregar();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.cartoes });
     } catch {
       setErro("Não foi possível salvar o cartão.");
     }
@@ -90,7 +71,7 @@ export function CardsPage() {
   async function excluir(id: string) {
     try {
       await financeService.excluirCartaoCredito(id);
-      await carregar();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.cartoes });
     } catch {
       setErro("Não foi possível excluir o cartão.");
     }
@@ -176,6 +157,10 @@ export function CardsPage() {
           {isLoading ? (
             <div className="rounded-2xl bg-[var(--app-card)] p-6 text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
               Carregando cartões...
+            </div>
+          ) : cartoesQuery.isError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
+              Não foi possível carregar os cartões.
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">

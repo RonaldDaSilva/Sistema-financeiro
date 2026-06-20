@@ -5,11 +5,23 @@ import * as notificationService from "../services/notificationService";
 import { useNotificacoesNaoLidas } from "../hooks/queries/useNotificationQueries";
 import { queryKeys } from "../hooks/queries/queryKeys";
 
-export function NotificationBell() {
+type NotificationBellProps = {
+  placement?: "header" | "sidebar";
+};
+
+export function NotificationBell({ placement = "header" }: NotificationBellProps) {
   const queryClient = useQueryClient();
-  const { data: notificacoes = [], isLoading } = useNotificacoesNaoLidas();
   const [isOpen, setIsOpen] = useState(false);
+  const [canLoadNotifications, setCanLoadNotifications] = useState(false);
+  const { data: notificacoes = [], isLoading } = useNotificacoesNaoLidas(
+    canLoadNotifications || isOpen,
+  );
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setCanLoadNotifications(true), 2500);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -31,8 +43,13 @@ export function NotificationBell() {
     setIsOpen(false);
   }
 
+  const dropdownClass =
+    placement === "sidebar"
+      ? "absolute bottom-0 left-full z-[90] ml-4 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+      : "absolute right-0 top-full z-[90] mt-3 w-[calc(100vw-2rem)] max-w-80 overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl dark:border-slate-800 dark:bg-slate-900";
+
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative shrink-0" ref={menuRef}>
       <button
         className="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
         type="button"
@@ -48,13 +65,13 @@ export function NotificationBell() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 z-50 mt-3 w-80 overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-xl dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-            <p className="font-semibold text-slate-900 dark:text-white">
+        <div className={dropdownClass}>
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+            <p className="min-w-0 truncate font-semibold text-slate-900 dark:text-white">
               Notificações
             </p>
             <button
-              className="text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50 dark:text-slate-300 dark:hover:text-white"
+              className="shrink-0 text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50 dark:text-slate-300 dark:hover:text-white"
               type="button"
               disabled={notificacoes.length === 0}
               onClick={handleMarcarComoLidas}
@@ -63,7 +80,7 @@ export function NotificationBell() {
             </button>
           </div>
 
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto">
             {isLoading && notificacoes.length === 0 ? (
               <p className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
                 Carregando...

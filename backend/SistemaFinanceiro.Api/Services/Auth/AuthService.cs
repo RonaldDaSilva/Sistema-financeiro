@@ -98,6 +98,7 @@ public sealed class AuthService : IAuthService
     {
         var email = NormalizarEmail(request.Email);
         var usuario = await _dbContext.Usuarios
+            .AsNoTracking()
             .SingleOrDefaultAsync(usuario => usuario.Email == email, cancellationToken);
 
         if (usuario is null)
@@ -114,6 +115,7 @@ public sealed class AuthService : IAuthService
         if (resultado == PasswordVerificationResult.SuccessRehashNeeded)
         {
             usuario.SenhaHash = _passwordHasher.HashPassword(usuario, request.Senha);
+            _dbContext.Usuarios.Update(usuario);
         }
 
         var authResponse = CriarCredenciais(usuario);

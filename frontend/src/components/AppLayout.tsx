@@ -44,6 +44,11 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { user, logout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window === "undefined"
+      ? true
+      : window.matchMedia("(min-width: 768px)").matches,
+  );
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const stored = localStorage.getItem("theme");
     return stored === "dark" ? "dark" : "light";
@@ -55,6 +60,15 @@ export function AppLayout({ children }: AppLayoutProps) {
     applyTheme(theme);
     applyPalette(getStoredPaletteId());
   }, [theme]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 768px)");
+    const handleChange = () => setIsDesktop(mediaQuery.matches);
+
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -119,7 +133,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           </nav>
 
           <div className="flex items-center space-x-3">
-            <NotificationBell />
+            {!isDesktop && <NotificationBell />}
             <div className="relative" ref={menuRef}>
               <button
                 className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 dark:focus:ring-white"
@@ -289,7 +303,7 @@ export function AppLayout({ children }: AppLayoutProps) {
                     Notificações
                   </span>
                 )}
-                <NotificationBell />
+                {isDesktop && <NotificationBell placement="sidebar" />}
               </div>
 
               <div className="relative" ref={sidebarMenuRef}>

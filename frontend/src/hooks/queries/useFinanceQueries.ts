@@ -124,15 +124,17 @@ export function useCategorias() {
     queryKey: queryKeys.categorias,
     queryFn: financeService.listarCategorias,
     enabled: canFetch,
+    staleTime: 10 * 60 * 1000,
   });
 }
 
-export function useCartoes() {
+export function useCartoes(enabled = true) {
   const canFetch = hasUsableStoredAuth();
 
   return useQuery({
     queryKey: queryKeys.cartoes,
     queryFn: financeService.listarCartoesCredito,
-    enabled: canFetch,
+    enabled: enabled && canFetch,
+    staleTime: 10 * 60 * 1000,
   });
 }

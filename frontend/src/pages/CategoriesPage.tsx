@@ -1,10 +1,14 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import EmojiPicker, { type EmojiClickData } from "emoji-picker-react";
+import { FormEvent, Suspense, lazy, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { EmojiClickData } from "emoji-picker-react";
 import { Folder, Pencil, Plus, Trash2 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
-import { hasUsableStoredAuth } from "../services/authStorage";
+import { useCategorias } from "../hooks/queries/useFinanceQueries";
+import { queryKeys } from "../hooks/queries/queryKeys";
 import * as financeService from "../services/financeService";
 import type { Categoria } from "../types/finance";
+
+const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
 type CategoryForm = {
   nome: string;
@@ -15,34 +19,13 @@ const emptyForm: CategoryForm = {
 };
 
 export function CategoriesPage() {
-  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const queryClient = useQueryClient();
+  const categoriasQuery = useCategorias();
+  const categorias = categoriasQuery.data ?? [];
   const [form, setForm] = useState<CategoryForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
-
-  const carregar = useCallback(async () => {
-    if (!hasUsableStoredAuth()) {
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    setErro(null);
-
-    try {
-      setCategorias(await financeService.listarCategorias());
-    } catch {
-      setErro("Nao foi possivel carregar as categorias.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    carregar();
-  }, [carregar]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -57,7 +40,7 @@ export function CategoriesPage() {
 
       setForm(emptyForm);
       setEditingId(null);
-      await carregar();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.categorias });
     } catch {
       setErro("Nao foi possivel salvar a categoria.");
     }
@@ -81,7 +64,7 @@ export function CategoriesPage() {
 
     try {
       await financeService.excluirCategoria(categoria.id);
-      await carregar();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.categorias });
     } catch {
       setErro("Nao foi possivel excluir a categoria.");
     }
@@ -122,13 +105,21 @@ export function CategoriesPage() {
                 </button>
                 {isEmojiPickerOpen && (
                   <div className="absolute right-0 z-20 mt-2">
-                    <EmojiPicker
-                      height={420}
-                      lazyLoadEmojis
-                      onEmojiClick={handleEmojiClick}
-                      previewConfig={{ showPreview: false }}
-                      width={320}
-                    />
+                    <Suspense
+                      fallback={
+                        <div className="w-80 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 text-sm text-slate-500 shadow-xl">
+                          Carregando emojis...
+                        </div>
+                      }
+                    >
+                      <EmojiPicker
+                        height={420}
+                        lazyLoadEmojis
+                        onEmojiClick={handleEmojiClick}
+                        previewConfig={{ showPreview: false }}
+                        width={320}
+                      />
+                    </Suspense>
                   </div>
                 )}
               </div>
@@ -164,9 +155,13 @@ export function CategoriesPage() {
               Listagem e edição
             </h2>
           </div>
-          {isLoading ? (
+          {categoriasQuery.isLoading ? (
             <div className="rounded-2xl bg-[var(--app-card)] p-6 text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
               Carregando categorias...
+            </div>
+          ) : categoriasQuery.isError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
+              Não foi possível carregar as categorias.
             </div>
           ) : (
             <div className="overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-sm dark:border-slate-800 dark:bg-slate-900">

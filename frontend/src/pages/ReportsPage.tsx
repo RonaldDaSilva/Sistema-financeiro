@@ -97,16 +97,55 @@ export function ReportsPage() {
           return { mes: date.getMonth() + 1, ano: date.getFullYear() };
         });
 
-        const [extratoMes, faturasDoMes, extratosFluxo, ...extratos] = await Promise.all([
-          financeService.getExtratoMensal(mes, ano),
+        const mesesAno = Array.from({ length: 12 }, (_, index) => ({
+          mes: index + 1,
+          ano,
+        }));
+        const referenciasExtrato = [
+          { mes, ano },
+          ...mesesFluxo,
+          ...mesesAno,
+        ];
+        const referenciasUnicas = Array.from(
+          new Map(
+            referenciasExtrato.map((referencia) => [
+              `${referencia.ano}-${referencia.mes}`,
+              referencia,
+            ]),
+          ).values(),
+        );
+
+        const [faturasDoMes, ...extratosUnicos] = await Promise.all([
           financeService.getFaturasDoMes(mes, ano),
-          Promise.all(
-            mesesFluxo.map((item) => financeService.getExtratoMensal(item.mes, item.ano)),
-          ),
-          ...Array.from({ length: 12 }, (_, index) =>
-            financeService.getExtratoMensal(index + 1, ano),
+          ...referenciasUnicas.map((referencia) =>
+            financeService.getExtratoMensal(referencia.mes, referencia.ano),
           ),
         ]);
+        const extratosPorMes = new Map(
+          extratosUnicos.map((extrato) => [
+            `${extrato.ano}-${extrato.mes}`,
+            extrato,
+          ]),
+        );
+        const extratoMes = extratosPorMes.get(`${ano}-${mes}`);
+        const extratosFluxo = mesesFluxo
+          .map((referencia) =>
+            extratosPorMes.get(`${referencia.ano}-${referencia.mes}`),
+          )
+          .filter((extrato): extrato is NonNullable<typeof extratoMes> =>
+            Boolean(extrato),
+          );
+        const extratos = mesesAno
+          .map((referencia) =>
+            extratosPorMes.get(`${referencia.ano}-${referencia.mes}`),
+          )
+          .filter((extrato): extrato is NonNullable<typeof extratoMes> =>
+            Boolean(extrato),
+          );
+
+        if (!extratoMes) {
+          throw new Error("Extrato do mês não encontrado.");
+        }
 
         setItensMes(extratoMes.itens);
         setFaturasMes(faturasDoMes);

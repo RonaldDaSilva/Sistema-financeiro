@@ -83,8 +83,8 @@ export function DashboardPage() {
     [rangePeriodo],
   );
   const categoriasQuery = useCategorias();
-  const cartoesQuery = useCartoes();
-  const configuracoesQuery = useConfiguracoesNotificacao();
+  const cartoesQuery = useCartoes(isModalOpen);
+  const configuracoesQuery = useConfiguracoesNotificacao(isModalOpen);
   const extratosQueries = useExtratosMensais(mesesPeriodo, apenasDivididas);
   const extratoPaginadoQuery = useExtratoMensalPaginado({
     mes: mesesPeriodo[0]?.mes ?? hoje.getMonth() + 1,
@@ -104,16 +104,12 @@ export function DashboardPage() {
     configuracoesQuery.data?.percentualPadraoDivisao ?? 50;
   const isLoading = [
     categoriasQuery,
-    cartoesQuery,
-    configuracoesQuery,
     ...extratosQueries,
     ...faturasQueries,
     extratoPaginadoQuery,
   ].some((query) => query.isLoading);
   const hasLoadError = [
     categoriasQuery,
-    cartoesQuery,
-    configuracoesQuery,
     ...extratosQueries,
     ...faturasQueries,
     extratoPaginadoQuery,
