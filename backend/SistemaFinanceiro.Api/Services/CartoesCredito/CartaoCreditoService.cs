@@ -2,16 +2,19 @@ using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.CartoesCredito;
 using SistemaFinanceiro.Api.Models;
+using SistemaFinanceiro.Api.Services.Transacoes;
 
 namespace SistemaFinanceiro.Api.Services.CartoesCredito;
 
 public sealed class CartaoCreditoService : ICartaoCreditoService
 {
     private readonly AppDbContext _dbContext;
+    private readonly ITransacaoService _transacaoService;
 
-    public CartaoCreditoService(AppDbContext dbContext)
+    public CartaoCreditoService(AppDbContext dbContext, ITransacaoService transacaoService)
     {
         _dbContext = dbContext;
+        _transacaoService = transacaoService;
     }
 
     public async Task<IReadOnlyList<CartaoCreditoResponse>> ListarAsync(Guid usuarioId, CancellationToken cancellationToken = default)
@@ -182,10 +185,83 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             };
         });
 
-        return transacoes
+        var usoBrutoPorCartao = transacoes
             .Concat(usoComprasParceladas)
             .GroupBy(item => item.CartaoId)
             .ToDictionary(grupo => grupo.Key, grupo => grupo.Sum(item => item.ValorLimite));
+
+        var faturasPagasPorCartao = await CalcularFaturasPagasPorCartaoAsync(usuarioId, cancellationToken);
+
+        return usoBrutoPorCartao
+            .ToDictionary(
+                item => item.Key,
+                item => Math.Max(0m, item.Value - faturasPagasPorCartao.GetValueOrDefault(item.Key)));
+    }
+
+    private async Task<Dictionary<Guid, decimal>> CalcularFaturasPagasPorCartaoAsync(
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var primeiraTransacaoCredito = await _dbContext.Transacoes
+            .AsNoTracking()
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.CartaoCreditoId.HasValue &&
+                transacao.Tipo == TipoTransacao.Despesa)
+            .MinAsync(transacao => (DateOnly?)transacao.DataOcorrencia, cancellationToken);
+
+        var primeiraCompraParceladaCredito = await _dbContext.ComprasParceladas
+            .AsNoTracking()
+            .Where(compra =>
+                compra.UsuarioId == usuarioId &&
+                compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito &&
+                compra.CartaoCreditoId.HasValue)
+            .MinAsync(compra => (DateOnly?)compra.DataCompra, cancellationToken);
+
+        var primeiraDataCredito = new[] { primeiraTransacaoCredito, primeiraCompraParceladaCredito }
+            .Where(data => data.HasValue)
+            .Select(data => data!.Value)
+            .DefaultIfEmpty()
+            .Min();
+
+        if (primeiraDataCredito == default)
+        {
+            return [];
+        }
+
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var ultimaFaturaMarcada = await _dbContext.FaturasCartaoPagamentos
+            .AsNoTracking()
+            .Where(pagamento =>
+                pagamento.UsuarioId == usuarioId &&
+                pagamento.IsPaga)
+            .MaxAsync(pagamento => (DateOnly?)pagamento.DataVencimento, cancellationToken);
+
+        var ultimoMesReferencia = ultimaFaturaMarcada.HasValue && ultimaFaturaMarcada.Value > hoje
+            ? new DateOnly(ultimaFaturaMarcada.Value.Year, ultimaFaturaMarcada.Value.Month, 1)
+            : new DateOnly(hoje.Year, hoje.Month, 1);
+
+        var cursor = new DateOnly(primeiraDataCredito.Year, primeiraDataCredito.Month, 1);
+        var faturasPagasPorCartao = new Dictionary<Guid, decimal>();
+
+        while (cursor <= ultimoMesReferencia)
+        {
+            var faturasDoMes = await _transacaoService.GetFaturasDoMesAsync(
+                cursor.Month,
+                cursor.Year,
+                usuarioId,
+                cancellationToken);
+
+            foreach (var fatura in faturasDoMes.Where(fatura => fatura.IsPaga && fatura.ValorTotal > 0))
+            {
+                faturasPagasPorCartao[fatura.CartaoCreditoId] =
+                    faturasPagasPorCartao.GetValueOrDefault(fatura.CartaoCreditoId) + fatura.ValorTotal;
+            }
+
+            cursor = cursor.AddMonths(1);
+        }
+
+        return faturasPagasPorCartao;
     }
 
     private static decimal CalcularValorParcela(decimal valorTotal, int quantidadeParcelas, int numeroParcela)
@@ -198,6 +274,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
 
     private static CartaoCreditoResponse Mapear(CartaoCredito cartao, decimal valorUtilizado)
     {
+        var valorUtilizadoAtual = Math.Max(0m, valorUtilizado);
+
         return new CartaoCreditoResponse
         {
             Id = cartao.Id,
@@ -207,7 +285,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             DiaVencimento = cartao.DiaVencimento,
             MelhorDiaCompra = cartao.MelhorDiaCompra,
             LimiteTotal = cartao.LimiteTotal,
-            LimiteDisponivel = cartao.LimiteTotal - valorUtilizado
+            ValorUtilizado = valorUtilizadoAtual,
+            LimiteDisponivel = cartao.LimiteTotal - valorUtilizadoAtual
         };
     }
 }

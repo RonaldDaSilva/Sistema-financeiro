@@ -70,6 +70,7 @@ export type CartaoCredito = {
   diaVencimento: number;
   melhorDiaCompra: number;
   limiteTotal: number;
+  valorUtilizado: number;
   limiteDisponivel: number;
 };
 

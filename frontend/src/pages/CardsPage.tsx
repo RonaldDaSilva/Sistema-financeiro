@@ -181,6 +181,10 @@ export function CardsPage() {
             <div className="grid gap-4 md:grid-cols-2">
               {cartoes.map((cartao) => {
                 const disponivel = cartao.limiteDisponivel;
+                const utilizado = cartao.valorUtilizado ?? Math.max(0, cartao.limiteTotal - disponivel);
+                const percentualUtilizado = cartao.limiteTotal > 0
+                  ? Math.min(100, Math.max(0, (utilizado / cartao.limiteTotal) * 100))
+                  : 0;
 
                 return (
                   <article
@@ -219,6 +223,23 @@ export function CardsPage() {
                         </button>
                       </div>
                     </div>
+                    <div className="mt-5">
+                      <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                        <span className="font-medium text-slate-500 dark:text-slate-400">
+                          Utilizado
+                        </span>
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {formatCurrency(utilizado)}
+                        </span>
+                      </div>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                        <div
+                          className="h-full rounded-full bg-[var(--app-accent)] transition-all"
+                          style={{ width: `${percentualUtilizado}%` }}
+                        />
+                      </div>
+                    </div>
+
                     <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                       <div>
                         <dt className="text-slate-500 dark:text-slate-400">Limite total</dt>
