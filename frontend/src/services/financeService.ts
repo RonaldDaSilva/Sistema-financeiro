@@ -10,6 +10,7 @@ import type {
   ExtratoMensalItem,
   FaturaConsolidada,
   PagedResponse,
+  RelatorioGraficos,
   TipoTransacao,
   TipoTransacaoFiltro,
 } from '../types/finance';
@@ -118,6 +119,22 @@ export async function getFaturasDoMes(mes: number, ano: number) {
   });
 
   return data;
+}
+
+export async function getRelatorioGraficos(mes: number, ano: number) {
+  try {
+    const { data } = await api.get<RelatorioGraficos>('/api/relatorios/graficos', {
+      params: { mes, ano },
+    });
+
+    return data;
+  } catch (error) {
+    if (!axios.isAxiosError(error) || error.response?.status !== 404) {
+      throw error;
+    }
+
+    return getRelatorioGraficosFallback(mes, ano);
+  }
 }
 
 export async function criarTransacao(request: CriarTransacaoRequest) {
@@ -278,5 +295,108 @@ function normalizarParametrosExportacao(params: ExportacaoParams) {
       params.tipoTransacao && params.tipoTransacao !== 'todos'
         ? params.tipoTransacao
         : undefined,
+  };
+}
+
+async function getRelatorioGraficosFallback(
+  mes: number,
+  ano: number,
+): Promise<RelatorioGraficos> {
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  const mesesFluxo = Array.from({ length: 12 }, (_, index) => {
+    const date = new Date(currentYear, currentMonth - 1 - 5 + index, 1);
+    return { mes: date.getMonth() + 1, ano: date.getFullYear() };
+  });
+  const mesesAno = Array.from({ length: 12 }, (_, index) => ({
+    mes: index + 1,
+    ano,
+  }));
+  const referenciasUnicas = Array.from(
+    new Map(
+      [{ mes, ano }, ...mesesFluxo, ...mesesAno].map((referencia) => [
+        `${referencia.ano}-${referencia.mes}`,
+        referencia,
+      ]),
+    ).values(),
+  );
+  const [faturasDoMes, ...extratosUnicos] = await Promise.all([
+    getFaturasDoMes(mes, ano),
+    ...referenciasUnicas.map((referencia) =>
+      getExtratoMensal(referencia.mes, referencia.ano),
+    ),
+  ]);
+  const extratosPorMes = new Map(
+    extratosUnicos.map((extrato) => [`${extrato.ano}-${extrato.mes}`, extrato]),
+  );
+  const extratoMes = extratosPorMes.get(`${ano}-${mes}`);
+
+  if (!extratoMes) {
+    throw new Error('Extrato do mês não encontrado.');
+  }
+
+  const categorias = new Map<
+    string,
+    {
+      categoriaId: string | null;
+      categoriaNome: string;
+      categoriaCorHexa: string;
+      valor: number;
+    }
+  >();
+
+  faturasDoMes.flatMap((fatura) => fatura.detalhes).forEach((detalhe) => {
+    const key = detalhe.categoriaId ?? 'sem-categoria';
+    const current = categorias.get(key) ?? {
+      categoriaId: detalhe.categoriaId,
+      categoriaNome: detalhe.categoriaNome,
+      categoriaCorHexa: detalhe.categoriaCorHexa,
+      valor: 0,
+    };
+
+    current.valor += detalhe.valor;
+    categorias.set(key, current);
+  });
+
+  extratoMes.itens
+    .filter(
+      (item) =>
+        (item.tipo === 2 || item.tipo === 'Despesa') &&
+        item.origem !== 'FaturaCartao',
+    )
+    .forEach((item) => {
+      const key = item.categoriaId ?? 'sem-categoria';
+      const current = categorias.get(key) ?? {
+        categoriaId: item.categoriaId,
+        categoriaNome: item.categoriaNome,
+        categoriaCorHexa: item.categoriaCorHexa,
+        valor: 0,
+      };
+
+      current.valor += item.valor;
+      categorias.set(key, current);
+    });
+
+  const toMensal = (referencia: { mes: number; ano: number }) => {
+    const extrato = extratosPorMes.get(`${referencia.ano}-${referencia.mes}`);
+
+    return {
+      mes: referencia.mes,
+      ano: referencia.ano,
+      receitas: extrato?.totalReceitas ?? 0,
+      despesas: extrato?.totalDespesas ?? 0,
+      investimentos: extrato?.totalInvestido ?? 0,
+      saldo: extrato?.saldo ?? 0,
+    };
+  };
+
+  return {
+    mes,
+    ano,
+    despesasPorCategoria: Array.from(categorias.values()).sort(
+      (a, b) => b.valor - a.valor,
+    ),
+    saldoAnual: mesesAno.map(toMensal),
+    serieFluxo: mesesFluxo.map(toMensal),
   };
 }

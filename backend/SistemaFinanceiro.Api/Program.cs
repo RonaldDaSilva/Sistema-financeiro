@@ -14,6 +14,7 @@ using SistemaFinanceiro.Api.Services.Categorias;
 using SistemaFinanceiro.Api.Services.ComprasParceladas;
 using SistemaFinanceiro.Api.Services.Exportacao;
 using SistemaFinanceiro.Api.Services.Notificacoes;
+using SistemaFinanceiro.Api.Services.Relatorios;
 using SistemaFinanceiro.Api.Services.Tenancy;
 using SistemaFinanceiro.Api.Services.Transacoes;
 using SistemaFinanceiro.Api.Services.Usuarios;
@@ -90,6 +91,7 @@ builder.Services.AddScoped<ITransacaoService, TransacaoService>();
 builder.Services.AddScoped<IExportacaoService, ExportacaoService>();
 builder.Services.AddScoped<IUsuarioService, UsuarioService>();
 builder.Services.AddScoped<INotificacaoService, NotificacaoService>();
+builder.Services.AddScoped<IRelatorioService, RelatorioService>();
 builder.Services.AddScoped<PasswordHasher<Usuario>>();
 builder.Services.AddHostedService<NotificacaoBackgroundService>();
 

@@ -54,6 +54,30 @@ export type PagedResponse<T> = {
   totalPages: number;
 };
 
+export type RelatorioCategoria = {
+  categoriaId: string | null;
+  categoriaNome: string;
+  categoriaCorHexa: string;
+  valor: number;
+};
+
+export type RelatorioMensal = {
+  mes: number;
+  ano: number;
+  receitas: number;
+  despesas: number;
+  investimentos: number;
+  saldo: number;
+};
+
+export type RelatorioGraficos = {
+  mes: number;
+  ano: number;
+  despesasPorCategoria: RelatorioCategoria[];
+  saldoAnual: RelatorioMensal[];
+  serieFluxo: RelatorioMensal[];
+};
+
 export type AnteciparParcelaRequest = {
   idCompraParcelada: string;
   numeroParcela: number;

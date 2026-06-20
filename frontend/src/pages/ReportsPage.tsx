@@ -18,7 +18,6 @@ import {
 import { AppLayout } from "../components/AppLayout";
 import { hasUsableStoredAuth } from "../services/authStorage";
 import * as financeService from "../services/financeService";
-import type { ExtratoMensalItem, FaturaConsolidada } from "../types/finance";
 import { formatCurrency } from "../utils/date";
 
 const monthNames = [
@@ -67,8 +66,6 @@ export function ReportsPage() {
   const currentMonth = new Date().getMonth() + 1;
   const [ano, setAno] = useState(currentYear);
   const [mes, setMes] = useState(currentMonth);
-  const [itensMes, setItensMes] = useState<ExtratoMensalItem[]>([]);
-  const [faturasMes, setFaturasMes] = useState<FaturaConsolidada[]>([]);
   const [extratosAno, setExtratosAno] = useState<
     Array<{ mes: number; receitas: number; despesas: number; saldo: number }>
   >([]);
@@ -78,6 +75,9 @@ export function ReportsPage() {
   const [modoGraficoCategoria, setModoGraficoCategoria] = useState<
     "valor" | "percentual"
   >("valor");
+  const [despesasPorCategoria, setDespesasPorCategoria] = useState<
+    Array<{ name: string; value: number; color: string }>
+  >([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -92,76 +92,28 @@ export function ReportsPage() {
       setErro(null);
 
       try {
-        const mesesFluxo = Array.from({ length: 12 }, (_, index) => {
-          const date = new Date(currentYear, currentMonth - 1 - 5 + index, 1);
-          return { mes: date.getMonth() + 1, ano: date.getFullYear() };
-        });
+        const relatorio = await financeService.getRelatorioGraficos(mes, ano);
 
-        const mesesAno = Array.from({ length: 12 }, (_, index) => ({
-          mes: index + 1,
-          ano,
-        }));
-        const referenciasExtrato = [
-          { mes, ano },
-          ...mesesFluxo,
-          ...mesesAno,
-        ];
-        const referenciasUnicas = Array.from(
-          new Map(
-            referenciasExtrato.map((referencia) => [
-              `${referencia.ano}-${referencia.mes}`,
-              referencia,
-            ]),
-          ).values(),
+        setDespesasPorCategoria(
+          relatorio.despesasPorCategoria.map((item) => ({
+            name: item.categoriaNome,
+            value: item.valor,
+            color: item.categoriaCorHexa,
+          })),
         );
-
-        const [faturasDoMes, ...extratosUnicos] = await Promise.all([
-          financeService.getFaturasDoMes(mes, ano),
-          ...referenciasUnicas.map((referencia) =>
-            financeService.getExtratoMensal(referencia.mes, referencia.ano),
-          ),
-        ]);
-        const extratosPorMes = new Map(
-          extratosUnicos.map((extrato) => [
-            `${extrato.ano}-${extrato.mes}`,
-            extrato,
-          ]),
-        );
-        const extratoMes = extratosPorMes.get(`${ano}-${mes}`);
-        const extratosFluxo = mesesFluxo
-          .map((referencia) =>
-            extratosPorMes.get(`${referencia.ano}-${referencia.mes}`),
-          )
-          .filter((extrato): extrato is NonNullable<typeof extratoMes> =>
-            Boolean(extrato),
-          );
-        const extratos = mesesAno
-          .map((referencia) =>
-            extratosPorMes.get(`${referencia.ano}-${referencia.mes}`),
-          )
-          .filter((extrato): extrato is NonNullable<typeof extratoMes> =>
-            Boolean(extrato),
-          );
-
-        if (!extratoMes) {
-          throw new Error("Extrato do mês não encontrado.");
-        }
-
-        setItensMes(extratoMes.itens);
-        setFaturasMes(faturasDoMes);
         setSerieFluxo(
-          extratosFluxo.map((extrato) => ({
+          relatorio.serieFluxo.map((extrato) => ({
             mes: `${monthNames[extrato.mes - 1]}/${String(extrato.ano).slice(2)}`,
-            receitas: extrato.totalReceitas,
-            despesas: extrato.totalDespesas,
+            receitas: extrato.receitas,
+            despesas: extrato.despesas,
             saldo: extrato.saldo,
           })),
         );
         setExtratosAno(
-          extratos.map((extrato) => ({
+          relatorio.saldoAnual.map((extrato) => ({
             mes: extrato.mes,
-            receitas: extrato.totalReceitas,
-            despesas: extrato.totalDespesas,
+            receitas: extrato.receitas,
+            despesas: extrato.despesas,
             saldo: extrato.saldo,
           })),
         );
@@ -174,47 +126,6 @@ export function ReportsPage() {
 
     carregarRelatorios();
   }, [ano, mes]);
-
-  const despesasPorCategoria = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; value: number; color: string }
-    >();
-
-    const detalhesFatura = faturasMes.flatMap((fatura) => fatura.detalhes);
-
-    detalhesFatura.forEach((detalhe) => {
-      const categoriaKey = detalhe.categoriaId ?? "sem-categoria";
-      const current = map.get(categoriaKey) ?? {
-        name: detalhe.categoriaNome,
-        value: 0,
-        color: detalhe.categoriaCorHexa,
-      };
-
-      current.value += detalhe.valor;
-      map.set(categoriaKey, current);
-    });
-
-    itensMes
-      .filter(
-        (item) =>
-          (item.tipo === 2 || item.tipo === "Despesa") &&
-          item.origem !== "FaturaCartao",
-      )
-      .forEach((item) => {
-        const categoriaKey = item.categoriaId ?? "sem-categoria";
-        const current = map.get(categoriaKey) ?? {
-          name: item.categoriaNome,
-          value: 0,
-          color: item.categoriaCorHexa,
-        };
-
-        current.value += item.valor;
-        map.set(categoriaKey, current);
-      });
-
-    return Array.from(map.values()).sort((a, b) => b.value - a.value);
-  }, [faturasMes, itensMes]);
 
   const totalDespesasCategoria = useMemo(
     () => despesasPorCategoria.reduce((total, item) => total + item.value, 0),
