@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { api } from './api';
 import type {
   AnteciparParcelaRequest,
@@ -6,7 +7,10 @@ import type {
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
   ExtratoMensal,
+  ExtratoMensalItem,
   FaturaConsolidada,
+  PagedResponse,
+  TipoTransacao,
   TipoTransacaoFiltro,
 } from '../types/finance';
 
@@ -27,6 +31,85 @@ export async function getExtratoMensal(
   });
 
   return data;
+}
+
+export async function getExtratoMensalPaginado(params: {
+  mes: number;
+  ano: number;
+  dataInicial?: string;
+  dataFinal?: string;
+  pageNumber: number;
+  pageSize: number;
+  apenasDivididas?: boolean;
+  tipo?: TipoTransacao | null;
+  categoriaId?: string | null;
+}) {
+  try {
+    const { data } = await api.get<PagedResponse<ExtratoMensalItem>>(
+      '/api/transacoes/extrato-mensal/paginado',
+      {
+        params: {
+          mes: params.mes,
+          ano: params.ano,
+          dataInicial: params.dataInicial,
+          dataFinal: params.dataFinal,
+          pageNumber: params.pageNumber,
+          pageSize: params.pageSize,
+          apenasDivididas: params.apenasDivididas || undefined,
+          tipo: params.tipo ?? undefined,
+          categoriaId: params.categoriaId ?? undefined,
+        },
+      },
+    );
+
+    return data;
+  } catch (error) {
+    if (!axios.isAxiosError(error) || error.response?.status !== 404) {
+      throw error;
+    }
+
+    const extrato = await getExtratoMensal(
+      params.mes,
+      params.ano,
+      params.apenasDivididas,
+    );
+    const itensFiltrados = extrato.itens
+      .filter((item) => {
+        if (params.dataInicial && item.dataOcorrencia < params.dataInicial) {
+          return false;
+        }
+
+        if (params.dataFinal && item.dataOcorrencia > params.dataFinal) {
+          return false;
+        }
+
+        if (params.tipo && item.tipo !== params.tipo) {
+          return false;
+        }
+
+        if (params.categoriaId && item.categoriaId !== params.categoriaId) {
+          return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) =>
+        b.dataOcorrencia.localeCompare(a.dataOcorrencia) ||
+        a.descricao.localeCompare(b.descricao),
+      );
+
+    const pageNumber = Math.max(1, params.pageNumber);
+    const pageSize = Math.max(1, params.pageSize);
+    const totalCount = itensFiltrados.length;
+
+    return {
+      items: itensFiltrados.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
+      totalCount,
+      currentPage: pageNumber,
+      pageSize,
+      totalPages: totalCount === 0 ? 0 : Math.ceil(totalCount / pageSize),
+    };
+  }
 }
 
 export async function getFaturasDoMes(mes: number, ano: number) {

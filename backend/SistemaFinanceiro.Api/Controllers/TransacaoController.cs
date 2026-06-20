@@ -48,6 +48,32 @@ public sealed class TransacaoController : ControllerBase
         }
     }
 
+    [HttpGet("extrato-mensal/paginado")]
+    public async Task<IActionResult> GetExtratoMensalPaginado(
+        [FromQuery] ExtratoPaginadoRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized(new { message = "Usuário não identificado no token." });
+        }
+
+        try
+        {
+            var extrato = await _transacaoService.GetExtratoMensalPaginadoAsync(
+                request,
+                usuarioId.Value,
+                cancellationToken);
+
+            return Ok(extrato);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
     [HttpGet("faturas-mes")]
     public async Task<ActionResult<IReadOnlyList<FaturaConsolidadaResponse>>> GetFaturasDoMes(
         [FromQuery] int mes,

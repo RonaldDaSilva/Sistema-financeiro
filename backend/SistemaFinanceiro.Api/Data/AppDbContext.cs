@@ -385,6 +385,12 @@ public sealed class AppDbContext : DbContext
 
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CodigoExibicao })
                 .IsUnique();
+            entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.DataOcorrencia });
+            entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.IsPaga, transacao.DataOcorrencia });
+            entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.Tipo, transacao.DataOcorrencia });
+            entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CategoriaId, transacao.DataOcorrencia });
+            entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CartaoCreditoId, transacao.DataOcorrencia });
+            entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CompraParceladaId, transacao.NumeroParcelaQuitada });
 
             entity.HasOne(transacao => transacao.Usuario)
                 .WithMany(usuario => usuario.Transacoes)

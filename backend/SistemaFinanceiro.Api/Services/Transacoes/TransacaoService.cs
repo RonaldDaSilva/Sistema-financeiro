@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SistemaFinanceiro.Api.Dtos;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Transacoes;
 using SistemaFinanceiro.Api.Models;
@@ -209,6 +210,84 @@ public sealed class TransacaoService : ITransacaoService
             SaldoPrevistoFimDoMes = saldoPrevistoFimDoMes,
             ResumoDivididas = resumoDivididas,
             Itens = itensOrdenados
+        };
+    }
+
+    public async Task<PagedResponse<ExtratoMensalItemResponse>> GetExtratoMensalPaginadoAsync(
+        ExtratoPaginadoRequest request,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        var pageNumber = Math.Max(1, request.PageNumber);
+        var pageSize = Math.Clamp(request.PageSize, 5, 100);
+        var dataInicial = request.DataInicial;
+        var dataFinal = request.DataFinal;
+
+        if (dataInicial.HasValue && dataFinal.HasValue && dataFinal.Value < dataInicial.Value)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request.DataFinal), "A data final deve ser maior ou igual à data inicial.");
+        }
+
+        var meses = dataInicial.HasValue && dataFinal.HasValue
+            ? EnumerarMeses(dataInicial.Value, dataFinal.Value)
+                .Select(data => (Mes: data.Month, Ano: data.Year))
+                .Distinct()
+                .ToList()
+            : [(request.Mes, request.Ano)];
+
+        var itens = new List<ExtratoMensalItemResponse>();
+        foreach (var referencia in meses)
+        {
+            var extrato = await GetExtratoMensalAsync(
+                referencia.Mes,
+                referencia.Ano,
+                usuarioId,
+                request.ApenasDivididas,
+                cancellationToken);
+
+            itens.AddRange(extrato.Itens);
+        }
+
+        var itensFiltrados = itens.AsEnumerable();
+
+        if (dataInicial.HasValue)
+        {
+            itensFiltrados = itensFiltrados.Where(item => item.DataOcorrencia >= dataInicial.Value);
+        }
+
+        if (dataFinal.HasValue)
+        {
+            itensFiltrados = itensFiltrados.Where(item => item.DataOcorrencia <= dataFinal.Value);
+        }
+
+        if (request.Tipo.HasValue)
+        {
+            itensFiltrados = itensFiltrados.Where(item => item.Tipo == request.Tipo.Value);
+        }
+
+        if (request.CategoriaId.HasValue)
+        {
+            itensFiltrados = itensFiltrados.Where(item => item.CategoriaId == request.CategoriaId.Value);
+        }
+
+        var itensOrdenados = itensFiltrados
+            .OrderByDescending(item => item.DataOcorrencia)
+            .ThenBy(item => item.Descricao)
+            .ToList();
+        var totalCount = itensOrdenados.Count;
+
+        return new PagedResponse<ExtratoMensalItemResponse>
+        {
+            Items = itensOrdenados
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToList(),
+            TotalCount = totalCount,
+            CurrentPage = pageNumber,
+            PageSize = pageSize,
+            TotalPages = totalCount == 0
+                ? 0
+                : (int)Math.Ceiling(totalCount / (double)pageSize)
         };
     }
 

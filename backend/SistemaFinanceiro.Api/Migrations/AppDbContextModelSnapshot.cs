@@ -465,6 +465,18 @@ namespace SistemaFinanceiro.Api.Migrations
                     b.HasIndex("UsuarioId", "CodigoExibicao")
                         .IsUnique();
 
+                    b.HasIndex("UsuarioId", "DataOcorrencia");
+
+                    b.HasIndex("UsuarioId", "IsPaga", "DataOcorrencia");
+
+                    b.HasIndex("UsuarioId", "Tipo", "DataOcorrencia");
+
+                    b.HasIndex("UsuarioId", "CategoriaId", "DataOcorrencia");
+
+                    b.HasIndex("UsuarioId", "CartaoCreditoId", "DataOcorrencia");
+
+                    b.HasIndex("UsuarioId", "CompraParceladaId", "NumeroParcelaQuitada");
+
                     b.ToTable("transacoes", (string)null);
                 });
 

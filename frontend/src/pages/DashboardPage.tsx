@@ -21,6 +21,7 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   useCartoes,
   useCategorias,
+  useExtratoMensalPaginado,
   useExtratosMensais,
   useFaturasMensais,
 } from "../hooks/queries/useFinanceQueries";
@@ -33,6 +34,7 @@ import type {
   ExtratoMensal,
   ExtratoMensalItem,
   FaturaConsolidada,
+  PagedResponse,
   PeriodoFiltro,
 } from "../types/finance";
 import {
@@ -65,6 +67,8 @@ export function DashboardPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [toastErro, setToastErro] = useState<string | null>(null);
   const [apenasDivididas, setApenasDivididas] = useState(false);
+  const [paginaMovimentacoes, setPaginaMovimentacoes] = useState(1);
+  const pageSizeMovimentacoes = 25;
   const [valoresOcultos, setValoresOcultos] = useState(() => {
     return localStorage.getItem("dashboard-values-hidden") === "true";
   });
@@ -82,6 +86,17 @@ export function DashboardPage() {
   const cartoesQuery = useCartoes();
   const configuracoesQuery = useConfiguracoesNotificacao();
   const extratosQueries = useExtratosMensais(mesesPeriodo, apenasDivididas);
+  const extratoPaginadoQuery = useExtratoMensalPaginado({
+    mes: mesesPeriodo[0]?.mes ?? hoje.getMonth() + 1,
+    ano: mesesPeriodo[0]?.ano ?? hoje.getFullYear(),
+    dataInicial: toDateInputValue(rangePeriodo.inicio),
+    dataFinal: toDateInputValue(rangePeriodo.fim),
+    pageNumber: paginaMovimentacoes,
+    pageSize: pageSizeMovimentacoes,
+    apenasDivididas,
+    tipoTransacao: periodo.tipoTransacao ?? "todos",
+    categoriaId: periodo.categoriaId,
+  });
   const faturasQueries = useFaturasMensais(mesesPeriodo);
   const categorias = categoriasQuery.data ?? [];
   const cartoes = cartoesQuery.data ?? [];
@@ -93,6 +108,7 @@ export function DashboardPage() {
     configuracoesQuery,
     ...extratosQueries,
     ...faturasQueries,
+    extratoPaginadoQuery,
   ].some((query) => query.isLoading);
   const hasLoadError = [
     categoriasQuery,
@@ -100,49 +116,13 @@ export function DashboardPage() {
     configuracoesQuery,
     ...extratosQueries,
     ...faturasQueries,
+    extratoPaginadoQuery,
   ].some((query) => query.isError);
 
-  const movimentacoes = useMemo(() => {
-    return extratosQueries
-      .flatMap((query, index) => {
-        const referencia = mesesPeriodo[index];
-        const data = query.data;
-
-        if (!data || !referencia || data.mes !== referencia.mes || data.ano !== referencia.ano) {
-          return [];
-        }
-
-        return data.itens;
-      })
-      .filter((item) => {
-        const data = parseLocalDate(item.dataOcorrencia);
-        if (data < rangePeriodo.inicio || data > rangePeriodo.fim) {
-          return false;
-        }
-
-        const tipoTransacao = periodo.tipoTransacao ?? "todos";
-        const matchesCategoria =
-          !periodo.categoriaId || item.categoriaId === periodo.categoriaId;
-
-        const matchesTipo =
-          tipoTransacao === "todos" ||
-          (tipoTransacao === "receita" &&
-            (item.tipo === 1 || item.tipo === "Receita")) ||
-          (tipoTransacao === "despesa" &&
-            (item.tipo === 2 || item.tipo === "Despesa")) ||
-          (tipoTransacao === "investimento" &&
-            (item.tipo === 3 || item.tipo === "Investimento"));
-
-        return matchesTipo && matchesCategoria;
-      })
-      .sort(
-        (a, b) =>
-          parseLocalDate(b.dataOcorrencia).getTime() -
-          parseLocalDate(a.dataOcorrencia).getTime(),
-      );
+  useEffect(() => {
+    setPaginaMovimentacoes(1);
   }, [
-    extratosQueries,
-    mesesPeriodo,
+    apenasDivididas,
     periodo.categoriaId,
     periodo.tipoTransacao,
     rangePeriodo.fim,
@@ -158,15 +138,16 @@ export function DashboardPage() {
       });
   }, [faturasQueries, rangePeriodo.fim, rangePeriodo.inicio]);
 
+  const movimentacoesPaginadas = extratoPaginadoQuery.data?.items ?? [];
+  const totalPaginasMovimentacoes = extratoPaginadoQuery.data?.totalPages ?? 0;
+  const totalMovimentacoes = extratoPaginadoQuery.data?.totalCount ?? 0;
+
   async function invalidarDadosFinanceiros() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["extrato"] }),
+      queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
       queryClient.invalidateQueries({ queryKey: ["faturas"] }),
       queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.categorias }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.configuracoesNotificacao,
-      }),
     ]);
   }
 
@@ -225,14 +206,15 @@ export function DashboardPage() {
   };
 
   const resumoDivididas = useMemo(() => {
-    return movimentacoes.reduce(
+    return extratosQueries.reduce(
       (acc, item) => {
-        if (!item.isDividida) {
+        const resumo = item.data?.resumoDivididas;
+        if (!resumo) {
           return acc;
         }
 
-        acc.totalSuaParte += item.valor;
-        acc.totalOriginal += item.valorTotalOriginal ?? item.valor;
+        acc.totalSuaParte += resumo.totalSuaParte;
+        acc.totalOriginal += resumo.totalOriginal;
         return acc;
       },
       {
@@ -240,7 +222,7 @@ export function DashboardPage() {
         totalOriginal: 0,
       },
     );
-  }, [movimentacoes]);
+  }, [extratosQueries]);
 
   const periodoExportacao = useMemo(() => {
     const range = obterRangePeriodo(periodo);
@@ -409,6 +391,18 @@ export function DashboardPage() {
             }
           : current,
     );
+    queryClient.setQueriesData<PagedResponse<ExtratoMensalItem>>(
+      { queryKey: ["extrato-paginado"] },
+      (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((item) =>
+                atualizarStatusItem(item, id, isPaga, dataOcorrencia),
+              ),
+            }
+          : current,
+    );
   }
 
   function aplicarImpactoSaldoGlobalLocal(
@@ -459,6 +453,22 @@ export function DashboardPage() {
                 item.dataOcorrencia === dataVencimento
                   ? { ...item, isPaga }
                   : item,
+              ),
+            }
+          : current,
+    );
+    queryClient.setQueriesData<PagedResponse<ExtratoMensalItem>>(
+      { queryKey: ["extrato-paginado"] },
+      (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((currentItem) =>
+                currentItem.origem === "FaturaCartao" &&
+                currentItem.cartaoCreditoId === cartaoCreditoId &&
+                currentItem.dataOcorrencia === dataVencimento
+                  ? { ...currentItem, isPaga }
+                  : currentItem,
               ),
             }
           : current,
@@ -753,17 +763,54 @@ export function DashboardPage() {
             </div>
           )}
           {!isLoading && (
-            <TransactionList
-              items={movimentacoes}
-              faturas={faturas}
-              onEdit={(item) => {
-                setEditingTransaction(item);
-                setIsModalOpen(true);
-              }}
-              onDelete={handleDeleteTransacao}
-              onAnticipate={setAnticipatingInstallment}
-              onTogglePagamento={handleTogglePagamento}
-            />
+            <>
+              <TransactionList
+                items={movimentacoesPaginadas}
+                faturas={faturas}
+                onEdit={(item) => {
+                  setEditingTransaction(item);
+                  setIsModalOpen(true);
+                }}
+                onDelete={handleDeleteTransacao}
+                onAnticipate={setAnticipatingInstallment}
+                onTogglePagamento={handleTogglePagamento}
+              />
+              {totalMovimentacoes > pageSizeMovimentacoes && (
+                <div className="flex flex-col gap-3 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    Página {paginaMovimentacoes} de {totalPaginasMovimentacoes} •{" "}
+                    {totalMovimentacoes} movimentações
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      className="rounded-xl border border-[color:var(--app-card-border)] px-4 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700"
+                      type="button"
+                      disabled={paginaMovimentacoes <= 1}
+                      onClick={() =>
+                        setPaginaMovimentacoes((current) => Math.max(1, current - 1))
+                      }
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      className="rounded-xl border border-[color:var(--app-card-border)] px-4 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700"
+                      type="button"
+                      disabled={
+                        totalPaginasMovimentacoes === 0 ||
+                        paginaMovimentacoes >= totalPaginasMovimentacoes
+                      }
+                      onClick={() =>
+                        setPaginaMovimentacoes((current) =>
+                          Math.min(totalPaginasMovimentacoes, current + 1),
+                        )
+                      }
+                    >
+                      Próxima
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </section>

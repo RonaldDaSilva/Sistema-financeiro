@@ -46,6 +46,14 @@ export type ExtratoMensal = {
   itens: ExtratoMensalItem[];
 };
 
+export type PagedResponse<T> = {
+  items: T[];
+  totalCount: number;
+  currentPage: number;
+  pageSize: number;
+  totalPages: number;
+};
+
 export type AnteciparParcelaRequest = {
   idCompraParcelada: string;
   numeroParcela: number;

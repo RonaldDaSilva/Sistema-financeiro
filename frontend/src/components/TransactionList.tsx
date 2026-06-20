@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -26,7 +26,7 @@ type TransactionListProps = {
   onTogglePagamento: (item: ExtratoMensalItem) => void;
 };
 
-export function TransactionList({
+export const TransactionList = memo(function TransactionList({
   items,
   faturas = [],
   onEdit,
@@ -37,6 +37,9 @@ export function TransactionList({
   const [expandedFaturas, setExpandedFaturas] = useState<Set<string>>(
     new Set(),
   );
+  const faturasPorChave = useMemo(() => {
+    return new Map(faturas.map((fatura) => [faturaKey(fatura), fatura]));
+  }, [faturas]);
 
   if (items.length === 0) {
     return (
@@ -78,11 +81,7 @@ export function TransactionList({
           const isFatura =
             item.origem === "FaturaCartao" && item.cartaoCreditoId;
           const fatura = isFatura
-            ? faturas.find(
-                (candidate) =>
-                  candidate.cartaoCreditoId === item.cartaoCreditoId &&
-                  candidate.dataVencimento === item.dataOcorrencia,
-              )
+            ? faturasPorChave.get(`${item.cartaoCreditoId}-${item.dataOcorrencia}`)
             : undefined;
           const isExpanded = Boolean(
             fatura && expandedFaturas.has(faturaKey(fatura)),
@@ -352,7 +351,7 @@ export function TransactionList({
       </div>
     </div>
   );
-}
+});
 
 function StatusButton({
   item,

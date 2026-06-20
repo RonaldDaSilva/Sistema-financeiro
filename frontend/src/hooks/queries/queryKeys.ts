@@ -1,6 +1,29 @@
 export const queryKeys = {
   extrato: (mes: number, ano: number, apenasDivididas = false) =>
     ["extrato", mes, ano, apenasDivididas] as const,
+  extratoPaginado: (
+    mes: number,
+    ano: number,
+    dataInicial: string,
+    dataFinal: string,
+    pageNumber: number,
+    pageSize: number,
+    apenasDivididas = false,
+    tipoTransacao = "todos",
+    categoriaId: string | null = null,
+  ) =>
+    [
+      "extrato-paginado",
+      mes,
+      ano,
+      dataInicial,
+      dataFinal,
+      pageNumber,
+      pageSize,
+      apenasDivididas,
+      tipoTransacao,
+      categoriaId,
+    ] as const,
   faturas: (mes: number, ano: number) => ["faturas", mes, ano] as const,
   notificacoesNaoLidas: ["notificacoes", "nao-lidas"] as const,
   categorias: ["categorias"] as const,
