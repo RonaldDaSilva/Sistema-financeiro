@@ -91,7 +91,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       style={{ background: theme === "dark" ? undefined : "var(--app-bg)" }}
     >
       <header
-        className="sticky top-0 z-30 border-b px-6 py-3 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/85 md:hidden"
+        className="sticky top-0 z-[80] border-b px-6 py-3 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/85 md:hidden"
         style={{
           background:
             theme === "dark"
@@ -144,77 +144,15 @@ export function AppLayout({ children }: AppLayoutProps) {
                 {getInitials(user?.nome)}
               </button>
 
-              {isMenuOpen && (
-                <div className="absolute right-0 z-50 mt-3 w-64 overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-xl dark:border-slate-800 dark:bg-slate-900">
-                  <div className="border-b border-slate-100 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-                    <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
-                      {user?.nome}
-                    </p>
-                    <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-                      {user?.email}
-                    </p>
-                  </div>
-                  <div className="space-y-1 p-2">
-                    <NavLink
-                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
-                      to="/perfil"
-                      onClick={() => setIsMenuOpen(false)}
-                    >
-                      <User size={16} />
-                      Perfil do usuário
-                    </NavLink>
-                    <NavLink
-                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
-                      to="/configuracoes"
-                      onClick={() => setIsMenuOpen(false)}
-                    >
-                      <Settings size={16} />
-                      Configurações
-                    </NavLink>
-                    <button
-                      className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
-                      type="button"
-                      role="switch"
-                      aria-checked={theme === "dark"}
-                      onClick={() => {
-                        setTheme((current) => {
-                          const nextTheme =
-                            current === "dark" ? "light" : "dark";
-                          applyTheme(nextTheme);
-                          return nextTheme;
-                        });
-                      }}
-                    >
-                      <span className="flex items-center gap-3">
-                        <Moon size={16} />
-                        Tema escuro
-                      </span>
-                      <span
-                        className={`relative h-6 w-11 rounded-full transition-colors ${
-                          theme === "dark"
-                            ? "bg-slate-900 dark:bg-white"
-                            : "bg-slate-200 dark:bg-slate-700"
-                        }`}
-                      >
-                        <span
-                          className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform dark:bg-slate-950 ${
-                            theme === "dark" ? "translate-x-5" : "translate-x-0"
-                          }`}
-                        />
-                      </span>
-                    </button>
-                  </div>
-                  <div className="border-t border-slate-100 p-2 dark:border-slate-800">
-                    <button
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-red-600 transition-colors hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40"
-                      type="button"
-                      onClick={logout}
-                    >
-                      <LogOut size={16} />
-                      Sair
-                    </button>
-                  </div>
-                </div>
+              {isMenuOpen && !isDesktop && (
+                <UserFloatingMenu
+                  className="fixed right-4 top-[5.25rem] z-[100] w-[calc(100vw-2rem)] max-w-80"
+                  logout={logout}
+                  setIsMenuOpen={setIsMenuOpen}
+                  setTheme={setTheme}
+                  theme={theme}
+                  user={user}
+                />
               )}
             </div>
           </div>
@@ -330,9 +268,9 @@ export function AppLayout({ children }: AppLayoutProps) {
                   )}
                 </button>
 
-                {isMenuOpen && (
+                {isMenuOpen && isDesktop && (
                   <UserFloatingMenu
-                    className="absolute bottom-0 left-full z-50 ml-4 w-64"
+                    className="absolute bottom-0 left-full z-[100] ml-4 w-64"
                     logout={logout}
                     setIsMenuOpen={setIsMenuOpen}
                     setTheme={setTheme}
