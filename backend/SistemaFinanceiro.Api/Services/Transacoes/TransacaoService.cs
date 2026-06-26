@@ -35,20 +35,16 @@ public sealed class TransacaoService : ITransacaoService
         var inicioMes = new DateOnly(ano, mes, 1);
         var fimMes = inicioMes.AddMonths(1).AddDays(-1);
 
-        var transacoesDoMes = await _dbContext.Transacoes
-            .AsNoTracking()
-            .Include(transacao => transacao.Categoria)
-            .Include(transacao => transacao.CartaoCredito)
+        var transacoesDoMes = await ProjetarTransacoesParaLeitura(
+                _dbContext.Transacoes.AsNoTracking().AsSingleQuery())
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.DataOcorrencia >= inicioMes &&
                 transacao.DataOcorrencia <= fimMes)
             .ToListAsync(cancellationToken);
 
-        var transacoesFixas = await _dbContext.Transacoes
-            .AsNoTracking()
-            .Include(transacao => transacao.Categoria)
-            .Include(transacao => transacao.CartaoCredito)
+        var transacoesFixas = await ProjetarTransacoesParaLeitura(
+                _dbContext.Transacoes.AsNoTracking().AsSingleQuery())
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.IsFixa &&
@@ -99,9 +95,8 @@ public sealed class TransacaoService : ITransacaoService
             pagamento => (pagamento.TransacaoFixaId, pagamento.DataOcorrencia),
             pagamento => pagamento.IsPaga);
 
-        var comprasCarne = await _dbContext.ComprasParceladas
-            .AsNoTracking()
-            .Include(compra => compra.Categoria)
+        var comprasCarne = await ProjetarComprasParaLeitura(
+                _dbContext.ComprasParceladas.AsNoTracking().AsSingleQuery())
             .Where(compra =>
                 compra.UsuarioId == usuarioId &&
                 compra.FormaPagamento == FormaPagamentoCompraParcelada.Carne &&
@@ -325,9 +320,8 @@ public sealed class TransacaoService : ITransacaoService
             .Select(cartao => CalcularPeriodoFatura(cartao, mes, ano).FimCompetencia)
             .Max();
 
-        var transacoesCredito = await _dbContext.Transacoes
-            .AsNoTracking()
-            .Include(transacao => transacao.Categoria)
+        var transacoesCredito = await ProjetarTransacoesParaLeitura(
+                _dbContext.Transacoes.AsNoTracking().AsSingleQuery())
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.CartaoCreditoId.HasValue &&
@@ -337,9 +331,8 @@ public sealed class TransacaoService : ITransacaoService
                 transacao.DataOcorrencia <= maiorFimCompetencia)
             .ToListAsync(cancellationToken);
 
-        var transacoesFixasCredito = await _dbContext.Transacoes
-            .AsNoTracking()
-            .Include(transacao => transacao.Categoria)
+        var transacoesFixasCredito = await ProjetarTransacoesParaLeitura(
+                _dbContext.Transacoes.AsNoTracking().AsSingleQuery())
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.CartaoCreditoId.HasValue &&
@@ -369,9 +362,8 @@ public sealed class TransacaoService : ITransacaoService
             .Select(excecao => (excecao.TransacaoFixaId, excecao.DataOcorrencia))
             .ToHashSet();
 
-        var comprasParceladas = await _dbContext.ComprasParceladas
-            .AsNoTracking()
-            .Include(compra => compra.Categoria)
+        var comprasParceladas = await ProjetarComprasParaLeitura(
+                _dbContext.ComprasParceladas.AsNoTracking().AsSingleQuery())
             .Where(compra =>
                 compra.UsuarioId == usuarioId &&
                 compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito &&
@@ -480,6 +472,73 @@ public sealed class TransacaoService : ITransacaoService
         return totalReceitas - totalDespesas - totalInvestido;
     }
 
+    private static IQueryable<Transacao> ProjetarTransacoesParaLeitura(
+        IQueryable<Transacao> query)
+    {
+        return query.Select(transacao => new Transacao
+        {
+            Id = transacao.Id,
+            CodigoExibicao = transacao.CodigoExibicao,
+            UsuarioId = transacao.UsuarioId,
+            Tipo = transacao.Tipo,
+            Descricao = transacao.Descricao,
+            Valor = transacao.Valor,
+            DataOcorrencia = transacao.DataOcorrencia,
+            CategoriaId = transacao.CategoriaId,
+            FormaPagamento = transacao.FormaPagamento,
+            CartaoCreditoId = transacao.CartaoCreditoId,
+            IsFixa = transacao.IsFixa,
+            IsPaga = transacao.IsPaga,
+            IsDividida = transacao.IsDividida,
+            ValorTotalOriginal = transacao.ValorTotalOriginal,
+            PercentualDivisao = transacao.PercentualDivisao,
+            CompraParceladaId = transacao.CompraParceladaId,
+            NumeroParcelaQuitada = transacao.NumeroParcelaQuitada,
+            Categoria = transacao.Categoria == null
+                ? null
+                : new Categoria
+                {
+                    Id = transacao.Categoria.Id,
+                    Nome = transacao.Categoria.Nome,
+                    CorHexa = transacao.Categoria.CorHexa
+                },
+            CartaoCredito = transacao.CartaoCredito == null
+                ? null
+                : new CartaoCredito
+                {
+                    Id = transacao.CartaoCredito.Id,
+                    ApelidoCartao = transacao.CartaoCredito.ApelidoCartao
+                }
+        });
+    }
+
+    private static IQueryable<CompraParcelada> ProjetarComprasParaLeitura(
+        IQueryable<CompraParcelada> query)
+    {
+        return query.Select(compra => new CompraParcelada
+        {
+            Id = compra.Id,
+            UsuarioId = compra.UsuarioId,
+            CartaoCreditoId = compra.CartaoCreditoId,
+            CategoriaId = compra.CategoriaId,
+            Descricao = compra.Descricao,
+            QuantidadeParcelas = compra.QuantidadeParcelas,
+            ValorTotal = compra.ValorTotal,
+            DataCompra = compra.DataCompra,
+            DataPrimeiroVencimento = compra.DataPrimeiroVencimento,
+            FormaPagamento = compra.FormaPagamento,
+            IsDividida = compra.IsDividida,
+            ValorTotalOriginal = compra.ValorTotalOriginal,
+            PercentualDivisao = compra.PercentualDivisao,
+            Categoria = new Categoria
+            {
+                Id = compra.Categoria.Id,
+                Nome = compra.Categoria.Nome,
+                CorHexa = compra.Categoria.CorHexa
+            }
+        });
+    }
+
     private async Task<decimal> CalcularSaldoAtualGlobalAsync(
         Guid usuarioId,
         DateOnly hoje,
@@ -560,25 +619,52 @@ public sealed class TransacaoService : ITransacaoService
         DateOnly hoje,
         CancellationToken cancellationToken)
     {
-        var primeiraTransacaoCredito = await _dbContext.Transacoes
+        var cartoes = await _dbContext.CartoesCredito
             .AsNoTracking()
+            .Where(cartao => cartao.UsuarioId == usuarioId)
+            .Select(cartao => new CartaoCredito
+            {
+                Id = cartao.Id,
+                ApelidoCartao = cartao.ApelidoCartao,
+                DiaVencimento = cartao.DiaVencimento,
+                MelhorDiaCompra = cartao.MelhorDiaCompra
+            })
+            .ToListAsync(cancellationToken);
+
+        if (cartoes.Count == 0)
+        {
+            return 0;
+        }
+
+        var ultimoMes = new DateOnly(hoje.Year, hoje.Month, 1);
+        var maiorFimCompetencia = cartoes
+            .Select(cartao => CalcularPeriodoFatura(cartao, ultimoMes.Month, ultimoMes.Year).FimCompetencia)
+            .Max();
+
+        // Todo o histórico necessário é carregado uma única vez. O cálculo mensal abaixo
+        // ocorre em memória e elimina o antigo N+1 de várias consultas para cada fatura.
+        var transacoesCredito = await ProjetarTransacoesParaLeitura(
+                _dbContext.Transacoes.AsNoTracking().AsSingleQuery())
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.CartaoCreditoId.HasValue &&
-                transacao.Tipo == TipoTransacao.Despesa)
-            .MinAsync(transacao => (DateOnly?)transacao.DataOcorrencia, cancellationToken);
+                transacao.Tipo == TipoTransacao.Despesa &&
+                !transacao.CompraParceladaId.HasValue &&
+                transacao.DataOcorrencia <= maiorFimCompetencia)
+            .ToListAsync(cancellationToken);
 
-        var primeiraCompraParceladaCredito = await _dbContext.ComprasParceladas
-            .AsNoTracking()
+        var comprasParceladas = await ProjetarComprasParaLeitura(
+                _dbContext.ComprasParceladas.AsNoTracking().AsSingleQuery())
             .Where(compra =>
                 compra.UsuarioId == usuarioId &&
                 compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito &&
-                compra.CartaoCreditoId.HasValue)
-            .MinAsync(compra => (DateOnly?)compra.DataCompra, cancellationToken);
+                compra.CartaoCreditoId.HasValue &&
+                compra.DataCompra <= maiorFimCompetencia)
+            .ToListAsync(cancellationToken);
 
-        var primeiraDataCredito = new[] { primeiraTransacaoCredito, primeiraCompraParceladaCredito }
-            .Where(data => data.HasValue)
-            .Select(data => data!.Value)
+        var primeiraDataCredito = transacoesCredito
+            .Select(transacao => transacao.DataOcorrencia)
+            .Concat(comprasParceladas.Select(compra => compra.DataCompra))
             .DefaultIfEmpty()
             .Min();
 
@@ -587,23 +673,99 @@ public sealed class TransacaoService : ITransacaoService
             return 0;
         }
 
+        var transacoesFixas = transacoesCredito
+            .Where(transacao => transacao.IsFixa)
+            .ToList();
+        var transacoesFixasIds = transacoesFixas
+            .Select(transacao => transacao.Id)
+            .ToList();
+        var excecoesFixas = await _dbContext.TransacoesFixasExcecoes
+            .AsNoTracking()
+            .Where(excecao =>
+                excecao.UsuarioId == usuarioId &&
+                transacoesFixasIds.Contains(excecao.TransacaoFixaId) &&
+                excecao.DataOcorrencia <= maiorFimCompetencia)
+            .Select(excecao => new
+            {
+                excecao.TransacaoFixaId,
+                excecao.DataOcorrencia
+            })
+            .ToListAsync(cancellationToken);
+        var excecoesFixasSet = excecoesFixas
+            .Select(excecao => (excecao.TransacaoFixaId, excecao.DataOcorrencia))
+            .ToHashSet();
+
+        var comprasIds = comprasParceladas.Select(compra => compra.Id).ToList();
+        var parcelasQuitadas = await _dbContext.Transacoes
+            .AsNoTracking()
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.CompraParceladaId.HasValue &&
+                comprasIds.Contains(transacao.CompraParceladaId.Value) &&
+                transacao.NumeroParcelaQuitada.HasValue)
+            .Select(transacao => new
+            {
+                CompraParceladaId = transacao.CompraParceladaId!.Value,
+                NumeroParcela = transacao.NumeroParcelaQuitada!.Value
+            })
+            .ToListAsync(cancellationToken);
+        var parcelasQuitadasSet = parcelasQuitadas
+            .Select(parcela => (parcela.CompraParceladaId, parcela.NumeroParcela))
+            .ToHashSet();
+
+        var pagamentos = await _dbContext.FaturasCartaoPagamentos
+            .AsNoTracking()
+            .Where(pagamento =>
+                pagamento.UsuarioId == usuarioId &&
+                pagamento.DataVencimento <= hoje)
+            .Select(pagamento => new
+            {
+                pagamento.CartaoCreditoId,
+                pagamento.DataVencimento,
+                pagamento.IsPaga
+            })
+            .ToListAsync(cancellationToken);
+        var pagamentosMap = pagamentos.ToDictionary(
+            pagamento => (pagamento.CartaoCreditoId, pagamento.DataVencimento),
+            pagamento => pagamento.IsPaga);
+
         decimal total = 0;
-        var cursor = new DateOnly(primeiraDataCredito.Year, primeiraDataCredito.Month, 1);
-        var ultimoMes = new DateOnly(hoje.Year, hoje.Month, 1);
+        var primeiroMes = new DateOnly(primeiraDataCredito.Year, primeiraDataCredito.Month, 1);
 
-        while (cursor <= ultimoMes)
+        foreach (var cartao in cartoes)
         {
-            var faturasDoMes = await GetFaturasDoMesAsync(
-                cursor.Month,
-                cursor.Year,
-                usuarioId,
-                cancellationToken);
+            for (var cursor = primeiroMes; cursor <= ultimoMes; cursor = cursor.AddMonths(1))
+            {
+                var periodo = CalcularPeriodoFatura(cartao, cursor.Month, cursor.Year);
+                if (periodo.DataVencimento > hoje ||
+                    !pagamentosMap.GetValueOrDefault((cartao.Id, periodo.DataVencimento), true))
+                {
+                    continue;
+                }
 
-            total += faturasDoMes
-                .Where(fatura => fatura.IsPaga && fatura.DataVencimento <= hoje)
-                .Sum(fatura => fatura.ValorTotal);
+                var valorTransacoes = transacoesCredito
+                    .Where(transacao =>
+                        transacao.CartaoCreditoId == cartao.Id &&
+                        transacao.DataOcorrencia >= periodo.InicioCompetencia &&
+                        transacao.DataOcorrencia <= periodo.FimCompetencia)
+                    .Sum(transacao => transacao.Valor);
+                var valorFixasProjetadas = ProjetarTransacoesFixasCreditoParaFatura(
+                        transacoesFixas,
+                        cartao.Id,
+                        periodo.InicioCompetencia,
+                        periodo.FimCompetencia,
+                        excecoesFixasSet)
+                    .Sum(detalhe => detalhe.Valor);
+                var valorParcelas = ProjetarParcelasParaFatura(
+                        comprasParceladas,
+                        cartao.Id,
+                        periodo.InicioCompetencia,
+                        periodo.FimCompetencia,
+                        parcelasQuitadasSet)
+                    .Sum(detalhe => detalhe.Valor);
 
-            cursor = cursor.AddMonths(1);
+                total += valorTransacoes + valorFixasProjetadas + valorParcelas;
+            }
         }
 
         return total;
