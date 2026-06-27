@@ -194,9 +194,16 @@ export const TransactionList = memo(function TransactionList({
                   </span>
                 </div>
                 <div className="flex items-center justify-end gap-3">
-                  <span className={`text-right font-semibold ${valueClass}`}>
-                    {isReceita ? "+" : "-"} {formatCurrency(item.valor)}
-                  </span>
+                  <div className="text-right">
+                    <span className={`font-semibold ${valueClass}`}>
+                      {isReceita ? "+" : "-"} {formatCurrency(item.valor)}
+                    </span>
+                    {item.isDividida && item.valorTotalOriginal != null && (
+                      <span className="ml-1 whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">
+                        ({formatCurrency(item.valorTotalOriginal)})
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="col-span-2 flex justify-end gap-2 md:col-span-1">
                   {canAnticipate && (
@@ -286,9 +293,17 @@ export const TransactionList = memo(function TransactionList({
                               {detalhe.categoriaNome}
                             </span>
                           </div>
-                          <span className="text-right font-semibold text-red-700">
-                            - {formatCurrency(detalhe.valor)}
-                          </span>
+                          <div className="text-right">
+                            <span className="font-semibold text-red-700">
+                              - {formatCurrency(detalhe.valor)}
+                            </span>
+                            {detalhe.isDividida &&
+                              detalhe.valorTotalOriginal != null && (
+                                <span className="ml-1 whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">
+                                  ({formatCurrency(detalhe.valorTotalOriginal)})
+                                </span>
+                              )}
+                          </div>
                           <div className="flex justify-end gap-2">
                             {detalhe.compraParceladaId &&
                               detalhe.numeroParcela &&

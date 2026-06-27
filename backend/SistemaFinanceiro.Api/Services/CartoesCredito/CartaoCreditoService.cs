@@ -255,7 +255,11 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             foreach (var fatura in faturasDoMes.Where(fatura => fatura.IsPaga && fatura.ValorTotal > 0))
             {
                 faturasPagasPorCartao[fatura.CartaoCreditoId] =
-                    faturasPagasPorCartao.GetValueOrDefault(fatura.CartaoCreditoId) + fatura.ValorTotal;
+                    faturasPagasPorCartao.GetValueOrDefault(fatura.CartaoCreditoId) +
+                    fatura.Detalhes.Sum(detalhe =>
+                        detalhe.IsDividida && detalhe.ValorTotalOriginal.HasValue
+                            ? detalhe.ValorTotalOriginal.Value
+                            : detalhe.Valor);
             }
 
             cursor = cursor.AddMonths(1);
