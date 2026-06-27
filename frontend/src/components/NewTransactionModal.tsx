@@ -331,7 +331,7 @@ export function NewTransactionModal({
         className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-[var(--app-card)] shadow-2xl dark:bg-slate-900"
         onSubmit={handleSubmit}
       >
-        <div className="flex items-start justify-between border-b border-[color:var(--app-card-border)] bg-slate-50/50 px-6 py-5 dark:border-slate-800 dark:bg-slate-950/50">
+        <div className="relative border-b border-[color:var(--app-card-border)] bg-slate-50/50 px-6 py-5 pr-16 dark:border-slate-800 dark:bg-slate-950/50">
           <div>
             <h2 className="text-xl font-bold text-slate-900 dark:text-white">
               {isEditing ? "Editar transação" : "Adicionar nova transação"}
@@ -341,7 +341,7 @@ export function NewTransactionModal({
             </p>
           </div>
           <button
-            className="rounded-full bg-white p-2 text-slate-400 shadow-sm transition-colors hover:bg-slate-100 hover:text-slate-600 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            className="absolute right-4 top-4 rounded-full bg-white p-2 text-slate-400 shadow-sm transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--app-primary)] dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"
             type="button"
             onClick={onClose}
             aria-label="Fechar modal"

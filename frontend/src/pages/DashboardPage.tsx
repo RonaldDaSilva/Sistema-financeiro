@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import {
   Activity,
   FileSpreadsheet,
@@ -36,6 +37,7 @@ import type {
   FaturaConsolidada,
   PagedResponse,
   PeriodoFiltro,
+  TipoTransacaoFiltro,
 } from "../types/finance";
 import {
   addDays,
@@ -50,14 +52,11 @@ export function DashboardPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const { confirm, dialog } = useConfirmDialog();
+  const [searchParams, setSearchParams] = useSearchParams();
   const hoje = new Date();
-  const [periodo, setPeriodo] = useState<PeriodoFiltro>({
-    tipo: "intervalo",
-    inicio: toDateInputValue(new Date(hoje.getFullYear(), hoje.getMonth(), 1)),
-    fim: toDateInputValue(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0)),
-    tipoTransacao: "todos",
-    categoriaId: null,
-  });
+  const [periodo, setPeriodo] = useState<PeriodoFiltro>(() =>
+    obterPeriodoInicial(searchParams, hoje),
+  );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] =
     useState<ExtratoMensalItem | null>(null);
@@ -145,6 +144,26 @@ export function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ["faturas"] }),
       queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
     ]);
+  }
+
+  function handlePeriodoChange(nextPeriodo: PeriodoFiltro) {
+    setPeriodo(nextPeriodo);
+
+    const range = obterRangePeriodo(nextPeriodo);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("inicio", toDateInputValue(range.inicio));
+    nextParams.set("fim", toDateInputValue(range.fim));
+
+    const tipoTransacao = nextPeriodo.tipoTransacao ?? "todos";
+    const categoriaId = nextPeriodo.categoriaId ?? null;
+    tipoTransacao === "todos"
+      ? nextParams.delete("tipo")
+      : nextParams.set("tipo", tipoTransacao);
+    categoriaId
+      ? nextParams.set("categoria", categoriaId)
+      : nextParams.delete("categoria");
+
+    setSearchParams(nextParams, { replace: true });
   }
 
   const resumoApi = useMemo(() => {
@@ -622,7 +641,7 @@ export function DashboardPage() {
           <PeriodFilter
             value={periodo}
             categorias={categorias}
-            onChange={setPeriodo}
+            onChange={handlePeriodoChange}
           />
           <div className="flex flex-col gap-2 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:flex-row lg:flex-col lg:justify-center">
             <button
@@ -857,6 +876,53 @@ function atualizarStatusItem(
   }
 
   return { ...item, isPaga };
+}
+
+function obterPeriodoInicial(
+  searchParams: URLSearchParams,
+  hoje: Date,
+): PeriodoFiltro {
+  const inicio = searchParams.get("inicio");
+  const fim = searchParams.get("fim");
+  const tipoParam = searchParams.get("tipo");
+  const tiposValidos: TipoTransacaoFiltro[] = [
+    "todos",
+    "receita",
+    "despesa",
+    "investimento",
+  ];
+  const tipoTransacao = tiposValidos.includes(tipoParam as TipoTransacaoFiltro)
+    ? (tipoParam as TipoTransacaoFiltro)
+    : "todos";
+  const categoriaId = searchParams.get("categoria");
+
+  if (
+    inicio &&
+    fim &&
+    /^\d{4}-\d{2}-\d{2}$/.test(inicio) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(fim) &&
+    parseLocalDate(fim) >= parseLocalDate(inicio)
+  ) {
+    return {
+      tipo: "intervalo",
+      inicio,
+      fim,
+      tipoTransacao,
+      categoriaId,
+    };
+  }
+
+  return {
+    tipo: "intervalo",
+    inicio: toDateInputValue(
+      new Date(hoje.getFullYear(), hoje.getMonth(), 1),
+    ),
+    fim: toDateInputValue(
+      new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0),
+    ),
+    tipoTransacao,
+    categoriaId,
+  };
 }
 
 function obterRangePeriodo(periodo: PeriodoFiltro) {
