@@ -487,6 +487,7 @@ public sealed class TransacaoService : ITransacaoService
             CategoriaId = transacao.CategoriaId,
             FormaPagamento = transacao.FormaPagamento,
             CartaoCreditoId = transacao.CartaoCreditoId,
+            ContaBancariaId = transacao.ContaBancariaId,
             IsFixa = transacao.IsFixa,
             IsPaga = transacao.IsPaga,
             IsDividida = transacao.IsDividida,
@@ -855,6 +856,9 @@ public sealed class TransacaoService : ITransacaoService
             CategoriaId = request.Tipo == TipoTransacao.Receita ? null : request.CategoriaId,
             FormaPagamento = request.FormaPagamento.Trim(),
             CartaoCreditoId = request.Tipo == TipoTransacao.Despesa ? request.CartaoCreditoId : null,
+            ContaBancariaId = request.Tipo is TipoTransacao.Receita or TipoTransacao.Despesa
+                ? request.ContaBancariaId
+                : null,
             IsFixa = request.IsFixa,
             IsPaga = DeveEntrarComoPaga(request.DataOcorrencia),
             IsDividida = request.IsDividida,
@@ -1291,6 +1295,9 @@ public sealed class TransacaoService : ITransacaoService
         transacao.CategoriaId = request.Tipo == TipoTransacao.Receita ? null : request.CategoriaId;
         transacao.FormaPagamento = request.FormaPagamento.Trim();
         transacao.CartaoCreditoId = request.Tipo == TipoTransacao.Despesa ? request.CartaoCreditoId : null;
+        transacao.ContaBancariaId = request.Tipo is TipoTransacao.Receita or TipoTransacao.Despesa
+            ? request.ContaBancariaId
+            : null;
         transacao.IsFixa = isFixa;
         transacao.IsPaga = DeveEntrarComoPaga(request.DataOcorrencia);
         transacao.IsDividida = request.IsDividida;
@@ -1316,6 +1323,7 @@ public sealed class TransacaoService : ITransacaoService
             CategoriaId = transacao.CategoriaId,
             FormaPagamento = transacao.FormaPagamento,
             CartaoCreditoId = transacao.CartaoCreditoId,
+            ContaBancariaId = transacao.ContaBancariaId,
             IsFixa = true,
             IsPaga = DeveEntrarComoPaga(dataOcorrencia),
             IsDividida = transacao.IsDividida,
@@ -1345,6 +1353,7 @@ public sealed class TransacaoService : ITransacaoService
             CategoriaCorHexa = transacao.Categoria?.CorHexa ?? "#64748B",
             FormaPagamento = transacao.FormaPagamento,
             CartaoCreditoId = transacao.CartaoCreditoId,
+            ContaBancariaId = transacao.ContaBancariaId,
             CartaoCreditoApelido = transacao.CartaoCredito?.ApelidoCartao,
             IsFixa = transacao.IsFixa,
             IsPaga = isPaga,
@@ -1444,6 +1453,32 @@ public sealed class TransacaoService : ITransacaoService
             }
         }
 
+        if (request.ContaBancariaId.HasValue)
+        {
+            if (request.Tipo is not (TipoTransacao.Receita or TipoTransacao.Despesa))
+            {
+                throw new InvalidOperationException(
+                    "Conta bancária só pode ser vinculada a receitas ou despesas.");
+            }
+
+            if (request.CartaoCreditoId.HasValue)
+            {
+                throw new InvalidOperationException(
+                    "Uma despesa de cartão de crédito não pode ser debitada diretamente de uma conta.");
+            }
+
+            var contaExiste = await _dbContext.ContasBancarias
+                .AnyAsync(
+                    conta => conta.Id == request.ContaBancariaId.Value &&
+                        conta.UsuarioId == usuarioId,
+                    cancellationToken);
+
+            if (!contaExiste)
+            {
+                throw new InvalidOperationException("Conta bancária não encontrada para este usuário.");
+            }
+        }
+
         if (request.CompraParceladaId.HasValue)
         {
             var compraExiste = await _dbContext.ComprasParceladas
@@ -1517,6 +1552,7 @@ public sealed class TransacaoService : ITransacaoService
             CategoriaId = transacao.CategoriaId,
             FormaPagamento = transacao.FormaPagamento,
             CartaoCreditoId = transacao.CartaoCreditoId,
+            ContaBancariaId = transacao.ContaBancariaId,
             IsFixa = transacao.IsFixa,
             IsPaga = transacao.IsPaga,
             IsDividida = transacao.IsDividida,
@@ -1763,6 +1799,7 @@ public sealed class TransacaoService : ITransacaoService
             CategoriaCorHexa = transacao.Categoria?.CorHexa ?? "#64748B",
             FormaPagamento = transacao.FormaPagamento,
             CartaoCreditoId = transacao.CartaoCreditoId,
+            ContaBancariaId = transacao.ContaBancariaId,
             CartaoCreditoApelido = transacao.CartaoCredito?.ApelidoCartao,
             IsFixa = true,
             IsPaga = pagamentosFixas.GetValueOrDefault((transacao.Id, dataProjetada)),

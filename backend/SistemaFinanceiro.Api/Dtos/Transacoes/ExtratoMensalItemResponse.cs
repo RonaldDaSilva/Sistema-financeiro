@@ -15,6 +15,7 @@ public sealed class ExtratoMensalItemResponse
     public string CategoriaCorHexa { get; set; } = string.Empty;
     public string FormaPagamento { get; set; } = string.Empty;
     public Guid? CartaoCreditoId { get; set; }
+    public Guid? ContaBancariaId { get; set; }
     public string? CartaoCreditoApelido { get; set; }
     public bool IsFixa { get; set; }
     public bool IsPaga { get; set; }

@@ -14,6 +14,7 @@ public sealed class Transacao : IHasGuidId, IMustHaveTenant
     public Guid? CategoriaId { get; set; }
     public string FormaPagamento { get; set; } = string.Empty;
     public Guid? CartaoCreditoId { get; set; }
+    public Guid? ContaBancariaId { get; set; }
     public bool IsFixa { get; set; }
     public bool IsPaga { get; set; }
     public bool IsDividida { get; set; }
@@ -25,5 +26,6 @@ public sealed class Transacao : IHasGuidId, IMustHaveTenant
     public Usuario Usuario { get; set; } = null!;
     public Categoria? Categoria { get; set; }
     public CartaoCredito? CartaoCredito { get; set; }
+    public ContaBancaria? ContaBancaria { get; set; }
     public CompraParcelada? CompraParcelada { get; set; }
 }

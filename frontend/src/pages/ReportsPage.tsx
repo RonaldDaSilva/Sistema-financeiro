@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, LineChart as LineChartIcon, PieChart as PieChartIcon } from "lucide-react";
+import { BarChart3, Landmark, LineChart as LineChartIcon, PieChart as PieChartIcon } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -16,6 +16,7 @@ import {
   YAxis,
 } from "recharts";
 import { AppLayout } from "../components/AppLayout";
+import { useDistribuicaoContas } from "../hooks/queries/useFinanceQueries";
 import { hasUsableStoredAuth } from "../services/authStorage";
 import * as financeService from "../services/financeService";
 import { formatCurrency } from "../utils/date";
@@ -80,6 +81,7 @@ export function ReportsPage() {
   >([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+  const distribuicaoContasQuery = useDistribuicaoContas();
 
   useEffect(() => {
     async function carregarRelatorios() {
@@ -156,6 +158,17 @@ export function ReportsPage() {
         despesas: item.despesas,
       })),
     [extratosAno],
+  );
+  const distribuicaoContas = useMemo(
+    () =>
+      (distribuicaoContasQuery.data ?? [])
+        .filter((conta) => conta.saldoAtual > 0)
+        .map((conta, index) => ({
+          name: conta.nomeCustomizado,
+          value: conta.saldoAtual,
+          color: fallbackColors[index % fallbackColors.length],
+        })),
+    [distribuicaoContasQuery.data],
   );
 
   return (
@@ -352,6 +365,57 @@ export function ReportsPage() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            </section>
+
+            <section className="flex min-h-[350px] flex-col rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:col-span-2">
+              <div className="flex items-center gap-3">
+                <span className="rounded-full bg-violet-50 p-2 text-violet-600 dark:bg-violet-950/50">
+                  <Landmark size={20} />
+                </span>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                  Distribuição entre contas
+                </h3>
+              </div>
+              <div className="mt-6 h-80 flex-grow">
+                {distribuicaoContasQuery.isLoading ? (
+                  <div className="flex h-full items-center justify-center text-slate-500">
+                    Carregando contas...
+                  </div>
+                ) : distribuicaoContas.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
+                    Cadastre contas com saldo positivo para visualizar a distribuição.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={distribuicaoContas}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={68}
+                        outerRadius={110}
+                        paddingAngle={3}
+                      >
+                        {distribuicaoContas.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={lightTooltipStyle}
+                        formatter={(value) => formatCurrency(Number(value))}
+                      />
+                      <Legend
+                        align="center"
+                        iconType="circle"
+                        verticalAlign="bottom"
+                        wrapperStyle={{ color: "#64748b", fontSize: 12 }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </section>
 

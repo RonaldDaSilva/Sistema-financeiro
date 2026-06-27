@@ -28,5 +28,7 @@ export const queryKeys = {
   notificacoesNaoLidas: ["notificacoes", "nao-lidas"] as const,
   categorias: ["categorias"] as const,
   cartoes: ["cartoes"] as const,
+  contas: ["contas"] as const,
+  distribuicaoContas: ["distribuicao-contas"] as const,
   configuracoesNotificacao: ["notificacoes", "configuracoes"] as const,
 };

@@ -8,6 +8,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) =
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })));
 const CardsPage = lazy(() => import('./pages/CardsPage').then((module) => ({ default: module.CardsPage })));
 const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((module) => ({ default: module.CategoriesPage })));
+const AccountsPage = lazy(() => import('./pages/AccountsPage').then((module) => ({ default: module.AccountsPage })));
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })));
 
@@ -38,6 +39,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <CardsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/contas"
+          element={
+            <ProtectedRoute>
+              <AccountsPage />
             </ProtectedRoute>
           }
         />

@@ -1,8 +1,9 @@
 import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
-import { Calendar, CreditCard, FileText, Tag, X } from "lucide-react";
+import { Calendar, CreditCard, FileText, Landmark, Tag, X } from "lucide-react";
 import type {
   CartaoCredito,
   Categoria,
+  ContaBancaria,
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
   ExtratoMensalItem,
@@ -18,6 +19,7 @@ type NewTransactionModalProps = {
   isOpen: boolean;
   categorias: Categoria[];
   cartoes: CartaoCredito[];
+  contas: ContaBancaria[];
   percentualPadraoDivisao: number;
   initialTransaction?: ExtratoMensalItem | null;
   onClose: () => void;
@@ -41,6 +43,7 @@ export function NewTransactionModal({
   isOpen,
   categorias,
   cartoes,
+  contas,
   percentualPadraoDivisao,
   initialTransaction,
   onClose,
@@ -63,6 +66,7 @@ export function NewTransactionModal({
   const [categoriaId, setCategoriaId] = useState("");
   const [formaPagamento, setFormaPagamento] = useState("Pix");
   const [cartaoCreditoId, setCartaoCreditoId] = useState("");
+  const [contaBancariaId, setContaBancariaId] = useState("");
   const [isFixa, setIsFixa] = useState(false);
   const [isParcelada, setIsParcelada] = useState(false);
   const [quantidadeParcelas, setQuantidadeParcelas] = useState(2);
@@ -112,6 +116,7 @@ export function NewTransactionModal({
       setCategoriaId(categoriasOrdenadas[0]?.id ?? "");
       setFormaPagamento("Pix");
       setCartaoCreditoId("");
+      setContaBancariaId("");
       setIsFixa(false);
       setIsParcelada(false);
       setQuantidadeParcelas(2);
@@ -154,6 +159,7 @@ export function NewTransactionModal({
     setCategoriaId(initialTransaction.categoriaId ?? "");
     setFormaPagamento(initialTransaction.formaPagamento);
     setCartaoCreditoId(initialTransaction.cartaoCreditoId ?? "");
+    setContaBancariaId(initialTransaction.contaBancariaId ?? "");
     setIsFixa(initialTransaction.isFixa);
     setIsParcelada(
       initialTransaction.origem === "CompraParcelada" ||
@@ -180,7 +186,11 @@ export function NewTransactionModal({
 
     if (tipo === "receita") {
       setFormaPagamento("Pix");
-    } else if (
+    } else if (tipo === "investimento") {
+      setContaBancariaId("");
+    }
+
+    if (
       tipo === "investimento" &&
       formaPagamento === "Cartão de crédito"
     ) {
@@ -293,6 +303,12 @@ export function NewTransactionModal({
           categoriaId: tipo === "despesa" ? categoriaId : null,
           formaPagamento,
           cartaoCreditoId: tipo === "despesa" ? cartaoCreditoId || null : null,
+          contaBancariaId:
+            (tipo === "despesa" || tipo === "receita") &&
+            formaPagamento !== "Cartão de crédito" &&
+            !isParcelada
+              ? contaBancariaId || null
+              : null,
           isFixa,
           isDividida,
           valorTotalOriginal: isDividida ? numericValue : null,
@@ -603,6 +619,9 @@ export function NewTransactionModal({
                     setIsParcelada(true);
                     setIsFixa(false);
                     setCartaoCreditoId("");
+                    setContaBancariaId("");
+                  } else if (event.target.value === "Cartão de crédito") {
+                    setContaBancariaId("");
                   }
                 }}
               >
@@ -655,6 +674,32 @@ export function NewTransactionModal({
                   {cartoes.map((cartao) => (
                     <option key={cartao.id} value={cartao.id}>
                       {cartao.apelidoCartao}
+                    </option>
+                  ))}
+                </select>
+              </IconField>
+            )}
+
+          {(tipo === "despesa" || tipo === "receita") &&
+            !isParcelada &&
+            formaPagamento !== "Cartão de crédito" && (
+              <IconField
+                label={
+                  tipo === "receita"
+                    ? "Creditar na Conta"
+                    : "Debitar da Conta"
+                }
+                icon={<Landmark size={16} />}
+              >
+                <select
+                  className={`${inputClass} appearance-none`}
+                  value={contaBancariaId}
+                  onChange={(event) => setContaBancariaId(event.target.value)}
+                >
+                  <option value="">Não informar</option>
+                  {contas.map((conta) => (
+                    <option key={conta.id} value={conta.id}>
+                      {conta.nomeCustomizado}
                     </option>
                   ))}
                 </select>
@@ -780,6 +825,7 @@ export function NewTransactionModal({
     setCategoriaId(categoriasOrdenadas[0]?.id ?? "");
     setFormaPagamento("Pix");
     setCartaoCreditoId("");
+    setContaBancariaId("");
     setIsFixa(false);
     setIsParcelada(false);
     setQuantidadeParcelas(2);

@@ -19,6 +19,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<Categoria> Categorias => Set<Categoria>();
     public DbSet<CartaoCredito> CartoesCredito => Set<CartaoCredito>();
+    public DbSet<ContaBancaria> ContasBancarias => Set<ContaBancaria>();
     public DbSet<CompraParcelada> ComprasParceladas => Set<CompraParcelada>();
     public DbSet<Transacao> Transacoes => Set<Transacao>();
     public DbSet<TransacaoFixaExcecao> TransacoesFixasExcecoes => Set<TransacaoFixaExcecao>();
@@ -37,6 +38,7 @@ public sealed class AppDbContext : DbContext
         ConfigureUsuario(modelBuilder);
         ConfigureCategoria(modelBuilder);
         ConfigureCartaoCredito(modelBuilder);
+        ConfigureContaBancaria(modelBuilder);
         ConfigureCompraParcelada(modelBuilder);
         ConfigureTransacao(modelBuilder);
         ConfigureTransacaoFixaExcecao(modelBuilder);
@@ -304,6 +306,52 @@ public sealed class AppDbContext : DbContext
         });
     }
 
+    private static void ConfigureContaBancaria(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ContaBancaria>(entity =>
+        {
+            entity.ToTable("contas_bancarias");
+
+            entity.HasKey(conta => conta.Id);
+
+            entity.Property(conta => conta.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(conta => conta.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+
+            entity.Property(conta => conta.NomeCustomizado)
+                .HasColumnName("nome_customizado")
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(conta => conta.CodigoBanco)
+                .HasColumnName("codigo_banco")
+                .HasMaxLength(3)
+                .IsFixedLength()
+                .IsRequired();
+
+            entity.Property(conta => conta.SaldoInicial)
+                .HasColumnName("saldo_inicial")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(conta => conta.DataCriacao)
+                .HasColumnName("data_criacao")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.HasOne(conta => conta.Usuario)
+                .WithMany(usuario => usuario.ContasBancarias)
+                .HasForeignKey(conta => conta.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(conta => conta.UsuarioId);
+        });
+    }
+
     private static void ConfigureTransacao(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Transacao>(entity =>
@@ -355,6 +403,9 @@ public sealed class AppDbContext : DbContext
             entity.Property(transacao => transacao.CartaoCreditoId)
                 .HasColumnName("id_cartao_credito");
 
+            entity.Property(transacao => transacao.ContaBancariaId)
+                .HasColumnName("id_conta_bancaria");
+
             entity.Property(transacao => transacao.IsFixa)
                 .HasColumnName("is_fixa")
                 .IsRequired();
@@ -390,6 +441,7 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.Tipo, transacao.DataOcorrencia });
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CategoriaId, transacao.DataOcorrencia });
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CartaoCreditoId, transacao.DataOcorrencia });
+            entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.ContaBancariaId, transacao.DataOcorrencia });
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CompraParceladaId, transacao.NumeroParcelaQuitada });
 
             entity.HasOne(transacao => transacao.Usuario)
@@ -406,6 +458,11 @@ public sealed class AppDbContext : DbContext
                 .WithMany(cartao => cartao.Transacoes)
                 .HasForeignKey(transacao => transacao.CartaoCreditoId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(transacao => transacao.ContaBancaria)
+                .WithMany(conta => conta.Transacoes)
+                .HasForeignKey(transacao => transacao.ContaBancariaId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             entity.HasOne(transacao => transacao.CompraParcelada)
                 .WithMany(compra => compra.TransacoesQuitacao)

@@ -11,6 +11,7 @@ import {
   ChevronRight,
   FolderTree,
   LayoutDashboard,
+  Landmark,
   LogOut,
   Moon,
   Settings,
@@ -31,6 +32,7 @@ const navItems = [
   { to: "/", label: "Início", Icon: LayoutDashboard },
   { to: "/relatorios", label: "Relatórios", Icon: BarChart3 },
   { to: "/cartoes", label: "Cartões", Icon: CreditCard },
+  { to: "/contas", label: "Contas", Icon: Landmark },
   { to: "/categorias", label: "Categorias", Icon: FolderTree },
 ];
 
@@ -289,7 +291,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       </div>
 
       <nav className="fixed inset-x-3 bottom-4 z-40 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)]/95 p-2 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95 md:hidden">
-        <div className="grid grid-cols-4 gap-1">
+        <div className="grid grid-cols-5 gap-1">
           {navItems.map(({ to, label, Icon }) => (
             <NavLink
               className={({ isActive }) =>

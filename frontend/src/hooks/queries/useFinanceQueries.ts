@@ -138,3 +138,27 @@ export function useCartoes(enabled = true) {
     staleTime: 10 * 60 * 1000,
   });
 }
+
+export function useContas(enabled = true) {
+  const canFetch = hasUsableStoredAuth();
+
+  return useQuery({
+    queryKey: queryKeys.contas,
+    queryFn: financeService.listarContasBancarias,
+    enabled: enabled && canFetch,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+}
+
+export function useDistribuicaoContas(enabled = true) {
+  const canFetch = hasUsableStoredAuth();
+
+  return useQuery({
+    queryKey: queryKeys.distribuicaoContas,
+    queryFn: financeService.obterDistribuicaoContas,
+    enabled: enabled && canFetch,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}

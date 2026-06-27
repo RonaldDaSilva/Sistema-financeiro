@@ -12,6 +12,7 @@ export type ExtratoMensalItem = {
   categoriaCorHexa: string;
   formaPagamento: string;
   cartaoCreditoId: string | null;
+  contaBancariaId: string | null;
   cartaoCreditoApelido: string | null;
   isFixa: boolean;
   isPaga: boolean;
@@ -106,6 +107,27 @@ export type CartaoCredito = {
   limiteDisponivel: number;
 };
 
+export type ContaBancaria = {
+  id: string;
+  nomeCustomizado: string;
+  codigoBanco: string;
+  saldoInicial: number;
+  dataCriacao: string;
+};
+
+export type ContaDistribuicao = {
+  id: string;
+  codigoBanco: string;
+  nomeCustomizado: string;
+  saldoAtual: number;
+};
+
+export type ContaBancariaRequest = {
+  nomeCustomizado: string;
+  codigoBanco: string;
+  saldoInicial: number;
+};
+
 export type FaturaDetalhe = {
   transacaoId: string | null;
   compraParceladaId: string | null;
@@ -143,6 +165,7 @@ export type CriarTransacaoRequest = {
   categoriaId?: string | null;
   formaPagamento: string;
   cartaoCreditoId?: string | null;
+  contaBancariaId?: string | null;
   isFixa: boolean;
   isDividida: boolean;
   valorTotalOriginal?: number | null;

@@ -3,6 +3,9 @@ import { api } from './api';
 import type {
   AnteciparParcelaRequest,
   CartaoCredito,
+  ContaBancaria,
+  ContaBancariaRequest,
+  ContaDistribuicao,
   Categoria,
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
@@ -266,6 +269,33 @@ export async function atualizarCartaoCredito(
 
 export async function excluirCartaoCredito(id: string) {
   await api.delete(`/api/cartoes-credito/${id}`);
+}
+
+export async function listarContasBancarias() {
+  const { data } = await api.get<ContaBancaria[]>('/api/contas');
+  return data;
+}
+
+export async function obterDistribuicaoContas() {
+  const { data } = await api.get<ContaDistribuicao[]>('/api/contas/distribuicao');
+  return data;
+}
+
+export async function criarContaBancaria(request: ContaBancariaRequest) {
+  const { data } = await api.post<ContaBancaria>('/api/contas', request);
+  return data;
+}
+
+export async function atualizarContaBancaria(
+  id: string,
+  request: ContaBancariaRequest,
+) {
+  const { data } = await api.put<ContaBancaria>(`/api/contas/${id}`, request);
+  return data;
+}
+
+export async function excluirContaBancaria(id: string) {
+  await api.delete(`/api/contas/${id}`);
 }
 
 export async function exportarExtratoExcel(params: ExportacaoParams) {

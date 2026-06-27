@@ -22,6 +22,7 @@ import { useAuth } from "../contexts/AuthContext";
 import {
   useCartoes,
   useCategorias,
+  useContas,
   useExtratoMensalPaginado,
   useExtratosMensais,
   useFaturasMensais,
@@ -83,6 +84,7 @@ export function DashboardPage() {
   );
   const categoriasQuery = useCategorias();
   const cartoesQuery = useCartoes(isModalOpen);
+  const contasQuery = useContas(isModalOpen);
   const configuracoesQuery = useConfiguracoesNotificacao(isModalOpen);
   const extratosQueries = useExtratosMensais(mesesPeriodo, apenasDivididas);
   const extratoPaginadoQuery = useExtratoMensalPaginado({
@@ -99,6 +101,7 @@ export function DashboardPage() {
   const faturasQueries = useFaturasMensais(mesesPeriodo);
   const categorias = categoriasQuery.data ?? [];
   const cartoes = cartoesQuery.data ?? [];
+  const contas = contasQuery.data ?? [];
   const percentualPadraoDivisao =
     configuracoesQuery.data?.percentualPadraoDivisao ?? 50;
   const isLoading = [
@@ -143,6 +146,7 @@ export function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
       queryClient.invalidateQueries({ queryKey: ["faturas"] }),
       queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
     ]);
   }
 
@@ -840,6 +844,7 @@ export function DashboardPage() {
         isOpen={isModalOpen}
         categorias={categorias}
         cartoes={cartoes}
+        contas={contas}
         percentualPadraoDivisao={percentualPadraoDivisao}
         initialTransaction={editingTransaction}
         onClose={() => {

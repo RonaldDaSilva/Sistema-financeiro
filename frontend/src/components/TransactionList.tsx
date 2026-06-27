@@ -441,6 +441,7 @@ function mapFaturaDetalheToExtratoItem(
     categoriaCorHexa: detalhe.categoriaCorHexa,
     formaPagamento: "Cartão de crédito",
     cartaoCreditoId: fatura.cartaoCreditoId,
+    contaBancariaId: null,
     cartaoCreditoApelido: fatura.nomeCartao,
     isFixa: detalhe.origem === "DespesaFixa",
     isPaga: false,

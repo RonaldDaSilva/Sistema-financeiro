@@ -25,6 +25,7 @@ public sealed class CriarTransacaoRequest
     public string FormaPagamento { get; set; } = string.Empty;
 
     public Guid? CartaoCreditoId { get; set; }
+    public Guid? ContaBancariaId { get; set; }
     public bool IsFixa { get; set; }
     public bool IsDividida { get; set; }
 

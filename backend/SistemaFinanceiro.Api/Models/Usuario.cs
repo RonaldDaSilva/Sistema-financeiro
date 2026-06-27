@@ -14,6 +14,7 @@ public sealed class Usuario : IHasGuidId
 
     public ICollection<Categoria> Categorias { get; set; } = new List<Categoria>();
     public ICollection<CartaoCredito> CartoesCredito { get; set; } = new List<CartaoCredito>();
+    public ICollection<ContaBancaria> ContasBancarias { get; set; } = new List<ContaBancaria>();
     public ICollection<CompraParcelada> ComprasParceladas { get; set; } = new List<CompraParcelada>();
     public ICollection<Transacao> Transacoes { get; set; } = new List<Transacao>();
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();

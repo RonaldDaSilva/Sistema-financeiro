@@ -1,0 +1,10 @@
+namespace SistemaFinanceiro.Api.Dtos.ContasBancarias;
+
+public sealed class ContaBancariaResponse
+{
+    public Guid Id { get; set; }
+    public string NomeCustomizado { get; set; } = string.Empty;
+    public string CodigoBanco { get; set; } = string.Empty;
+    public decimal SaldoInicial { get; set; }
+    public DateTimeOffset DataCriacao { get; set; }
+}
