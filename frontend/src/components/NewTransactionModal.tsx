@@ -1,4 +1,5 @@
 import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import axios from "axios";
 import { Calendar, CreditCard, FileText, Landmark, Tag, X } from "lucide-react";
 import type {
   CartaoCredito,
@@ -331,11 +332,7 @@ export function NewTransactionModal({
         setIsRepeatPromptOpen(true);
       }
     } catch (error) {
-      setErro(
-        error instanceof Error
-          ? error.message
-          : "Não foi possível salvar a transação.",
-      );
+      setErro(extractApiError(error, "Não foi possível salvar a transação."));
     } finally {
       setIsSubmitting(false);
     }
@@ -350,7 +347,9 @@ export function NewTransactionModal({
         <div className="relative border-b border-[color:var(--app-card-border)] bg-slate-50/50 px-6 py-5 pr-16 dark:border-slate-800 dark:bg-slate-950/50">
           <div>
             <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-              {isEditing ? "Editar transação" : "Adicionar nova transação"}
+              {isEditing || isEditingCompraParcelada
+                ? "Editar transação"
+                : "Adicionar nova transação"}
             </h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               Adicione os detalhes da movimentação.
@@ -843,6 +842,26 @@ function calcularMeuValor(valorTotal: string, percentual: string) {
   }
 
   return formatCurrencyInput(calcularParteNumerica(total, percentualNumerico));
+}
+
+function extractApiError(error: unknown, fallback: string) {
+  if (!axios.isAxiosError(error)) {
+    return error instanceof Error ? error.message : fallback;
+  }
+
+  const data = error.response?.data as
+    | { message?: string; errors?: Record<string, string[]> }
+    | undefined;
+
+  if (data?.message) {
+    return data.message;
+  }
+
+  const validationMessage = data?.errors
+    ? Object.values(data.errors).flat().find(Boolean)
+    : null;
+
+  return validationMessage ?? fallback;
 }
 
 function calcularPercentual(valorTotal: string, meuValor: string) {

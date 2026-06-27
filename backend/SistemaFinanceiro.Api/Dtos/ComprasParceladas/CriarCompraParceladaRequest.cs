@@ -14,7 +14,7 @@ public sealed class CriarCompraParceladaRequest
     [MaxLength(180)]
     public string Descricao { get; set; } = string.Empty;
 
-    [Range(2, 120)]
+    [Range(1, 120)]
     public int QuantidadeParcelas { get; set; }
 
     [Range(0.01, 999999999999.99)]

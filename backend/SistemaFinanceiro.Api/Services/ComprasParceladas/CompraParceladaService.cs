@@ -19,6 +19,12 @@ public sealed class CompraParceladaService : ICompraParceladaService
         Guid usuarioId,
         CancellationToken cancellationToken = default)
     {
+        if (request.QuantidadeParcelas < 2)
+        {
+            throw new InvalidOperationException(
+                "Uma nova compra parcelada deve possuir pelo menos 2 parcelas.");
+        }
+
         ValidarDivisao(request);
         var categoriaExiste = await _dbContext.Categorias
             .AnyAsync(
