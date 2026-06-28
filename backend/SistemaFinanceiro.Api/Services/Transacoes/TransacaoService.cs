@@ -833,7 +833,7 @@ public sealed class TransacaoService : ITransacaoService
         return total;
     }
 
-    public async Task<TransacaoResponse> CriarAsync(
+    public async Task<Guid> CriarAsync(
         CriarTransacaoRequest request,
         Guid usuarioId,
         CancellationToken cancellationToken = default)
@@ -871,10 +871,10 @@ public sealed class TransacaoService : ITransacaoService
         _dbContext.Transacoes.Add(transacao);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return MapearTransacaoResponse(transacao);
+        return transacao.Id;
     }
 
-    public async Task<TransacaoResponse?> AtualizarAsync(
+    public async Task<Guid?> AtualizarAsync(
         Guid id,
         CriarTransacaoRequest request,
         Guid usuarioId,
@@ -915,7 +915,7 @@ public sealed class TransacaoService : ITransacaoService
                 _dbContext.Transacoes.Add(transacaoPontual);
                 await _dbContext.SaveChangesAsync(cancellationToken);
 
-                return MapearTransacaoResponse(transacaoPontual);
+                return transacaoPontual.Id;
             }
 
             var proximaOcorrencia = CriarDataNoMes(
@@ -931,7 +931,7 @@ public sealed class TransacaoService : ITransacaoService
             AplicarRequestNaTransacao(transacao, request, isFixa: false);
             await _dbContext.SaveChangesAsync(cancellationToken);
 
-            return MapearTransacaoResponse(transacao);
+            return transacao.Id;
         }
 
         if (transacao.IsFixa && request.IsFixa && request.DataOcorrencia > transacao.DataOcorrencia)
@@ -948,14 +948,14 @@ public sealed class TransacaoService : ITransacaoService
             _dbContext.Transacoes.Add(novaRecorrencia);
             await _dbContext.SaveChangesAsync(cancellationToken);
 
-            return MapearTransacaoResponse(novaRecorrencia);
+            return novaRecorrencia.Id;
         }
 
         AplicarRequestNaTransacao(transacao, request, request.IsFixa);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return MapearTransacaoResponse(transacao);
+        return transacao.Id;
     }
 
     public async Task<IReadOnlyList<TransacaoResponse>> AnteciparParcelaAsync(

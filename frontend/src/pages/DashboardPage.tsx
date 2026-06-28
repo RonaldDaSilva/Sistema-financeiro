@@ -29,10 +29,16 @@ import {
 } from "../hooks/queries/useFinanceQueries";
 import { useConfiguracoesNotificacao } from "../hooks/queries/useNotificationQueries";
 import { queryKeys } from "../hooks/queries/queryKeys";
+import {
+  useAddTransacao,
+  useEditTransacao,
+} from "../hooks/mutations/useTransactionMutations";
 import * as financeService from "../services/financeService";
 import type {
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
+  Categoria,
+  CartaoCredito,
   ExtratoMensal,
   ExtratoMensalItem,
   FaturaConsolidada,
@@ -52,6 +58,8 @@ import { AnticipateInstallmentModal } from "../components/AnticipateInstallmentM
 export function DashboardPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const addTransacaoMutation = useAddTransacao();
+  const editTransacaoMutation = useEditTransacao();
   const { confirm, dialog } = useConfirmDialog();
   const [searchParams, setSearchParams] = useSearchParams();
   const hoje = new Date();
@@ -255,8 +263,16 @@ export function DashboardPage() {
   }, [periodo]);
 
   async function handleCreateTransacao(request: CriarTransacaoRequest) {
-    await financeService.criarTransacao(request);
-    await invalidarDadosFinanceiros();
+    await addTransacaoMutation.mutateAsync({
+      request,
+      optimisticItem: criarItemOtimista(
+        `optimistic-${crypto.randomUUID()}`,
+        request,
+        null,
+        categorias,
+        cartoes,
+      ),
+    });
   }
 
   async function handleUpdateTransacao(
@@ -275,8 +291,18 @@ export function DashboardPage() {
       });
     }
 
-    await financeService.atualizarTransacao(id, request, replicarFuturas);
-    await invalidarDadosFinanceiros();
+    await editTransacaoMutation.mutateAsync({
+      id,
+      request,
+      replicarFuturas,
+      optimisticItem: criarItemOtimista(
+        id,
+        request,
+        editingTransaction,
+        categorias,
+        cartoes,
+      ),
+    });
   }
 
   async function handleUpdateCompraParcelada(
@@ -881,6 +907,44 @@ function atualizarStatusItem(
   }
 
   return { ...item, isPaga };
+}
+
+function criarItemOtimista(
+  id: string,
+  request: CriarTransacaoRequest,
+  previous: ExtratoMensalItem | null,
+  categorias: Categoria[],
+  cartoes: CartaoCredito[],
+): ExtratoMensalItem {
+  const categoria = categorias.find((item) => item.id === request.categoriaId);
+  const cartao = cartoes.find((item) => item.id === request.cartaoCreditoId);
+  const hoje = toDateInputValue(new Date());
+
+  return {
+    id,
+    codigoExibicao: previous?.codigoExibicao ?? null,
+    tipo: request.tipo,
+    descricao: request.descricao,
+    valor: request.valor,
+    dataOcorrencia: request.dataOcorrencia,
+    categoriaId: request.categoriaId ?? null,
+    categoriaNome: categoria?.nome ?? "Sem categoria",
+    categoriaCorHexa: categoria?.corHexa ?? "#64748B",
+    formaPagamento: request.formaPagamento,
+    cartaoCreditoId: request.cartaoCreditoId ?? null,
+    contaBancariaId: request.contaBancariaId ?? null,
+    cartaoCreditoApelido: cartao?.apelidoCartao ?? null,
+    isFixa: request.isFixa,
+    isPaga: request.dataOcorrencia <= hoje,
+    isDividida: request.isDividida,
+    valorTotalOriginal: request.valorTotalOriginal ?? null,
+    percentualDivisao: request.percentualDivisao ?? null,
+    isProjetada: false,
+    origem: "Transacao",
+    compraParceladaId: request.compraParceladaId ?? null,
+    numeroParcela: request.numeroParcelaQuitada ?? null,
+    quantidadeParcelas: previous?.quantidadeParcelas ?? null,
+  };
 }
 
 function obterPeriodoInicial(

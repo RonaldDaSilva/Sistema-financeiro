@@ -103,7 +103,7 @@ public sealed class TransacaoController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<ActionResult<TransacaoResponse>> Criar(
+    public async Task<IActionResult> Criar(
         CriarTransacaoRequest request,
         CancellationToken cancellationToken)
     {
@@ -115,8 +115,8 @@ public sealed class TransacaoController : ControllerBase
 
         try
         {
-            var transacao = await _transacaoService.CriarAsync(request, usuarioId.Value, cancellationToken);
-            return CreatedAtAction(nameof(Criar), new { id = transacao.Id }, transacao);
+            var id = await _transacaoService.CriarAsync(request, usuarioId.Value, cancellationToken);
+            return StatusCode(StatusCodes.Status201Created, new { id });
         }
         catch (InvalidOperationException exception)
         {
@@ -125,7 +125,7 @@ public sealed class TransacaoController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    public async Task<ActionResult<TransacaoResponse>> Atualizar(
+    public async Task<IActionResult> Atualizar(
         Guid id,
         CriarTransacaoRequest request,
         CancellationToken cancellationToken,
@@ -139,13 +139,13 @@ public sealed class TransacaoController : ControllerBase
 
         try
         {
-            var transacao = await _transacaoService.AtualizarAsync(
+            var transacaoId = await _transacaoService.AtualizarAsync(
                 id,
                 request,
                 usuarioId.Value,
                 replicarFuturas,
                 cancellationToken);
-            return transacao is null ? NotFound() : Ok(transacao);
+            return transacaoId is null ? NotFound() : Ok(new { id = transacaoId.Value });
         }
         catch (InvalidOperationException exception)
         {

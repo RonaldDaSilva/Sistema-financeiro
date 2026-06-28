@@ -141,7 +141,7 @@ export async function getRelatorioGraficos(mes: number, ano: number) {
 }
 
 export async function criarTransacao(request: CriarTransacaoRequest) {
-  const { data } = await api.post('/api/transacoes', request);
+  const { data } = await api.post<{ id: string }>('/api/transacoes', request);
   return data;
 }
 
@@ -150,7 +150,7 @@ export async function atualizarTransacao(
   request: CriarTransacaoRequest,
   replicarFuturas = true,
 ) {
-  const { data } = await api.put(`/api/transacoes/${id}`, request, {
+  const { data } = await api.put<{ id: string }>(`/api/transacoes/${id}`, request, {
     params: { replicarFuturas },
   });
   return data;
