@@ -644,7 +644,7 @@ export function DashboardPage() {
 
   return (
     <AppLayout>
-      <section className="mx-auto max-w-[1400px] space-y-8 px-4 py-8 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1400px] space-y-5 px-4 py-5 sm:px-6 md:space-y-8 md:py-8 lg:px-8">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
             <p className="mb-1 block text-sm font-medium text-slate-500 dark:text-slate-400">
@@ -654,26 +654,40 @@ export function DashboardPage() {
               Olá, {user?.nome}
             </h2>
           </div>
-          <button
-            className="flex items-center rounded-xl bg-[var(--app-accent)] px-5 py-2.5 font-medium text-[var(--app-accent-contrast)] shadow-sm transition-all hover:opacity-90 hover:shadow-md active:scale-95 dark:bg-white dark:text-slate-950"
-            type="button"
-            onClick={() => {
-              setEditingTransaction(null);
-              setIsModalOpen(true);
-            }}
-          >
-            <Plus size={18} className="mr-2" />
-            Nova transação
-          </button>
+          <div className="flex w-full gap-2 md:w-auto">
+            <button
+              className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] text-slate-600 shadow-sm transition hover:bg-[var(--app-card-muted)] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 md:w-auto md:px-4"
+              type="button"
+              onClick={() => setValoresOcultos((current) => !current)}
+              aria-pressed={valoresOcultos}
+              aria-label={valoresOcultos ? "Mostrar valores" : "Ocultar valores"}
+            >
+              {valoresOcultos ? <Eye size={18} /> : <EyeOff size={18} />}
+              <span className="ml-2 hidden md:inline">
+                {valoresOcultos ? "Mostrar" : "Ocultar"}
+              </span>
+            </button>
+            <button
+              className="flex h-12 flex-1 items-center justify-center rounded-xl bg-[var(--app-accent)] px-5 font-medium text-[var(--app-accent-contrast)] shadow-sm transition-all hover:opacity-90 hover:shadow-md active:scale-95 dark:bg-white dark:text-slate-950 md:flex-none"
+              type="button"
+              onClick={() => {
+                setEditingTransaction(null);
+                setIsModalOpen(true);
+              }}
+            >
+              <Plus size={18} className="mr-2" />
+              Nova transação
+            </button>
+          </div>
         </div>
 
-        <div className="relative z-30 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-stretch">
+        <div className="relative z-30 flex flex-col gap-2 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-2 shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:flex-row lg:items-center lg:gap-4 lg:p-3">
           <PeriodFilter
             value={periodo}
             categorias={categorias}
             onChange={handlePeriodoChange}
           />
-          <div className="flex flex-col gap-2 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:flex-row lg:flex-col lg:justify-center">
+          <div className="grid shrink-0 grid-cols-2 gap-2">
             <button
               className="flex items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-bold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
               type="button"
@@ -681,7 +695,7 @@ export function DashboardPage() {
               onClick={() => handleExportar("excel")}
             >
               <FileSpreadsheet size={17} className="mr-2" />
-              {exportando === "excel" ? "Baixando..." : "Baixar Excel"}
+              {exportando === "excel" ? "Baixando..." : "Excel"}
             </button>
             <button
               className="flex items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
@@ -690,22 +704,9 @@ export function DashboardPage() {
               onClick={() => handleExportar("pdf")}
             >
               <FileText size={17} className="mr-2" />
-              {exportando === "pdf" ? "Baixando..." : "Baixar PDF"}
+              {exportando === "pdf" ? "Baixando..." : "PDF"}
             </button>
           </div>
-        </div>
-
-        <div className="flex justify-end">
-          <button
-            className="inline-flex items-center gap-2 rounded-full border border-[color:var(--app-card-border)] bg-[var(--app-card)] px-4 py-2 text-sm font-bold text-slate-600 shadow-sm transition hover:bg-[var(--app-card-muted)] dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
-            type="button"
-            onClick={() => setValoresOcultos((current) => !current)}
-            aria-pressed={valoresOcultos}
-            aria-label={valoresOcultos ? "Mostrar valores" : "Ocultar valores"}
-          >
-            {valoresOcultos ? <Eye size={16} /> : <EyeOff size={16} />}
-            {valoresOcultos ? "Mostrar valores" : "Ocultar valores"}
-          </button>
         </div>
 
         <div className="relative z-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">

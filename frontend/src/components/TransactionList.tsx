@@ -51,7 +51,7 @@ export const TransactionList = memo(function TransactionList({
 
   return (
     <div className="overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-[color:var(--app-card-border)] bg-slate-50/50 px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 md:grid-cols-[120px_1fr_170px_170px_120px]">
+      <div className="hidden grid-cols-[120px_1fr_170px_170px_120px] gap-3 border-b border-[color:var(--app-card-border)] bg-slate-50/50 px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 md:grid">
         <span>Data</span>
         <span>Movimentação</span>
         <span className="hidden md:block">Categoria</span>
@@ -103,10 +103,10 @@ export const TransactionList = memo(function TransactionList({
             <div
               key={`${item.id ?? item.compraParceladaId ?? item.descricao}-${item.dataOcorrencia}-${item.numeroParcela ?? index}`}
             >
-              <div className="group grid grid-cols-[1fr_auto] gap-3 px-6 py-5 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/40 md:grid-cols-[120px_1fr_170px_170px_120px] md:items-center">
-                <div className="relative min-h-[42px] overflow-visible">
+              <div className="group grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-4 px-4 py-5 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/40 sm:px-5 md:grid-cols-[120px_1fr_170px_170px_120px] md:items-center md:gap-3 md:px-6">
+                <div className="relative col-start-1 row-start-1 min-h-7 overflow-visible md:col-auto md:row-auto md:min-h-[42px]">
                   <StatusButton item={item} onToggle={onTogglePagamento} />
-                  <div className="transition-transform duration-200 ease-out group-hover:translate-x-8">
+                  <div className="transition-transform duration-200 ease-out md:group-hover:translate-x-8">
                     <span className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300">
                       {formatDate(item.dataOcorrencia)}
                     </span>
@@ -122,15 +122,15 @@ export const TransactionList = memo(function TransactionList({
                     )}
                   </div>
                 </div>
-                <div className="flex min-w-0 items-center gap-4">
+                <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-3 md:col-auto md:row-auto md:gap-4">
                   <MovementIcon
                     size={36}
                     className={`flex-shrink-0 rounded-full p-1 ${movementIconClass}`}
                     strokeWidth={1.5}
                   />
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-base font-bold text-slate-900 dark:text-white">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="min-w-0 flex-1 truncate text-base font-bold text-slate-900 dark:text-white">
                         {item.descricao}
                       </p>
                     {fatura && (
@@ -155,6 +155,8 @@ export const TransactionList = memo(function TransactionList({
                         {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
                     )}
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
                     {item.isProjetada && (
                       <span className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                         Projetada
@@ -187,22 +189,27 @@ export const TransactionList = memo(function TransactionList({
                     </p>
                   </div>
                 </div>
-                <div className="hidden items-center gap-2 md:flex">
+                <div className="col-start-1 row-start-3 flex min-w-0 items-center gap-2 md:col-auto md:row-auto">
                   <CategoryIcon item={item} />
                   <span className="truncate text-sm text-slate-600 dark:text-slate-300">
                     {item.categoriaNome}
                   </span>
                 </div>
-                <div className="flex items-center justify-end gap-3">
+                <div className="col-start-2 row-start-3 flex min-w-0 items-center justify-end gap-3 md:col-auto md:row-auto">
                   <div className="text-right">
-                    <span className={`block font-semibold ${valueClass}`}>
+                    <span className={`block whitespace-nowrap font-semibold ${valueClass}`}>
                       {isReceita ? "+" : "-"} {formatCurrency(item.valor)}
                     </span>
                     {isFatura &&
                     item.valorTotalOriginal != null &&
                     item.valorTotalOriginal !== item.valor ? (
                       <span className="mt-1 block whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">
-                        Total da fatura: ({formatCurrency(item.valorTotalOriginal)})
+                        <span className="md:hidden">
+                          Total: ({formatCurrency(item.valorTotalOriginal)})
+                        </span>
+                        <span className="hidden md:inline">
+                          Total da fatura: ({formatCurrency(item.valorTotalOriginal)})
+                        </span>
                       </span>
                     ) : item.isDividida && item.valorTotalOriginal != null ? (
                       <span className="ml-1 whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -211,7 +218,7 @@ export const TransactionList = memo(function TransactionList({
                     ) : null}
                   </div>
                 </div>
-                <div className="col-span-2 flex justify-end gap-2 md:col-span-1">
+                <div className="col-start-2 row-start-1 flex justify-end gap-1 md:col-auto md:row-auto md:gap-2">
                   {canAnticipate && (
                     <button
                       className="rounded-xl p-2 text-slate-300 opacity-100 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
