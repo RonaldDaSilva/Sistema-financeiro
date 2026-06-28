@@ -390,6 +390,7 @@ function StatusButton({
 }) {
   const isReceita = item.tipo === 1 || item.tipo === "Receita";
   const isFatura = item.origem === "FaturaCartao" && item.cartaoCreditoId;
+  const isCompraCartao = item.formaPagamento === "Cartão de crédito";
   const isParcelaCarneProjetada =
     item.origem === "Carne" &&
     item.isProjetada &&
@@ -397,6 +398,7 @@ function StatusButton({
     Boolean(item.numeroParcela);
   const canToggle =
     !isReceita &&
+    !isCompraCartao &&
     (Boolean(item.id) && (!item.isProjetada || item.isFixa) ||
       Boolean(isFatura) ||
       isParcelaCarneProjetada);

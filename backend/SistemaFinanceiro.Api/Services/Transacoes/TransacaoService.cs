@@ -141,9 +141,19 @@ public sealed class TransacaoService : ITransacaoService
             parcelasCarneQuitadasSet));
 
         var faturas = await GetFaturasDoMesAsync(mes, ano, usuarioId, cancellationToken);
-        itens.AddRange(faturas
-            .Where(fatura => fatura.ValorTotal > 0)
-            .Select(MapearFaturaParaExtrato));
+        if (apenasDivididas == true)
+        {
+            itens.AddRange(faturas.SelectMany(fatura =>
+                fatura.Detalhes
+                    .Where(detalhe => detalhe.IsDividida)
+                    .Select(detalhe => MapearDetalheFaturaParaExtrato(fatura, detalhe))));
+        }
+        else
+        {
+            itens.AddRange(faturas
+                .Where(fatura => fatura.ValorTotal > 0)
+                .Select(MapearFaturaParaExtrato));
+        }
 
         var itensOrdenados = itens
             .OrderBy(item => item.DataOcorrencia)
@@ -251,12 +261,16 @@ public sealed class TransacaoService : ITransacaoService
 
         if (dataInicial.HasValue)
         {
-            itensFiltrados = itensFiltrados.Where(item => item.DataOcorrencia >= dataInicial.Value);
+            itensFiltrados = itensFiltrados.Where(item =>
+                item.DataOcorrencia >= dataInicial.Value ||
+                (request.ApenasDivididas == true && item.FormaPagamento == "Cartão de crédito"));
         }
 
         if (dataFinal.HasValue)
         {
-            itensFiltrados = itensFiltrados.Where(item => item.DataOcorrencia <= dataFinal.Value);
+            itensFiltrados = itensFiltrados.Where(item =>
+                item.DataOcorrencia <= dataFinal.Value ||
+                (request.ApenasDivididas == true && item.FormaPagamento == "Cartão de crédito"));
         }
 
         if (request.Tipo.HasValue)
@@ -1394,6 +1408,36 @@ public sealed class TransacaoService : ITransacaoService
             IsPaga = fatura.IsPaga,
             IsProjetada = true,
             Origem = "FaturaCartao"
+        };
+    }
+
+    private static ExtratoMensalItemResponse MapearDetalheFaturaParaExtrato(
+        FaturaConsolidadaResponse fatura,
+        FaturaDetalheResponse detalhe)
+    {
+        return new ExtratoMensalItemResponse
+        {
+            Id = detalhe.TransacaoId,
+            Tipo = TipoTransacao.Despesa,
+            Descricao = detalhe.Descricao,
+            Valor = detalhe.Valor,
+            DataOcorrencia = detalhe.DataOcorrencia,
+            CategoriaId = detalhe.CategoriaId,
+            CategoriaNome = detalhe.CategoriaNome,
+            CategoriaCorHexa = detalhe.CategoriaCorHexa,
+            FormaPagamento = "Cartão de crédito",
+            CartaoCreditoId = fatura.CartaoCreditoId,
+            CartaoCreditoApelido = fatura.NomeCartao,
+            IsFixa = detalhe.Origem == "DespesaFixa",
+            IsPaga = fatura.IsPaga,
+            IsDividida = detalhe.IsDividida,
+            ValorTotalOriginal = detalhe.ValorTotalOriginal,
+            PercentualDivisao = detalhe.PercentualDivisao,
+            IsProjetada = detalhe.Origem != "Transacao",
+            Origem = detalhe.Origem,
+            CompraParceladaId = detalhe.CompraParceladaId,
+            NumeroParcela = detalhe.NumeroParcela,
+            QuantidadeParcelas = detalhe.QuantidadeParcelas
         };
     }
 
