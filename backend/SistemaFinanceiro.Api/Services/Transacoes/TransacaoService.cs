@@ -154,15 +154,19 @@ public sealed class TransacaoService : ITransacaoService
         ResumoDivididasResponse? resumoDivididas = null;
         if (apenasDivididas == true)
         {
-            itensOrdenados = itensOrdenados
-                .Where(item => item.IsDividida)
+            var despesasDivididasRaiz = itensOrdenados
+                .Where(item =>
+                    item.IsDividida &&
+                    item.Origem != "FaturaCartao")
                 .ToList();
 
             resumoDivididas = new ResumoDivididasResponse
             {
-                TotalSuaParte = itensOrdenados.Sum(item => item.Valor),
-                TotalOriginal = itensOrdenados.Sum(item => item.ValorTotalOriginal ?? item.Valor)
+                TotalSuaParte = despesasDivididasRaiz.Sum(item => item.Valor),
+                TotalOriginal = despesasDivididasRaiz.Sum(item => item.ValorTotalOriginal ?? item.Valor)
             };
+
+            itensOrdenados = despesasDivididasRaiz;
         }
 
         var receitasDoMes = itensOrdenados
