@@ -195,14 +195,20 @@ export const TransactionList = memo(function TransactionList({
                 </div>
                 <div className="flex items-center justify-end gap-3">
                   <div className="text-right">
-                    <span className={`font-semibold ${valueClass}`}>
+                    <span className={`block font-semibold ${valueClass}`}>
                       {isReceita ? "+" : "-"} {formatCurrency(item.valor)}
                     </span>
-                    {item.isDividida && item.valorTotalOriginal != null && (
+                    {isFatura &&
+                    item.valorTotalOriginal != null &&
+                    item.valorTotalOriginal !== item.valor ? (
+                      <span className="mt-1 block whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">
+                        Total da fatura: ({formatCurrency(item.valorTotalOriginal)})
+                      </span>
+                    ) : item.isDividida && item.valorTotalOriginal != null ? (
                       <span className="ml-1 whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">
                         ({formatCurrency(item.valorTotalOriginal)})
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 <div className="col-span-2 flex justify-end gap-2 md:col-span-1">

@@ -5,6 +5,7 @@ public sealed class FaturaConsolidadaResponse
     public Guid CartaoCreditoId { get; set; }
     public string NomeCartao { get; set; } = string.Empty;
     public decimal ValorTotal { get; set; }
+    public decimal ValorTotalOriginal { get; set; }
     public DateOnly DataVencimento { get; set; }
     public DateOnly InicioCompetencia { get; set; }
     public DateOnly FimCompetencia { get; set; }

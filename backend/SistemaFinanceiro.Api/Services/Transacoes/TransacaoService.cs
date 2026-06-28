@@ -444,6 +444,10 @@ public sealed class TransacaoService : ITransacaoService
                     CartaoCreditoId = cartao.Id,
                     NomeCartao = cartao.ApelidoCartao,
                     ValorTotal = detalhesOrdenados.Sum(detalhe => detalhe.Valor),
+                    ValorTotalOriginal = detalhesOrdenados.Sum(detalhe =>
+                        detalhe.IsDividida && detalhe.ValorTotalOriginal.HasValue
+                            ? detalhe.ValorTotalOriginal.Value
+                            : detalhe.Valor),
                     DataVencimento = periodo.DataVencimento,
                     InicioCompetencia = periodo.InicioCompetencia,
                     FimCompetencia = periodo.FimCompetencia,
@@ -1374,6 +1378,8 @@ public sealed class TransacaoService : ITransacaoService
             Tipo = TipoTransacao.Despesa,
             Descricao = $"Fatura Cartão {fatura.NomeCartao}",
             Valor = fatura.ValorTotal,
+            IsDividida = fatura.ValorTotalOriginal != fatura.ValorTotal,
+            ValorTotalOriginal = fatura.ValorTotalOriginal,
             DataOcorrencia = fatura.DataVencimento,
             CategoriaNome = "Fatura de cartão",
             CategoriaCorHexa = "#334155",

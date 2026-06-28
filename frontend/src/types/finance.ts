@@ -149,6 +149,7 @@ export type FaturaConsolidada = {
   cartaoCreditoId: string;
   nomeCartao: string;
   valorTotal: number;
+  valorTotalOriginal: number;
   dataVencimento: string;
   inicioCompetencia: string;
   fimCompetencia: string;
