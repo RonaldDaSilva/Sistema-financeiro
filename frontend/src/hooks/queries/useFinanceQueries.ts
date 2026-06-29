@@ -2,7 +2,11 @@ import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
 import * as financeService from "../../services/financeService";
 import { hasUsableStoredAuth } from "../../services/authStorage";
 import { queryKeys } from "./queryKeys";
-import type { TipoTransacaoFiltro } from "../../types/finance";
+import type {
+  CampoOrdenacaoExtrato,
+  DirecaoOrdenacao,
+  TipoTransacaoFiltro,
+} from "../../types/finance";
 
 type MesAno = {
   mes: number;
@@ -33,6 +37,8 @@ export function useExtratoMensalPaginado({
   apenasDivididas = false,
   tipoTransacao = "todos",
   categoriaId = null,
+  ordenarPor = "data",
+  direcao = "desc",
 }: {
   mes: number;
   ano: number;
@@ -43,6 +49,8 @@ export function useExtratoMensalPaginado({
   apenasDivididas?: boolean;
   tipoTransacao?: TipoTransacaoFiltro;
   categoriaId?: string | null;
+  ordenarPor?: CampoOrdenacaoExtrato;
+  direcao?: DirecaoOrdenacao;
 }) {
   const canFetch = hasUsableStoredAuth();
   const tipo = tipoTransacao === "receita"
@@ -64,6 +72,8 @@ export function useExtratoMensalPaginado({
       apenasDivididas,
       tipoTransacao,
       categoriaId,
+      ordenarPor,
+      direcao,
     ),
     queryFn: () =>
       financeService.getExtratoMensalPaginado({
@@ -76,6 +86,8 @@ export function useExtratoMensalPaginado({
         apenasDivididas,
         tipo,
         categoriaId,
+        ordenarPor,
+        direcao,
       }),
     enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
     placeholderData: keepPreviousData,

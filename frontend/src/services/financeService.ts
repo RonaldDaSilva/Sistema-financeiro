@@ -16,6 +16,8 @@ import type {
   RelatorioGraficos,
   TipoTransacao,
   TipoTransacaoFiltro,
+  CampoOrdenacaoExtrato,
+  DirecaoOrdenacao,
 } from '../types/finance';
 
 export type ExportacaoParams = {
@@ -47,6 +49,8 @@ export async function getExtratoMensalPaginado(params: {
   apenasDivididas?: boolean;
   tipo?: TipoTransacao | null;
   categoriaId?: string | null;
+  ordenarPor?: CampoOrdenacaoExtrato;
+  direcao?: DirecaoOrdenacao;
 }) {
   try {
     const { data } = await api.get<PagedResponse<ExtratoMensalItem>>(
@@ -62,6 +66,8 @@ export async function getExtratoMensalPaginado(params: {
           apenasDivididas: params.apenasDivididas || undefined,
           tipo: params.tipo ?? undefined,
           categoriaId: params.categoriaId ?? undefined,
+          ordenarPor: params.ordenarPor ?? 'data',
+          direcao: params.direcao ?? 'desc',
         },
       },
     );
@@ -77,6 +83,9 @@ export async function getExtratoMensalPaginado(params: {
       params.ano,
       params.apenasDivididas,
     );
+    const direcao = params.direcao ?? 'desc';
+    const multiplicador = direcao === 'desc' ? -1 : 1;
+    const ordenarPor = params.ordenarPor ?? 'data';
     const itensFiltrados = extrato.itens
       .filter((item) => {
         if (params.dataInicial && item.dataOcorrencia < params.dataInicial) {
@@ -97,10 +106,19 @@ export async function getExtratoMensalPaginado(params: {
 
         return true;
       })
-      .sort((a, b) =>
-        b.dataOcorrencia.localeCompare(a.dataOcorrencia) ||
-        a.descricao.localeCompare(b.descricao),
-      );
+      .sort((a, b) => {
+        const comparacao =
+          ordenarPor === 'movimentacao'
+            ? a.descricao.localeCompare(b.descricao, 'pt-BR', { sensitivity: 'base' })
+            : ordenarPor === 'categoria'
+              ? a.categoriaNome.localeCompare(b.categoriaNome, 'pt-BR', { sensitivity: 'base' })
+              : ordenarPor === 'valor'
+                ? a.valor - b.valor
+                : a.dataOcorrencia.localeCompare(b.dataOcorrencia);
+
+        return comparacao * multiplicador ||
+          a.descricao.localeCompare(b.descricao, 'pt-BR', { sensitivity: 'base' });
+      });
 
     const pageNumber = Math.max(1, params.pageNumber);
     const pageSize = Math.max(1, params.pageSize);

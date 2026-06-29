@@ -190,6 +190,8 @@ export type CriarCompraParceladaRequest = {
 };
 
 export type TipoTransacaoFiltro = 'todos' | 'receita' | 'despesa' | 'investimento';
+export type CampoOrdenacaoExtrato = 'data' | 'movimentacao' | 'categoria' | 'valor';
+export type DirecaoOrdenacao = 'asc' | 'desc';
 
 export type PeriodoFiltro =
   | { tipo: 'dias'; dias: 7 | 15 | 30; tipoTransacao?: TipoTransacaoFiltro; categoriaId?: string | null }

@@ -11,6 +11,8 @@ export const queryKeys = {
     apenasDivididas = false,
     tipoTransacao = "todos",
     categoriaId: string | null = null,
+    ordenarPor = "data",
+    direcao = "desc",
   ) =>
     [
       "extrato-paginado",
@@ -23,6 +25,8 @@ export const queryKeys = {
       apenasDivididas,
       tipoTransacao,
       categoriaId,
+      ordenarPor,
+      direcao,
     ] as const,
   faturas: (mes: number, ano: number) => ["faturas", mes, ano] as const,
   notificacoesNaoLidas: ["notificacoes", "nao-lidas"] as const,

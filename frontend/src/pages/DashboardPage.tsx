@@ -39,6 +39,8 @@ import type {
   CriarTransacaoRequest,
   Categoria,
   CartaoCredito,
+  CampoOrdenacaoExtrato,
+  DirecaoOrdenacao,
   ExtratoMensal,
   ExtratoMensalItem,
   FaturaConsolidada,
@@ -76,6 +78,10 @@ export function DashboardPage() {
   const [toastErro, setToastErro] = useState<string | null>(null);
   const [apenasDivididas, setApenasDivididas] = useState(false);
   const [paginaMovimentacoes, setPaginaMovimentacoes] = useState(1);
+  const [ordenacao, setOrdenacao] = useState<{
+    campo: CampoOrdenacaoExtrato;
+    direcao: DirecaoOrdenacao;
+  }>({ campo: "data", direcao: "desc" });
   const pageSizeMovimentacoes = 25;
   const [valoresOcultos, setValoresOcultos] = useState(() => {
     return localStorage.getItem("dashboard-values-hidden") === "true";
@@ -105,6 +111,8 @@ export function DashboardPage() {
     apenasDivididas,
     tipoTransacao: periodo.tipoTransacao ?? "todos",
     categoriaId: periodo.categoriaId,
+    ordenarPor: ordenacao.campo,
+    direcao: ordenacao.direcao,
   });
   const faturasQueries = useFaturasMensais(mesesPeriodo);
   const categorias = categoriasQuery.data ?? [];
@@ -144,7 +152,46 @@ export function DashboardPage() {
       });
   }, [faturasQueries, rangePeriodo.fim, rangePeriodo.inicio]);
 
-  const movimentacoesPaginadas = extratoPaginadoQuery.data?.items ?? [];
+  const movimentacoesPaginadas = useMemo(() => {
+    const items = [...(extratoPaginadoQuery.data?.items ?? [])];
+    const direction = ordenacao.direcao === "asc" ? 1 : -1;
+
+    return items.sort((left, right) => {
+      let comparison = 0;
+
+      switch (ordenacao.campo) {
+        case "movimentacao":
+          comparison = left.descricao.localeCompare(right.descricao, "pt-BR", {
+            sensitivity: "base",
+          });
+          break;
+        case "categoria":
+          comparison = left.categoriaNome.localeCompare(
+            right.categoriaNome,
+            "pt-BR",
+            { sensitivity: "base" },
+          );
+          break;
+        case "valor":
+          comparison = left.valor - right.valor;
+          break;
+        default:
+          comparison = left.dataOcorrencia.localeCompare(right.dataOcorrencia);
+          break;
+      }
+
+      return (
+        comparison * direction ||
+        left.descricao.localeCompare(right.descricao, "pt-BR", {
+          sensitivity: "base",
+        })
+      );
+    });
+  }, [
+    extratoPaginadoQuery.data?.items,
+    ordenacao.campo,
+    ordenacao.direcao,
+  ]);
   const totalPaginasMovimentacoes = extratoPaginadoQuery.data?.totalPages ?? 0;
   const totalMovimentacoes = extratoPaginadoQuery.data?.totalCount ?? 0;
 
@@ -813,6 +860,17 @@ export function DashboardPage() {
               <TransactionList
                 items={movimentacoesPaginadas}
                 faturas={faturas}
+                ordenacao={ordenacao}
+                onOrdenar={(campo) => {
+                  setPaginaMovimentacoes(1);
+                  setOrdenacao((current) => ({
+                    campo,
+                    direcao:
+                      current.campo === campo && current.direcao === "asc"
+                        ? "desc"
+                        : "asc",
+                  }));
+                }}
                 onEdit={(item) => {
                   setEditingTransaction(item);
                   setIsModalOpen(true);

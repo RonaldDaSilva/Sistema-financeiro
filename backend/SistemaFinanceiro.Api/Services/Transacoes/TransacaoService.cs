@@ -303,15 +303,43 @@ public sealed class TransacaoService : ITransacaoService
             itensFiltrados = itensFiltrados.Where(item => item.CategoriaId == request.CategoriaId.Value);
         }
 
-        var itensOrdenados = itensFiltrados
-            .OrderByDescending(item => item.DataOcorrencia)
-            .ThenBy(item => item.Descricao)
+        var descendente = string.Equals(
+            request.Direcao,
+            "desc",
+            StringComparison.OrdinalIgnoreCase);
+        var ordenarPor = request.OrdenarPor.Trim().ToLowerInvariant();
+
+        var itensOrdenados = ordenarPor switch
+        {
+            "movimentacao" => descendente
+                ? itensFiltrados.OrderByDescending(
+                    item => item.Descricao,
+                    StringComparer.OrdinalIgnoreCase)
+                : itensFiltrados.OrderBy(
+                    item => item.Descricao,
+                    StringComparer.OrdinalIgnoreCase),
+            "categoria" => descendente
+                ? itensFiltrados.OrderByDescending(
+                    item => item.CategoriaNome,
+                    StringComparer.OrdinalIgnoreCase)
+                : itensFiltrados.OrderBy(
+                    item => item.CategoriaNome,
+                    StringComparer.OrdinalIgnoreCase),
+            "valor" => descendente
+                ? itensFiltrados.OrderByDescending(item => item.Valor)
+                : itensFiltrados.OrderBy(item => item.Valor),
+            _ => descendente
+                ? itensFiltrados.OrderByDescending(item => item.DataOcorrencia)
+                : itensFiltrados.OrderBy(item => item.DataOcorrencia)
+        };
+        var itensOrdenadosLista = itensOrdenados
+            .ThenBy(item => item.Descricao, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var totalCount = itensOrdenados.Count;
+        var totalCount = itensOrdenadosLista.Count;
 
         return new PagedResponse<ExtratoMensalItemResponse>
         {
-            Items = itensOrdenados
+            Items = itensOrdenadosLista
                 .Skip((pageNumber - 1) * pageSize)
                 .Take(pageSize)
                 .ToList(),

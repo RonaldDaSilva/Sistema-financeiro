@@ -1,6 +1,9 @@
 import { memo, useMemo, useState } from "react";
 import {
   ArrowDownCircle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   ArrowUpCircle,
   CalendarClock,
   Car,
@@ -14,7 +17,12 @@ import {
   UsersRound,
   Wallet,
 } from "lucide-react";
-import type { ExtratoMensalItem, FaturaConsolidada } from "../types/finance";
+import type {
+  CampoOrdenacaoExtrato,
+  DirecaoOrdenacao,
+  ExtratoMensalItem,
+  FaturaConsolidada,
+} from "../types/finance";
 import { formatCurrency, formatDate, parseLocalDate } from "../utils/date";
 
 type TransactionListProps = {
@@ -24,6 +32,11 @@ type TransactionListProps = {
   onDelete: (item: ExtratoMensalItem) => void;
   onAnticipate: (item: ExtratoMensalItem) => void;
   onTogglePagamento: (item: ExtratoMensalItem) => void;
+  ordenacao: {
+    campo: CampoOrdenacaoExtrato;
+    direcao: DirecaoOrdenacao;
+  };
+  onOrdenar: (campo: CampoOrdenacaoExtrato) => void;
 };
 
 export const TransactionList = memo(function TransactionList({
@@ -33,6 +46,8 @@ export const TransactionList = memo(function TransactionList({
   onDelete,
   onAnticipate,
   onTogglePagamento,
+  ordenacao,
+  onOrdenar,
 }: TransactionListProps) {
   const [expandedFaturas, setExpandedFaturas] = useState<Set<string>>(
     new Set(),
@@ -55,10 +70,31 @@ export const TransactionList = memo(function TransactionList({
   return (
     <div className="overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <div className="hidden grid-cols-[120px_1fr_170px_170px_120px] gap-3 border-b border-[color:var(--app-card-border)] bg-slate-50/50 px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 md:grid">
-        <span>Data</span>
-        <span>Movimentação</span>
-        <span className="hidden md:block">Categoria</span>
-        <span className="text-right">Valor</span>
+        <SortHeader
+          campo="data"
+          label="Data"
+          ordenacao={ordenacao}
+          onOrdenar={onOrdenar}
+        />
+        <SortHeader
+          campo="movimentacao"
+          label="Movimentação"
+          ordenacao={ordenacao}
+          onOrdenar={onOrdenar}
+        />
+        <SortHeader
+          campo="categoria"
+          label="Categoria"
+          ordenacao={ordenacao}
+          onOrdenar={onOrdenar}
+        />
+        <SortHeader
+          campo="valor"
+          label="Valor"
+          align="right"
+          ordenacao={ordenacao}
+          onOrdenar={onOrdenar}
+        />
         <span className="hidden text-right md:block">Ações</span>
       </div>
       <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -416,6 +452,46 @@ export const TransactionList = memo(function TransactionList({
     </div>
   );
 });
+
+function SortHeader({
+  campo,
+  label,
+  align = "left",
+  ordenacao,
+  onOrdenar,
+}: {
+  campo: CampoOrdenacaoExtrato;
+  label: string;
+  align?: "left" | "right";
+  ordenacao: {
+    campo: CampoOrdenacaoExtrato;
+    direcao: DirecaoOrdenacao;
+  };
+  onOrdenar: (campo: CampoOrdenacaoExtrato) => void;
+}) {
+  const isActive = ordenacao.campo === campo;
+  const Icon = !isActive
+    ? ArrowUpDown
+    : ordenacao.direcao === "asc"
+      ? ArrowUp
+      : ArrowDown;
+
+  return (
+    <button
+      className={`flex items-center gap-1.5 rounded-md py-1 transition hover:text-[var(--app-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-primary)] ${
+        align === "right" ? "justify-end" : "justify-start"
+      } ${isActive ? "text-[var(--app-primary)]" : ""}`}
+      type="button"
+      onClick={() => onOrdenar(campo)}
+      aria-label={`Ordenar ${label.toLowerCase()} em ordem ${
+        isActive && ordenacao.direcao === "asc" ? "decrescente" : "crescente"
+      }`}
+    >
+      <span>{label}</span>
+      <Icon size={14} aria-hidden="true" />
+    </button>
+  );
+}
 
 function StatusButton({
   item,
