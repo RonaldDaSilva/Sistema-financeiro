@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Calendar, ChevronLeft, ChevronRight, Filter } from "lucide-react";
+import {
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  RotateCcw,
+} from "lucide-react";
 import type {
   Categoria,
   PeriodoFiltro,
@@ -29,6 +35,17 @@ export function PeriodFilter({
   const fim = value.tipo === "intervalo" ? value.fim : toDateInputValue(today);
   const tipoTransacao = value.tipoTransacao ?? "todos";
   const categoriaId = value.categoriaId ?? "todas";
+  const inicioMesAtual = toDateInputValue(
+    new Date(today.getFullYear(), today.getMonth(), 1),
+  );
+  const fimMesAtual = toDateInputValue(
+    new Date(today.getFullYear(), today.getMonth() + 1, 0),
+  );
+  const hasActiveFilters =
+    inicio !== inicioMesAtual ||
+    fim !== fimMesAtual ||
+    tipoTransacao !== "todos" ||
+    categoriaId !== "todas";
   const [rangeStart, setRangeStart] = useState(inicio);
   const [rangeEnd, setRangeEnd] = useState(fim);
   const [selectingEnd, setSelectingEnd] = useState(false);
@@ -122,6 +139,18 @@ export function PeriodFilter({
     onChange({
       ...value,
       categoriaId: nextCategoriaId === "todas" ? null : nextCategoriaId,
+    });
+  }
+
+  function limparFiltros() {
+    setErro(null);
+    setIsOpen(false);
+    onChange({
+      tipo: "intervalo",
+      inicio: inicioMesAtual,
+      fim: fimMesAtual,
+      tipoTransacao: "todos",
+      categoriaId: null,
     });
   }
 
@@ -224,6 +253,19 @@ export function PeriodFilter({
                   </select>
                 </label>
               </div>
+
+              {hasActiveFilters && (
+                <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+                  <button
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-[color:var(--app-card-border)] px-3 py-2.5 text-sm font-bold text-[var(--app-primary)] transition hover:bg-[var(--app-primary-soft)] dark:border-slate-700"
+                    type="button"
+                    onClick={limparFiltros}
+                  >
+                    <RotateCcw size={16} />
+                    Limpar filtros
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
