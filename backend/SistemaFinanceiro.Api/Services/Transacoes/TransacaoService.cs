@@ -254,7 +254,25 @@ public sealed class TransacaoService : ITransacaoService
                 request.ApenasDivididas,
                 cancellationToken);
 
-            itens.AddRange(extrato.Itens);
+            if (request.CategoriaId.HasValue && request.ApenasDivididas != true)
+            {
+                itens.AddRange(extrato.Itens.Where(item => item.Origem != "FaturaCartao"));
+
+                var faturasDoMes = await GetFaturasDoMesAsync(
+                    referencia.Mes,
+                    referencia.Ano,
+                    usuarioId,
+                    cancellationToken);
+
+                itens.AddRange(faturasDoMes.SelectMany(fatura =>
+                    fatura.Detalhes
+                        .Where(detalhe => detalhe.CategoriaId == request.CategoriaId.Value)
+                        .Select(detalhe => MapearDetalheFaturaParaExtrato(fatura, detalhe))));
+            }
+            else
+            {
+                itens.AddRange(extrato.Itens);
+            }
         }
 
         var itensFiltrados = itens.AsEnumerable();
@@ -263,14 +281,16 @@ public sealed class TransacaoService : ITransacaoService
         {
             itensFiltrados = itensFiltrados.Where(item =>
                 item.DataOcorrencia >= dataInicial.Value ||
-                (request.ApenasDivididas == true && item.FormaPagamento == "Cartão de crédito"));
+                ((request.ApenasDivididas == true || request.CategoriaId.HasValue) &&
+                    item.FormaPagamento == "Cartão de crédito"));
         }
 
         if (dataFinal.HasValue)
         {
             itensFiltrados = itensFiltrados.Where(item =>
                 item.DataOcorrencia <= dataFinal.Value ||
-                (request.ApenasDivididas == true && item.FormaPagamento == "Cartão de crédito"));
+                ((request.ApenasDivididas == true || request.CategoriaId.HasValue) &&
+                    item.FormaPagamento == "Cartão de crédito"));
         }
 
         if (request.Tipo.HasValue)

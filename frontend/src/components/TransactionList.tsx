@@ -37,6 +37,9 @@ export const TransactionList = memo(function TransactionList({
   const [expandedFaturas, setExpandedFaturas] = useState<Set<string>>(
     new Set(),
   );
+  const [revealedStatusKey, setRevealedStatusKey] = useState<string | null>(
+    null,
+  );
   const faturasPorChave = useMemo(() => {
     return new Map(faturas.map((fatura) => [faturaKey(fatura), fatura]));
   }, [faturas]);
@@ -98,15 +101,48 @@ export const TransactionList = memo(function TransactionList({
             Boolean(item.compraParceladaId) &&
             Boolean(item.numeroParcela) &&
             isFutureMonth(item.dataOcorrencia);
+          const itemKey = `${item.id ?? item.compraParceladaId ?? item.descricao}-${item.dataOcorrencia}-${item.numeroParcela ?? index}`;
+          const canTogglePagamento = podeAlternarPagamento(item);
+          const isStatusRevealed =
+            canTogglePagamento && revealedStatusKey === itemKey;
 
           return (
             <div
-              key={`${item.id ?? item.compraParceladaId ?? item.descricao}-${item.dataOcorrencia}-${item.numeroParcela ?? index}`}
+              key={itemKey}
             >
-              <div className="group grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-4 px-4 py-5 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/40 sm:px-5 md:grid-cols-[120px_1fr_170px_170px_120px] md:items-center md:gap-3 md:px-6">
+              <div
+                className={`group grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-4 px-4 py-5 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/40 sm:px-5 md:grid-cols-[120px_1fr_170px_170px_120px] md:items-center md:gap-3 md:px-6 ${
+                  canTogglePagamento ? "cursor-pointer md:cursor-default" : ""
+                }`}
+                onClick={(event) => {
+                  if (
+                    !canTogglePagamento ||
+                    (event.target as HTMLElement).closest(
+                      "button, a, input, select, textarea, [role='button']",
+                    )
+                  ) {
+                    return;
+                  }
+
+                  setRevealedStatusKey((current) =>
+                    current === itemKey ? null : itemKey,
+                  );
+                }}
+              >
                 <div className="relative col-start-1 row-start-1 min-h-7 overflow-visible md:col-auto md:row-auto md:min-h-[42px]">
-                  <StatusButton item={item} onToggle={onTogglePagamento} />
-                  <div className="transition-transform duration-200 ease-out md:group-hover:translate-x-8">
+                  <StatusButton
+                    item={item}
+                    isRevealed={isStatusRevealed}
+                    onToggle={(currentItem) => {
+                      setRevealedStatusKey(null);
+                      onTogglePagamento(currentItem);
+                    }}
+                  />
+                  <div
+                    className={`transition-transform duration-200 ease-out ${
+                      isStatusRevealed ? "translate-x-8" : "translate-x-0"
+                    } md:translate-x-0 md:group-hover:translate-x-8`}
+                  >
                     <span className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300">
                       {formatDate(item.dataOcorrencia)}
                     </span>
@@ -383,11 +419,44 @@ export const TransactionList = memo(function TransactionList({
 
 function StatusButton({
   item,
+  isRevealed,
   onToggle,
 }: {
   item: ExtratoMensalItem;
+  isRevealed: boolean;
   onToggle: (item: ExtratoMensalItem) => void;
 }) {
+  const Icon = item.isPaga ? CheckCircle2 : Circle;
+
+  if (!podeAlternarPagamento(item)) {
+    return null;
+  }
+
+  return (
+    <button
+      className={`absolute left-0 top-0 z-10 rounded-full p-1 transition-all duration-200 ease-out md:-translate-x-2 md:opacity-0 md:group-hover:translate-x-0 md:group-hover:opacity-100 ${
+        isRevealed
+          ? "translate-x-0 opacity-100"
+          : "-translate-x-2 pointer-events-none opacity-0"
+      } md:pointer-events-auto ${
+        item.isPaga
+          ? "text-emerald-600 hover:bg-emerald-50"
+          : "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+      }`}
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle(item);
+      }}
+      title={item.isPaga ? "Marcar como pendente" : "Marcar como pago"}
+      aria-label={item.isPaga ? "Marcar como pendente" : "Marcar como pago"}
+    >
+      <Icon size={20} />
+    </button>
+  );
+}
+
+function podeAlternarPagamento(item: ExtratoMensalItem) {
   const isReceita = item.tipo === 1 || item.tipo === "Receita";
   const isFatura = item.origem === "FaturaCartao" && item.cartaoCreditoId;
   const isCompraCartao = item.formaPagamento === "Cartão de crédito";
@@ -396,32 +465,13 @@ function StatusButton({
     item.isProjetada &&
     Boolean(item.compraParceladaId) &&
     Boolean(item.numeroParcela);
-  const canToggle =
-    !isReceita &&
-    !isCompraCartao &&
-    (Boolean(item.id) && (!item.isProjetada || item.isFixa) ||
-      Boolean(isFatura) ||
-      isParcelaCarneProjetada);
-  const Icon = item.isPaga ? CheckCircle2 : Circle;
-
-  if (!canToggle) {
-    return null;
-  }
 
   return (
-    <button
-      className={`absolute left-0 top-0 -translate-x-2 rounded-full p-1 opacity-0 transition-all duration-200 ease-out group-hover:translate-x-0 group-hover:opacity-100 ${
-        item.isPaga
-          ? "text-emerald-600 hover:bg-emerald-50"
-          : "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
-      }`}
-      type="button"
-      onClick={() => onToggle(item)}
-      title={item.isPaga ? "Marcar como pendente" : "Marcar como pago"}
-      aria-label={item.isPaga ? "Marcar como pendente" : "Marcar como pago"}
-    >
-      <Icon size={20} />
-    </button>
+    !isReceita &&
+    !isCompraCartao &&
+    ((Boolean(item.id) && (!item.isProjetada || item.isFixa)) ||
+      Boolean(isFatura) ||
+      isParcelaCarneProjetada)
   );
 }
 
