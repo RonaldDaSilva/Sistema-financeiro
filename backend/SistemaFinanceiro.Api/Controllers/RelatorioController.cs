@@ -20,8 +20,10 @@ public sealed class RelatorioController : ControllerBase
 
     [HttpGet("graficos")]
     public async Task<ActionResult<RelatorioGraficosResponse>> GetGraficos(
-        [FromQuery] int mes,
-        [FromQuery] int ano,
+        [FromQuery] DateOnly? dataInicial,
+        [FromQuery] DateOnly? dataFinal,
+        [FromQuery] int? mes,
+        [FromQuery] int? ano,
         CancellationToken cancellationToken)
     {
         var usuarioId = ObterUsuarioId();
@@ -32,9 +34,18 @@ public sealed class RelatorioController : ControllerBase
 
         try
         {
+            var inicio = dataInicial ??
+                (mes.HasValue && ano.HasValue
+                    ? new DateOnly(ano.Value, mes.Value, 1)
+                    : new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1));
+            var fim = dataFinal ??
+                (mes.HasValue && ano.HasValue
+                    ? new DateOnly(ano.Value, mes.Value, 1).AddMonths(1).AddDays(-1)
+                    : inicio.AddMonths(1).AddDays(-1));
+
             var relatorio = await _relatorioService.GetGraficosAsync(
-                mes,
-                ano,
+                inicio,
+                fim,
                 usuarioId.Value,
                 cancellationToken);
 

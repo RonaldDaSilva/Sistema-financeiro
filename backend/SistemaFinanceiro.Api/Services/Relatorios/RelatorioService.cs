@@ -15,53 +15,53 @@ public sealed class RelatorioService : IRelatorioService
     }
 
     public async Task<RelatorioGraficosResponse> GetGraficosAsync(
-        int mes,
-        int ano,
+        DateOnly dataInicial,
+        DateOnly dataFinal,
         Guid usuarioId,
         CancellationToken cancellationToken = default)
     {
-        if (mes is < 1 or > 12)
+        if (dataFinal < dataInicial)
         {
-            throw new ArgumentOutOfRangeException(nameof(mes), "O mês deve estar entre 1 e 12.");
+            throw new ArgumentOutOfRangeException(
+                nameof(dataFinal),
+                "A data final deve ser maior ou igual à data inicial.");
         }
 
-        if (ano < 1)
+        var inicioPeriodo = new DateOnly(dataInicial.Year, dataInicial.Month, 1);
+        var fimPeriodo = new DateOnly(dataFinal.Year, dataFinal.Month, 1)
+            .AddMonths(1)
+            .AddDays(-1);
+        var quantidadeMeses =
+            ((fimPeriodo.Year - inicioPeriodo.Year) * 12) +
+            fimPeriodo.Month -
+            inicioPeriodo.Month +
+            1;
+
+        if (quantidadeMeses > 12)
         {
-            throw new ArgumentOutOfRangeException(nameof(ano), "O ano deve ser válido.");
+            throw new ArgumentOutOfRangeException(
+                nameof(dataFinal),
+                "O período do relatório deve ter no máximo 12 meses.");
         }
-
-        var inicioMes = new DateOnly(ano, mes, 1);
-        var fimMes = inicioMes.AddMonths(1).AddDays(-1);
-        var inicioAno = new DateOnly(ano, 1, 1);
-        var fimAno = new DateOnly(ano, 12, 31);
-
-        var hoje = DateOnly.FromDateTime(DateTime.Today);
-        var inicioFluxo = new DateOnly(hoje.Year, hoje.Month, 1).AddMonths(-5);
-        var fimFluxo = inicioFluxo.AddMonths(12).AddDays(-1);
 
         var despesasPorCategoria = await GetDespesasPorCategoriaAsync(
             usuarioId,
-            inicioMes,
-            fimMes,
+            inicioPeriodo,
+            fimPeriodo,
             cancellationToken);
-        var saldoAnual = await GetTotaisMensaisAsync(
+        var totaisMensais = await GetTotaisMensaisAsync(
             usuarioId,
-            inicioAno,
-            fimAno,
-            cancellationToken);
-        var serieFluxo = await GetTotaisMensaisAsync(
-            usuarioId,
-            inicioFluxo,
-            fimFluxo,
+            inicioPeriodo,
+            fimPeriodo,
             cancellationToken);
 
         return new RelatorioGraficosResponse
         {
-            Mes = mes,
-            Ano = ano,
+            Mes = fimPeriodo.Month,
+            Ano = fimPeriodo.Year,
             DespesasPorCategoria = despesasPorCategoria,
-            SaldoAnual = saldoAnual,
-            SerieFluxo = serieFluxo
+            SaldoAnual = totaisMensais,
+            SerieFluxo = totaisMensais
         };
     }
 

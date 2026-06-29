@@ -34,5 +34,7 @@ export const queryKeys = {
   cartoes: ["cartoes"] as const,
   contas: ["contas"] as const,
   distribuicaoContas: ["distribuicao-contas"] as const,
+  relatorios: (dataInicial: string, dataFinal: string) =>
+    ["relatorios", dataInicial, dataFinal] as const,
   configuracoesNotificacao: ["notificacoes", "configuracoes"] as const,
 };

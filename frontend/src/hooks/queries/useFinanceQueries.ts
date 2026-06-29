@@ -117,6 +117,22 @@ export function useFaturaMes(mes: number, ano: number) {
   });
 }
 
+export function useRelatorioGraficos(
+  dataInicial: string,
+  dataFinal: string,
+) {
+  const canFetch = hasUsableStoredAuth();
+
+  return useQuery({
+    queryKey: queryKeys.relatorios(dataInicial, dataFinal),
+    queryFn: () =>
+      financeService.getRelatorioGraficos(dataInicial, dataFinal),
+    enabled: canFetch && Boolean(dataInicial) && Boolean(dataFinal),
+    placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useFaturasMensais(meses: MesAno[]) {
   const canFetch = hasUsableStoredAuth();
 

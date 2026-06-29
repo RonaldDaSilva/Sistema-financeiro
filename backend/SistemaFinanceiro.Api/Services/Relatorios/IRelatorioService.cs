@@ -5,8 +5,8 @@ namespace SistemaFinanceiro.Api.Services.Relatorios;
 public interface IRelatorioService
 {
     Task<RelatorioGraficosResponse> GetGraficosAsync(
-        int mes,
-        int ano,
+        DateOnly dataInicial,
+        DateOnly dataFinal,
         Guid usuarioId,
         CancellationToken cancellationToken = default);
 }

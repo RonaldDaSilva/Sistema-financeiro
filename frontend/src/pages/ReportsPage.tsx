@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Landmark, LineChart as LineChartIcon, PieChart as PieChartIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  BarChart3,
+  CalendarRange,
+  ChevronLeft,
+  ChevronRight,
+  Landmark,
+  LineChart as LineChartIcon,
+  PieChart as PieChartIcon,
+} from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -16,9 +24,10 @@ import {
   YAxis,
 } from "recharts";
 import { AppLayout } from "../components/AppLayout";
-import { useDistribuicaoContas } from "../hooks/queries/useFinanceQueries";
-import { hasUsableStoredAuth } from "../services/authStorage";
-import * as financeService from "../services/financeService";
+import {
+  useDistribuicaoContas,
+  useRelatorioGraficos,
+} from "../hooks/queries/useFinanceQueries";
 import { formatCurrency } from "../utils/date";
 
 const monthNames = [
@@ -63,71 +72,45 @@ const lightTooltipStyle = {
 };
 
 export function ReportsPage() {
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
-  const [ano, setAno] = useState(currentYear);
-  const [mes, setMes] = useState(currentMonth);
-  const [extratosAno, setExtratosAno] = useState<
-    Array<{ mes: number; receitas: number; despesas: number; saldo: number }>
-  >([]);
-  const [serieFluxo, setSerieFluxo] = useState<
-    Array<{ mes: string; receitas: number; despesas: number; saldo: number }>
-  >([]);
+  const hoje = new Date();
+  const mesAtual = toMonthInput(hoje);
+  const inicioPadrao = toMonthInput(
+    new Date(hoje.getFullYear(), 0, 1),
+  );
+  const [periodoAplicado, setPeriodoAplicado] = useState({
+    inicio: inicioPadrao,
+    fim: mesAtual,
+  });
+  const [periodoRascunho, setPeriodoRascunho] = useState(periodoAplicado);
+  const [erroPeriodo, setErroPeriodo] = useState<string | null>(null);
+  const [isPeriodoOpen, setIsPeriodoOpen] = useState(false);
   const [modoGraficoCategoria, setModoGraficoCategoria] = useState<
     "valor" | "percentual"
   >("valor");
-  const [despesasPorCategoria, setDespesasPorCategoria] = useState<
-    Array<{ name: string; value: number; color: string }>
-  >([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
+  const dataInicial = `${periodoAplicado.inicio}-01`;
+  const dataFinal = lastDayOfMonth(periodoAplicado.fim);
+  const relatorioQuery = useRelatorioGraficos(dataInicial, dataFinal);
   const distribuicaoContasQuery = useDistribuicaoContas();
 
-  useEffect(() => {
-    async function carregarRelatorios() {
-      if (!hasUsableStoredAuth()) {
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-      setErro(null);
-
-      try {
-        const relatorio = await financeService.getRelatorioGraficos(mes, ano);
-
-        setDespesasPorCategoria(
-          relatorio.despesasPorCategoria.map((item) => ({
-            name: item.categoriaNome,
-            value: item.valor,
-            color: item.categoriaCorHexa,
-          })),
-        );
-        setSerieFluxo(
-          relatorio.serieFluxo.map((extrato) => ({
-            mes: `${monthNames[extrato.mes - 1]}/${String(extrato.ano).slice(2)}`,
-            receitas: extrato.receitas,
-            despesas: extrato.despesas,
-            saldo: extrato.saldo,
-          })),
-        );
-        setExtratosAno(
-          relatorio.saldoAnual.map((extrato) => ({
-            mes: extrato.mes,
-            receitas: extrato.receitas,
-            despesas: extrato.despesas,
-            saldo: extrato.saldo,
-          })),
-        );
-      } catch {
-        setErro("Nao foi possivel carregar os relatorios.");
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    carregarRelatorios();
-  }, [ano, mes]);
+  const despesasPorCategoria = useMemo(
+    () =>
+      (relatorioQuery.data?.despesasPorCategoria ?? []).map((item) => ({
+        name: item.categoriaNome,
+        value: item.valor,
+        color: item.categoriaCorHexa,
+      })),
+    [relatorioQuery.data?.despesasPorCategoria],
+  );
+  const serieFluxo = useMemo(
+    () =>
+      (relatorioQuery.data?.serieFluxo ?? []).map((item) => ({
+        mes: `${monthNames[item.mes - 1]}/${String(item.ano).slice(2)}`,
+        receitas: item.receitas,
+        despesas: item.despesas,
+        saldo: item.saldo,
+      })),
+    [relatorioQuery.data?.serieFluxo],
+  );
 
   const totalDespesasCategoria = useMemo(
     () => despesasPorCategoria.reduce((total, item) => total + item.value, 0),
@@ -151,13 +134,13 @@ export function ReportsPage() {
 
   const saldoAnual = useMemo(
     () =>
-      extratosAno.map((item) => ({
-        mes: monthNames[item.mes - 1],
+      (relatorioQuery.data?.saldoAnual ?? []).map((item) => ({
+        mes: `${monthNames[item.mes - 1]}/${String(item.ano).slice(2)}`,
         saldo: item.saldo,
         receitas: item.receitas,
         despesas: item.despesas,
       })),
-    [extratosAno],
+    [relatorioQuery.data?.saldoAnual],
   );
   const distribuicaoContas = useMemo(
     () =>
@@ -171,6 +154,50 @@ export function ReportsPage() {
     [distribuicaoContasQuery.data],
   );
 
+  function aplicarPeriodo() {
+    if (!periodoRascunho.inicio || !periodoRascunho.fim) {
+      setErroPeriodo("Informe o mês inicial e o mês final.");
+      return false;
+    }
+
+    const quantidadeMeses = monthsBetween(
+      periodoRascunho.inicio,
+      periodoRascunho.fim,
+    );
+
+    if (quantidadeMeses < 1) {
+      setErroPeriodo("O mês final deve ser igual ou posterior ao mês inicial.");
+      return false;
+    }
+
+    if (quantidadeMeses > 12) {
+      setErroPeriodo("Selecione um período de no máximo 12 meses.");
+      return false;
+    }
+
+    setErroPeriodo(null);
+    if (
+      periodoAplicado.inicio === periodoRascunho.inicio &&
+      periodoAplicado.fim === periodoRascunho.fim
+    ) {
+      void relatorioQuery.refetch();
+      return true;
+    }
+
+    setPeriodoAplicado(periodoRascunho);
+    return true;
+  }
+
+  function deslocarPeriodo(offset: number) {
+    const next = {
+      inicio: addMonthsToInput(periodoAplicado.inicio, offset),
+      fim: addMonthsToInput(periodoAplicado.fim, offset),
+    };
+    setErroPeriodo(null);
+    setPeriodoRascunho(next);
+    setPeriodoAplicado(next);
+  }
+
   return (
     <AppLayout>
       <section className="mx-auto max-w-[1400px] space-y-8 px-4 py-8 sm:px-6 lg:px-8">
@@ -181,43 +208,103 @@ export function ReportsPage() {
               Gráficos financeiros
             </h2>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <input
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-              type="month"
-              value={`${ano}-${String(mes).padStart(2, "0")}`}
-              onChange={(event) => {
-                const [nextAno, nextMes] = event.target.value
-                  .split("-")
-                  .map(Number);
-                setAno(nextAno);
-                setMes(nextMes);
-              }}
-            />
-            <input
-              className="w-28 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm outline-none transition-all focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-              type="number"
-              value={ano || ""}
-              onChange={(event) => {
-                const value = event.target.value;
-                setAno(value === "" ? 0 : Number(value));
-              }}
-            />
+          <div className="relative flex flex-col gap-2">
+            <div className="flex items-center gap-1 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-2 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <button
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 transition hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:text-slate-300"
+                type="button"
+                aria-label="Período anterior"
+                onClick={() => deslocarPeriodo(-1)}
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <button
+                className="flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-800 transition hover:bg-white dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:hover:bg-slate-800 sm:min-w-[310px]"
+                type="button"
+                aria-expanded={isPeriodoOpen}
+                onClick={() => setIsPeriodoOpen((current) => !current)}
+              >
+                <CalendarRange size={18} className="shrink-0 text-slate-500" />
+                <span className="truncate">
+                  {formatMonthLabel(periodoAplicado.inicio)} -{" "}
+                  {formatMonthLabel(periodoAplicado.fim)}
+                </span>
+              </button>
+              <button
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 transition hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:text-slate-300"
+                type="button"
+                aria-label="Próximo período"
+                onClick={() => deslocarPeriodo(1)}
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+
+            {isPeriodoOpen && (
+              <div className="absolute right-0 top-full z-50 mt-2 w-full min-w-[290px] rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-2xl dark:border-slate-700 dark:bg-slate-900 sm:w-[390px]">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+                    De
+                    <input
+                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold normal-case text-slate-800 outline-none focus:ring-2 focus:ring-[var(--app-primary)] dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      type="month"
+                      value={periodoRascunho.inicio}
+                      onChange={(event) =>
+                        setPeriodoRascunho((current) => ({
+                          ...current,
+                          inicio: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+                    Até
+                    <input
+                      className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold normal-case text-slate-800 outline-none focus:ring-2 focus:ring-[var(--app-primary)] dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      type="month"
+                      value={periodoRascunho.fim}
+                      onChange={(event) =>
+                        setPeriodoRascunho((current) => ({
+                          ...current,
+                          fim: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-[color:var(--app-card-border)] pt-3 dark:border-slate-700">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    Máximo de 12 meses
+                  </span>
+                  <button
+                    className="rounded-xl bg-[var(--app-primary)] px-5 py-2.5 text-sm font-bold text-white transition hover:opacity-90"
+                    type="button"
+                    onClick={() => {
+                      if (aplicarPeriodo()) {
+                        setIsPeriodoOpen(false);
+                      }
+                    }}
+                  >
+                    Aplicar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {erro && (
+        {(erroPeriodo || relatorioQuery.isError) && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {erro}
+            {erroPeriodo ?? "Não foi possível carregar os relatórios."}
           </div>
         )}
-        {isLoading && (
+        {relatorioQuery.isLoading && (
           <div className="rounded-2xl bg-[var(--app-card)] p-6 text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
             Carregando gráficos...
           </div>
         )}
 
-        {!isLoading && (
+        {!relatorioQuery.isLoading && (
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="flex min-h-[350px] flex-col rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -257,7 +344,7 @@ export function ReportsPage() {
               <div className="mt-6 h-80 flex-grow">
                 {despesasPorCategoria.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-slate-500 dark:text-slate-400">
-                    Sem despesas no mês.
+                    Sem despesas no período.
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
@@ -323,8 +410,8 @@ export function ReportsPage() {
                 <span className="rounded-full bg-blue-50 p-2 text-blue-500">
                   <BarChart3 size={20} />
                 </span>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                  Saldo anual
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    Saldo do período
                 </h3>
               </div>
               <div className="mt-6 h-80 flex-grow">
@@ -495,4 +582,35 @@ export function ReportsPage() {
       </section>
     </AppLayout>
   );
+}
+
+function toMonthInput(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(value: string) {
+  const [year, month] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "short",
+    year: "numeric",
+  })
+    .format(new Date(year, month - 1, 1))
+    .replace(".", "");
+}
+
+function addMonthsToInput(value: string, offset: number) {
+  const [year, month] = value.split("-").map(Number);
+  return toMonthInput(new Date(year, month - 1 + offset, 1));
+}
+
+function monthsBetween(start: string, end: string) {
+  const [startYear, startMonth] = start.split("-").map(Number);
+  const [endYear, endMonth] = end.split("-").map(Number);
+  return (endYear - startYear) * 12 + endMonth - startMonth + 1;
+}
+
+function lastDayOfMonth(value: string) {
+  const [year, month] = value.split("-").map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 }
