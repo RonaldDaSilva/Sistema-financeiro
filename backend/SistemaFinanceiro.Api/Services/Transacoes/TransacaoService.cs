@@ -619,14 +619,13 @@ public sealed class TransacaoService : ITransacaoService
             .AsNoTracking()
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
-                transacao.DataOcorrencia <= hoje &&
                 (
                     transacao.CartaoCreditoId == null ||
                     (transacao.CompraParceladaId.HasValue && transacao.NumeroParcelaQuitada.HasValue)
                 ) &&
                 (
-                    transacao.Tipo == TipoTransacao.Receita ||
-                    transacao.IsPaga
+                    (transacao.Tipo == TipoTransacao.Receita && transacao.DataOcorrencia <= hoje) ||
+                    (transacao.Tipo != TipoTransacao.Receita && transacao.IsPaga)
                 ))
             .GroupBy(_ => 1)
             .Select(grupo => new
@@ -652,7 +651,10 @@ public sealed class TransacaoService : ITransacaoService
             .Where(pagamento =>
                 pagamento.UsuarioId == usuarioId &&
                 pagamento.IsPaga &&
-                pagamento.DataOcorrencia <= hoje)
+                (
+                    pagamento.TransacaoFixa.Tipo != TipoTransacao.Receita ||
+                    pagamento.DataOcorrencia <= hoje
+                ))
             .Select(pagamento => pagamento.TransacaoFixa)
             .GroupBy(_ => 1)
             .Select(grupo => new
@@ -707,7 +709,27 @@ public sealed class TransacaoService : ITransacaoService
             return 0;
         }
 
-        var ultimoMes = new DateOnly(hoje.Year, hoje.Month, 1);
+        var pagamentos = await _dbContext.FaturasCartaoPagamentos
+            .AsNoTracking()
+            .Where(pagamento => pagamento.UsuarioId == usuarioId)
+            .Select(pagamento => new
+            {
+                pagamento.CartaoCreditoId,
+                pagamento.DataVencimento,
+                pagamento.IsPaga
+            })
+            .ToListAsync(cancellationToken);
+        var pagamentosMap = pagamentos.ToDictionary(
+            pagamento => (pagamento.CartaoCreditoId, pagamento.DataVencimento),
+            pagamento => pagamento.IsPaga);
+        var ultimoMes = pagamentos
+            .Where(pagamento => pagamento.IsPaga && pagamento.DataVencimento > hoje)
+            .Select(pagamento => new DateOnly(
+                pagamento.DataVencimento.Year,
+                pagamento.DataVencimento.Month,
+                1))
+            .Append(new DateOnly(hoje.Year, hoje.Month, 1))
+            .Max();
         var maiorFimCompetencia = cartoes
             .Select(cartao => CalcularPeriodoFatura(cartao, ultimoMes.Month, ultimoMes.Year).FimCompetencia)
             .Max();
@@ -784,22 +806,6 @@ public sealed class TransacaoService : ITransacaoService
             .Select(parcela => (parcela.CompraParceladaId, parcela.NumeroParcela))
             .ToHashSet();
 
-        var pagamentos = await _dbContext.FaturasCartaoPagamentos
-            .AsNoTracking()
-            .Where(pagamento =>
-                pagamento.UsuarioId == usuarioId &&
-                pagamento.DataVencimento <= hoje)
-            .Select(pagamento => new
-            {
-                pagamento.CartaoCreditoId,
-                pagamento.DataVencimento,
-                pagamento.IsPaga
-            })
-            .ToListAsync(cancellationToken);
-        var pagamentosMap = pagamentos.ToDictionary(
-            pagamento => (pagamento.CartaoCreditoId, pagamento.DataVencimento),
-            pagamento => pagamento.IsPaga);
-
         decimal total = 0;
         var primeiroMes = new DateOnly(primeiraDataCredito.Year, primeiraDataCredito.Month, 1);
 
@@ -808,8 +814,14 @@ public sealed class TransacaoService : ITransacaoService
             for (var cursor = primeiroMes; cursor <= ultimoMes; cursor = cursor.AddMonths(1))
             {
                 var periodo = CalcularPeriodoFatura(cartao, cursor.Month, cursor.Year);
-                if (periodo.DataVencimento > hoje ||
-                    !pagamentosMap.GetValueOrDefault((cartao.Id, periodo.DataVencimento), true))
+                var temPagamentoRegistrado = pagamentosMap.TryGetValue(
+                    (cartao.Id, periodo.DataVencimento),
+                    out var isFaturaPaga);
+                var deveContabilizar = periodo.DataVencimento <= hoje
+                    ? !temPagamentoRegistrado || isFaturaPaga
+                    : temPagamentoRegistrado && isFaturaPaga;
+
+                if (!deveContabilizar)
                 {
                     continue;
                 }

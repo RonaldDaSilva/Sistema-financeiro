@@ -459,10 +459,11 @@ export function DashboardPage() {
       });
     }
 
-    await financeService.anteciparParcela({
+    const transacoesAntecipadas = await financeService.anteciparParcela({
       ...request,
       anteciparParcelasFuturas,
     });
+    aplicarImpactoAntecipacaoLocal(transacoesAntecipadas);
     await invalidarDadosFinanceiros();
   }
 
@@ -503,16 +504,49 @@ export function DashboardPage() {
     isPagaAtual: boolean,
   ) {
     const isReceita = item.tipo === 1 || item.tipo === "Receita";
-    const dataOcorrencia = parseLocalDate(item.dataOcorrencia);
-    const hojeInicio = new Date();
-    hojeInicio.setHours(0, 0, 0, 0);
 
-    if (isReceita || dataOcorrencia > hojeInicio || isPagaAnterior === isPagaAtual) {
+    if (isReceita || isPagaAnterior === isPagaAtual) {
       return;
     }
 
     const multiplicador = isPagaAtual ? -1 : 1;
     const impacto = item.valor * multiplicador;
+
+    queryClient.setQueriesData<ExtratoMensal>(
+      { queryKey: ["extrato"] },
+      (current) =>
+        current
+          ? {
+              ...current,
+              saldoAtual: current.saldoAtual + impacto,
+              saldoAtualGlobal:
+                (current.saldoAtualGlobal ?? current.saldoAtual) + impacto,
+            }
+          : current,
+    );
+  }
+
+  function aplicarImpactoAntecipacaoLocal(
+    transacoes: Array<{
+      tipo: CriarTransacaoRequest["tipo"] | "Receita" | "Despesa" | "Investimento";
+      valor: number;
+      dataOcorrencia: string;
+      isPaga: boolean;
+    }>,
+  ) {
+    const impacto = transacoes.reduce((total, transacao) => {
+      const isReceita = transacao.tipo === 1 || transacao.tipo === "Receita";
+
+      if (isReceita || !transacao.isPaga) {
+        return total;
+      }
+
+      return total - transacao.valor;
+    }, 0);
+
+    if (impacto === 0) {
+      return;
+    }
 
     queryClient.setQueriesData<ExtratoMensal>(
       { queryKey: ["extrato"] },

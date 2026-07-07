@@ -310,7 +310,11 @@ function signedValue(item: ExtratoMensalItem) {
 }
 
 function affectsCurrentBalance(item: ExtratoMensalItem) {
-  return item.isPaga && item.dataOcorrencia <= todayValue();
+  if (itemType(item) === "receita") {
+    return item.dataOcorrencia <= todayValue();
+  }
+
+  return item.isPaga;
 }
 
 function todayValue() {

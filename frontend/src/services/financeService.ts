@@ -180,7 +180,14 @@ export async function excluirTransacao(
 }
 
 export async function anteciparParcela(request: AnteciparParcelaRequest) {
-  const { data } = await api.post('/api/transacoes/antecipar-parcela', request);
+  const { data } = await api.post<
+    Array<{
+      tipo: TipoTransacao;
+      valor: number;
+      dataOcorrencia: string;
+      isPaga: boolean;
+    }>
+  >('/api/transacoes/antecipar-parcela', request);
   return data;
 }
 
