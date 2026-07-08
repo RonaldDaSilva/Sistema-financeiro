@@ -5,6 +5,7 @@ import { queryKeys } from "./queryKeys";
 import type {
   CampoOrdenacaoExtrato,
   DirecaoOrdenacao,
+  StatusFiltro,
   TipoTransacaoFiltro,
 } from "../../types/finance";
 
@@ -17,12 +18,14 @@ export function useExtratoMensal(
   mes: number,
   ano: number,
   apenasDivididas = false,
+  status: StatusFiltro = "todos",
 ) {
   const canFetch = hasUsableStoredAuth();
 
   return useQuery({
-    queryKey: queryKeys.extrato(mes, ano, apenasDivididas),
-    queryFn: () => financeService.getExtratoMensal(mes, ano, apenasDivididas),
+    queryKey: queryKeys.extrato(mes, ano, apenasDivididas, status),
+    queryFn: () =>
+      financeService.getExtratoMensal(mes, ano, apenasDivididas, status),
     enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
   });
 }
@@ -37,6 +40,7 @@ export function useExtratoMensalPaginado({
   apenasDivididas = false,
   tipoTransacao = "todos",
   categoriaId = null,
+  status = "todos",
   ordenarPor = "data",
   direcao = "desc",
 }: {
@@ -49,6 +53,7 @@ export function useExtratoMensalPaginado({
   apenasDivididas?: boolean;
   tipoTransacao?: TipoTransacaoFiltro;
   categoriaId?: string | null;
+  status?: StatusFiltro;
   ordenarPor?: CampoOrdenacaoExtrato;
   direcao?: DirecaoOrdenacao;
 }) {
@@ -72,6 +77,7 @@ export function useExtratoMensalPaginado({
       apenasDivididas,
       tipoTransacao,
       categoriaId,
+      status,
       ordenarPor,
       direcao,
     ),
@@ -86,6 +92,7 @@ export function useExtratoMensalPaginado({
         apenasDivididas,
         tipo,
         categoriaId,
+        status,
         ordenarPor,
         direcao,
       }),

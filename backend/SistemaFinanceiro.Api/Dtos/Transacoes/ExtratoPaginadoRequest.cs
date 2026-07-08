@@ -11,6 +11,7 @@ public sealed class ExtratoPaginadoRequest
     public bool? ApenasDivididas { get; set; }
     public TipoTransacao? Tipo { get; set; }
     public Guid? CategoriaId { get; set; }
+    public StatusFiltro? Status { get; set; }
     public string OrdenarPor { get; set; } = "data";
     public string Direcao { get; set; } = "desc";
     public int PageNumber { get; set; } = 1;

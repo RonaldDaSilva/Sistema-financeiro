@@ -16,6 +16,7 @@ import type {
   RelatorioGraficos,
   TipoTransacao,
   TipoTransacaoFiltro,
+  StatusFiltro,
   CampoOrdenacaoExtrato,
   DirecaoOrdenacao,
 } from '../types/finance';
@@ -31,9 +32,15 @@ export async function getExtratoMensal(
   mes: number,
   ano: number,
   apenasDivididas = false,
+  status: StatusFiltro = 'todos',
 ) {
   const { data } = await api.get<ExtratoMensal>('/api/transacoes/extrato-mensal', {
-    params: { mes, ano, apenasDivididas: apenasDivididas || undefined },
+    params: {
+      mes,
+      ano,
+      apenasDivididas: apenasDivididas || undefined,
+      status: normalizarStatusFiltro(status),
+    },
   });
 
   return data;
@@ -49,6 +56,7 @@ export async function getExtratoMensalPaginado(params: {
   apenasDivididas?: boolean;
   tipo?: TipoTransacao | null;
   categoriaId?: string | null;
+  status?: StatusFiltro;
   ordenarPor?: CampoOrdenacaoExtrato;
   direcao?: DirecaoOrdenacao;
 }) {
@@ -66,6 +74,7 @@ export async function getExtratoMensalPaginado(params: {
           apenasDivididas: params.apenasDivididas || undefined,
           tipo: params.tipo ?? undefined,
           categoriaId: params.categoriaId ?? undefined,
+          status: normalizarStatusFiltro(params.status),
           ordenarPor: params.ordenarPor ?? 'data',
           direcao: params.direcao ?? 'desc',
         },
@@ -101,6 +110,10 @@ export async function getExtratoMensalPaginado(params: {
         }
 
         if (params.categoriaId && item.categoriaId !== params.categoriaId) {
+          return false;
+        }
+
+        if (!aplicarFiltroStatusFallback(item, params.status)) {
           return false;
         }
 
@@ -189,6 +202,53 @@ export async function anteciparParcela(request: AnteciparParcelaRequest) {
     }>
   >('/api/transacoes/antecipar-parcela', request);
   return data;
+}
+
+function normalizarStatusFiltro(status?: StatusFiltro) {
+  if (!status || status === 'todos') {
+    return undefined;
+  }
+
+  return {
+    pagas: 'Pagas',
+    pendentes: 'Pendentes',
+    atrasadas: 'Atrasadas',
+  }[status];
+}
+
+function aplicarFiltroStatusFallback(
+  item: ExtratoMensalItem,
+  status?: StatusFiltro,
+) {
+  if (!status || status === 'todos') {
+    return true;
+  }
+
+  if (item.tipo !== 2 && item.tipo !== 'Despesa') {
+    return false;
+  }
+
+  const visual = item.statusVisual || calcularStatusVisualFallback(item);
+
+  return {
+    pagas: visual === 'Paga',
+    pendentes: visual === 'Pendente',
+    atrasadas: visual === 'Atrasada',
+  }[status];
+}
+
+function calcularStatusVisualFallback(item: ExtratoMensalItem) {
+  if (item.isPaga) {
+    return 'Paga';
+  }
+
+  const hoje = new Date();
+  const offset = hoje.getTimezoneOffset();
+  const hojeLocal = new Date(hoje.getTime() - offset * 60_000)
+    .toISOString()
+    .slice(0, 10);
+
+  return item.dataOcorrencia < hojeLocal ? 'Atrasada' : 'Pendente';
 }
 
 export async function alternarStatusPagamento(id: string, dataOcorrencia?: string) {

@@ -23,6 +23,7 @@ public sealed class TransacaoController : ControllerBase
         [FromQuery] int mes,
         [FromQuery] int ano,
         [FromQuery] bool? apenasDivididas,
+        [FromQuery] StatusFiltro? status,
         CancellationToken cancellationToken)
     {
         var usuarioId = ObterUsuarioId();
@@ -38,6 +39,7 @@ public sealed class TransacaoController : ControllerBase
                 ano,
                 usuarioId.Value,
                 apenasDivididas,
+                status,
                 cancellationToken);
 
             return Ok(extrato);

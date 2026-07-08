@@ -20,6 +20,7 @@ public sealed class TransacaoService : ITransacaoService
         int ano,
         Guid usuarioId,
         bool? apenasDivididas = null,
+        StatusFiltro? status = null,
         CancellationToken cancellationToken = default)
     {
         if (mes is < 1 or > 12)
@@ -160,6 +161,9 @@ public sealed class TransacaoService : ITransacaoService
             .ThenBy(item => item.IsProjetada)
             .ThenBy(item => item.Descricao)
             .ToList();
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        PreencherStatusVisual(itensOrdenados, hoje);
+        itensOrdenados = AplicarFiltroStatus(itensOrdenados, status, hoje).ToList();
 
         ResumoDivididasResponse? resumoDivididas = null;
         if (apenasDivididas == true)
@@ -189,7 +193,6 @@ public sealed class TransacaoService : ITransacaoService
         var investimentosDoMes = itensOrdenados
             .Where(item => item.Tipo == TipoTransacao.Investimento)
             .Sum(item => item.Valor);
-        var hoje = DateOnly.FromDateTime(DateTime.Today);
         var saldoAtualGlobal = await CalcularSaldoAtualGlobalAsync(usuarioId, hoje, cancellationToken);
         var transacoesFuturasNaoPagasDoMes = itensOrdenados
             .Where(item =>
@@ -252,7 +255,7 @@ public sealed class TransacaoService : ITransacaoService
                 referencia.Ano,
                 usuarioId,
                 request.ApenasDivididas,
-                cancellationToken);
+                cancellationToken: cancellationToken);
 
             if (request.CategoriaId.HasValue && request.ApenasDivididas != true)
             {
@@ -275,6 +278,8 @@ public sealed class TransacaoService : ITransacaoService
             }
         }
 
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        PreencherStatusVisual(itens, hoje);
         var itensFiltrados = itens.AsEnumerable();
 
         if (dataInicial.HasValue)
@@ -302,6 +307,8 @@ public sealed class TransacaoService : ITransacaoService
         {
             itensFiltrados = itensFiltrados.Where(item => item.CategoriaId == request.CategoriaId.Value);
         }
+
+        itensFiltrados = AplicarFiltroStatus(itensFiltrados, request.Status, hoje);
 
         var descendente = string.Equals(
             request.Direcao,
@@ -350,6 +357,48 @@ public sealed class TransacaoService : ITransacaoService
                 ? 0
                 : (int)Math.Ceiling(totalCount / (double)pageSize)
         };
+    }
+
+    private static IEnumerable<ExtratoMensalItemResponse> AplicarFiltroStatus(
+        IEnumerable<ExtratoMensalItemResponse> itens,
+        StatusFiltro? status,
+        DateOnly hoje)
+    {
+        return status switch
+        {
+            StatusFiltro.Pagas => itens.Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                item.IsPaga),
+            StatusFiltro.Pendentes => itens.Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                !item.IsPaga &&
+                item.DataOcorrencia >= hoje),
+            StatusFiltro.Atrasadas => itens.Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                !item.IsPaga &&
+                item.DataOcorrencia < hoje),
+            _ => itens
+        };
+    }
+
+    private static void PreencherStatusVisual(
+        IEnumerable<ExtratoMensalItemResponse> itens,
+        DateOnly hoje)
+    {
+        foreach (var item in itens)
+        {
+            item.StatusVisual = CalcularStatusVisual(item.IsPaga, item.DataOcorrencia, hoje);
+        }
+    }
+
+    private static string CalcularStatusVisual(bool isPaga, DateOnly dataOcorrencia, DateOnly hoje)
+    {
+        if (isPaga)
+        {
+            return "Paga";
+        }
+
+        return dataOcorrencia < hoje ? "Atrasada" : "Pendente";
     }
 
     public async Task<IReadOnlyList<FaturaConsolidadaResponse>> GetFaturasDoMesAsync(

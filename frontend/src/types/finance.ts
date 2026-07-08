@@ -16,6 +16,7 @@ export type ExtratoMensalItem = {
   cartaoCreditoApelido: string | null;
   isFixa: boolean;
   isPaga: boolean;
+  statusVisual: 'Paga' | 'Pendente' | 'Atrasada' | string;
   isDividida: boolean;
   valorTotalOriginal: number | null;
   percentualDivisao: number | null;
@@ -190,6 +191,7 @@ export type CriarCompraParceladaRequest = {
 };
 
 export type TipoTransacaoFiltro = 'todos' | 'receita' | 'despesa' | 'investimento';
+export type StatusFiltro = 'todos' | 'pagas' | 'pendentes' | 'atrasadas';
 export type CampoOrdenacaoExtrato = 'data' | 'movimentacao' | 'categoria' | 'valor';
 export type DirecaoOrdenacao = 'asc' | 'desc';
 

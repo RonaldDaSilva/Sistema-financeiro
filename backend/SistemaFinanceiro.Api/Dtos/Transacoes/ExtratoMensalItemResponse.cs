@@ -19,6 +19,7 @@ public sealed class ExtratoMensalItemResponse
     public string? CartaoCreditoApelido { get; set; }
     public bool IsFixa { get; set; }
     public bool IsPaga { get; set; }
+    public string StatusVisual { get; set; } = string.Empty;
     public bool IsDividida { get; set; }
     public decimal? ValorTotalOriginal { get; set; }
     public decimal? PercentualDivisao { get; set; }

@@ -5,7 +5,7 @@ namespace SistemaFinanceiro.Api.Services.Transacoes;
 
 public interface ITransacaoService
 {
-    Task<ExtratoMensalResponse> GetExtratoMensalAsync(int mes, int ano, Guid usuarioId, bool? apenasDivididas = null, CancellationToken cancellationToken = default);
+    Task<ExtratoMensalResponse> GetExtratoMensalAsync(int mes, int ano, Guid usuarioId, bool? apenasDivididas = null, StatusFiltro? status = null, CancellationToken cancellationToken = default);
     Task<PagedResponse<ExtratoMensalItemResponse>> GetExtratoMensalPaginadoAsync(ExtratoPaginadoRequest request, Guid usuarioId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<FaturaConsolidadaResponse>> GetFaturasDoMesAsync(int mes, int ano, Guid usuarioId, CancellationToken cancellationToken = default);
     Task<Guid> CriarAsync(CriarTransacaoRequest request, Guid usuarioId, CancellationToken cancellationToken = default);

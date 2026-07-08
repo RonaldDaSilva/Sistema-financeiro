@@ -1,6 +1,10 @@
 export const queryKeys = {
-  extrato: (mes: number, ano: number, apenasDivididas = false) =>
-    ["extrato", mes, ano, apenasDivididas] as const,
+  extrato: (
+    mes: number,
+    ano: number,
+    apenasDivididas = false,
+    status = "todos",
+  ) => ["extrato", mes, ano, apenasDivididas, status] as const,
   extratoPaginado: (
     mes: number,
     ano: number,
@@ -11,6 +15,7 @@ export const queryKeys = {
     apenasDivididas = false,
     tipoTransacao = "todos",
     categoriaId: string | null = null,
+    status = "todos",
     ordenarPor = "data",
     direcao = "desc",
   ) =>
@@ -25,6 +30,7 @@ export const queryKeys = {
       apenasDivididas,
       tipoTransacao,
       categoriaId,
+      status,
       ordenarPor,
       direcao,
     ] as const,

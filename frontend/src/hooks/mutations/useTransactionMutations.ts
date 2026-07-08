@@ -282,14 +282,42 @@ function matchesPagedFilter(key: QueryKey, item: ExtratoMensalItem) {
   const apenasDivididas = Boolean(key[7]);
   const tipo = String(key[8] ?? "todos");
   const categoriaId = key[9] ? String(key[9]) : null;
+  const status = String(key[10] ?? "todos");
 
   return (
     (!dataInicial || item.dataOcorrencia >= dataInicial) &&
     (!dataFinal || item.dataOcorrencia <= dataFinal) &&
     (!apenasDivididas || item.isDividida) &&
     (tipo === "todos" || tipo === itemType(item)) &&
-    (!categoriaId || categoriaId === item.categoriaId)
+    (!categoriaId || categoriaId === item.categoriaId) &&
+    matchesStatusFilter(status, item)
   );
+}
+
+function matchesStatusFilter(status: string, item: ExtratoMensalItem) {
+  if (status === "todos") {
+    return true;
+  }
+
+  if (itemType(item) !== "despesa") {
+    return false;
+  }
+
+  const visual = item.statusVisual || statusVisual(item);
+
+  return (
+    (status === "pagas" && visual === "Paga") ||
+    (status === "pendentes" && visual === "Pendente") ||
+    (status === "atrasadas" && visual === "Atrasada")
+  );
+}
+
+function statusVisual(item: ExtratoMensalItem) {
+  if (item.isPaga) {
+    return "Paga";
+  }
+
+  return item.dataOcorrencia < todayValue() ? "Atrasada" : "Pendente";
 }
 
 function itemType(item: ExtratoMensalItem) {

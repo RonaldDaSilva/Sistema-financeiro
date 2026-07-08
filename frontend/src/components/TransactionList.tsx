@@ -102,12 +102,7 @@ export const TransactionList = memo(function TransactionList({
           const isReceita = item.tipo === 1 || item.tipo === "Receita";
           const isInvestimento =
             item.tipo === 3 || item.tipo === "Investimento";
-          const hojeInicio = new Date();
-          hojeInicio.setHours(0, 0, 0, 0);
-          const isAtrasada =
-            !isReceita &&
-            !item.isPaga &&
-            parseLocalDate(item.dataOcorrencia) < hojeInicio;
+          const statusVisual = obterStatusVisual(item);
           const valueClass = isReceita
             ? "text-emerald-700"
             : isInvestimento
@@ -182,16 +177,7 @@ export const TransactionList = memo(function TransactionList({
                     <span className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300">
                       {formatDate(item.dataOcorrencia)}
                     </span>
-                    {item.isPaga && !isReceita && (
-                      <span className="mt-1 block w-fit rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-                        Pago
-                      </span>
-                    )}
-                    {isAtrasada && (
-                      <span className="mt-1 block w-fit rounded-full bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-                        Atrasada
-                      </span>
-                    )}
+                    {!isReceita && <StatusBadge status={statusVisual} />}
                   </div>
                 </div>
                 <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-3 md:col-auto md:row-auto md:gap-4">
@@ -493,6 +479,38 @@ function SortHeader({
   );
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const className =
+    status === "Paga"
+      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+      : status === "Atrasada"
+        ? "bg-red-50 text-red-700 font-bold dark:bg-red-950/50 dark:text-red-300"
+        : "border border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400";
+
+  return (
+    <span className={`mt-1 block w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${className}`}>
+      {status}
+    </span>
+  );
+}
+
+function obterStatusVisual(item: Pick<ExtratoMensalItem, "isPaga" | "dataOcorrencia"> & {
+  statusVisual?: string;
+}) {
+  if (item.statusVisual) {
+    return item.statusVisual;
+  }
+
+  if (item.isPaga) {
+    return "Paga";
+  }
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  return parseLocalDate(item.dataOcorrencia) < hoje ? "Atrasada" : "Pendente";
+}
+
 function StatusButton({
   item,
   isRevealed,
@@ -601,6 +619,10 @@ function mapFaturaDetalheToExtratoItem(
     cartaoCreditoApelido: fatura.nomeCartao,
     isFixa: detalhe.origem === "DespesaFixa",
     isPaga: false,
+    statusVisual: obterStatusVisual({
+      dataOcorrencia: detalhe.dataOcorrencia,
+      isPaga: false,
+    }),
     isDividida: detalhe.isDividida,
     valorTotalOriginal: detalhe.valorTotalOriginal,
     percentualDivisao: detalhe.percentualDivisao,

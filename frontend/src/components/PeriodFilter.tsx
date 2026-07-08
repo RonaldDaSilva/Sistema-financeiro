@@ -9,6 +9,7 @@ import {
 import type {
   Categoria,
   PeriodoFiltro,
+  StatusFiltro,
   TipoTransacaoFiltro,
 } from "../types/finance";
 import { addDays, parseLocalDate, toDateInputValue } from "../utils/date";
@@ -16,13 +17,17 @@ import { addDays, parseLocalDate, toDateInputValue } from "../utils/date";
 type PeriodFilterProps = {
   value: PeriodoFiltro;
   categorias: Categoria[];
+  status: StatusFiltro;
   onChange: (value: PeriodoFiltro) => void;
+  onStatusChange: (value: StatusFiltro) => void;
 };
 
 export function PeriodFilter({
   value,
   categorias,
+  status,
   onChange,
+  onStatusChange,
 }: PeriodFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isDateOpen, setIsDateOpen] = useState(false);
@@ -45,7 +50,8 @@ export function PeriodFilter({
     inicio !== inicioMesAtual ||
     fim !== fimMesAtual ||
     tipoTransacao !== "todos" ||
-    categoriaId !== "todas";
+    categoriaId !== "todas" ||
+    status !== "todos";
   const [rangeStart, setRangeStart] = useState(inicio);
   const [rangeEnd, setRangeEnd] = useState(fim);
   const [selectingEnd, setSelectingEnd] = useState(false);
@@ -145,6 +151,7 @@ export function PeriodFilter({
   function limparFiltros() {
     setErro(null);
     setIsOpen(false);
+    onStatusChange("todos");
     onChange({
       tipo: "intervalo",
       inicio: inicioMesAtual,
@@ -214,6 +221,29 @@ export function PeriodFilter({
                     Últimos {dias} dias
                   </button>
                 ))}
+              </div>
+
+              <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Status
+                  <select
+                    className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-700 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-white"
+                    value={status}
+                    onChange={(event) =>
+                      onStatusChange(event.target.value as StatusFiltro)
+                    }
+                  >
+                    <option value="todos">Todas</option>
+                    <option value="pagas">Pagas</option>
+                    <option value="pendentes">Pendentes</option>
+                    <option value="atrasadas">Atrasadas</option>
+                  </select>
+                </label>
+                {status !== "todos" && (
+                  <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Este filtro considera apenas despesas.
+                  </p>
+                )}
               </div>
 
               <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">

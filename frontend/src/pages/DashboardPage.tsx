@@ -46,6 +46,7 @@ import type {
   FaturaConsolidada,
   PagedResponse,
   PeriodoFiltro,
+  StatusFiltro,
   TipoTransacaoFiltro,
 } from "../types/finance";
 import {
@@ -77,6 +78,7 @@ export function DashboardPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [toastErro, setToastErro] = useState<string | null>(null);
   const [apenasDivididas, setApenasDivididas] = useState(false);
+  const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>("todos");
   const [paginaMovimentacoes, setPaginaMovimentacoes] = useState(1);
   const [ordenacao, setOrdenacao] = useState<{
     campo: CampoOrdenacaoExtrato;
@@ -111,6 +113,7 @@ export function DashboardPage() {
     apenasDivididas,
     tipoTransacao: periodo.tipoTransacao ?? "todos",
     categoriaId: periodo.categoriaId,
+    status: statusFiltro,
     ordenarPor: ordenacao.campo,
     direcao: ordenacao.direcao,
   });
@@ -141,6 +144,7 @@ export function DashboardPage() {
     periodo.tipoTransacao,
     rangePeriodo.fim,
     rangePeriodo.inicio,
+    statusFiltro,
   ]);
 
   const faturas = useMemo(() => {
@@ -472,30 +476,53 @@ export function DashboardPage() {
     isPaga: boolean,
     dataOcorrencia?: string,
   ) {
-    queryClient.setQueriesData<ExtratoMensal>(
-      { queryKey: ["extrato"] },
-      (current) =>
-        current
-          ? {
-              ...current,
-              itens: current.itens.map((item) =>
-                atualizarStatusItem(item, id, isPaga, dataOcorrencia),
-              ),
-            }
-          : current,
+    atualizarStatusPagamentoCaches(
+      (item) => item.id === id &&
+        (!dataOcorrencia || item.dataOcorrencia === dataOcorrencia),
+      isPaga,
     );
-    queryClient.setQueriesData<PagedResponse<ExtratoMensalItem>>(
-      { queryKey: ["extrato-paginado"] },
-      (current) =>
-        current
-          ? {
-              ...current,
-              items: current.items.map((item) =>
-                atualizarStatusItem(item, id, isPaga, dataOcorrencia),
-              ),
-            }
-          : current,
-    );
+  }
+
+  function atualizarStatusPagamentoCaches(
+    matchesItem: (item: ExtratoMensalItem) => boolean,
+    isPaga: boolean,
+  ) {
+    queryClient.getQueriesData<ExtratoMensal>({ queryKey: ["extrato"] })
+      .forEach(([queryKey, current]) => {
+        if (!current) {
+          return;
+        }
+
+        queryClient.setQueryData<ExtratoMensal>(queryKey, {
+          ...current,
+          itens: current.itens
+            .map((item) =>
+              matchesItem(item) ? atualizarStatusItem(item, isPaga) : item,
+            )
+            .filter((item) => itemCombinaComStatusQuery(queryKey, item)),
+        });
+      });
+
+    queryClient.getQueriesData<PagedResponse<ExtratoMensalItem>>({
+      queryKey: ["extrato-paginado"],
+    }).forEach(([queryKey, current]) => {
+      if (!current) {
+        return;
+      }
+
+      const items = current.items
+        .map((item) =>
+          matchesItem(item) ? atualizarStatusItem(item, isPaga) : item,
+        )
+        .filter((item) => itemCombinaComStatusQuery(queryKey, item));
+      const removedFromPage = current.items.length - items.length;
+
+      queryClient.setQueryData<PagedResponse<ExtratoMensalItem>>(queryKey, {
+        ...current,
+        items,
+        totalCount: Math.max(0, current.totalCount - removedFromPage),
+      });
+    });
   }
 
   function aplicarImpactoSaldoGlobalLocal(
@@ -567,37 +594,12 @@ export function DashboardPage() {
     dataVencimento: string,
     isPaga: boolean,
   ) {
-    queryClient.setQueriesData<ExtratoMensal>(
-      { queryKey: ["extrato"] },
-      (current) =>
-        current
-          ? {
-              ...current,
-              itens: current.itens.map((item) =>
-                item.origem === "FaturaCartao" &&
-                item.cartaoCreditoId === cartaoCreditoId &&
-                item.dataOcorrencia === dataVencimento
-                  ? { ...item, isPaga }
-                  : item,
-              ),
-            }
-          : current,
-    );
-    queryClient.setQueriesData<PagedResponse<ExtratoMensalItem>>(
-      { queryKey: ["extrato-paginado"] },
-      (current) =>
-        current
-          ? {
-              ...current,
-              items: current.items.map((currentItem) =>
-                currentItem.origem === "FaturaCartao" &&
-                currentItem.cartaoCreditoId === cartaoCreditoId &&
-                currentItem.dataOcorrencia === dataVencimento
-                  ? { ...currentItem, isPaga }
-                  : currentItem,
-              ),
-            }
-          : current,
+    atualizarStatusPagamentoCaches(
+      (item) =>
+        item.origem === "FaturaCartao" &&
+        item.cartaoCreditoId === cartaoCreditoId &&
+        item.dataOcorrencia === dataVencimento,
+      isPaga,
     );
     queryClient.setQueriesData<FaturaConsolidada[]>(
       { queryKey: ["faturas"] },
@@ -766,7 +768,9 @@ export function DashboardPage() {
           <PeriodFilter
             value={periodo}
             categorias={categorias}
+            status={statusFiltro}
             onChange={handlePeriodoChange}
+            onStatusChange={setStatusFiltro}
           />
           <div className="grid shrink-0 grid-cols-2 gap-2">
             <button
@@ -987,19 +991,59 @@ export function DashboardPage() {
 
 function atualizarStatusItem(
   item: ExtratoMensalItem,
-  id: string,
   isPaga: boolean,
-  dataOcorrencia?: string,
 ) {
-  if (item.id !== id) {
-    return item;
+  return {
+    ...item,
+    isPaga,
+    statusVisual: calcularStatusVisualLocal(isPaga, item.dataOcorrencia),
+  };
+}
+
+function itemCombinaComStatusQuery(
+  queryKey: readonly unknown[],
+  item: ExtratoMensalItem,
+) {
+  const status = obterStatusDaQueryKey(queryKey);
+
+  if (status === "todos") {
+    return true;
   }
 
-  if (dataOcorrencia && item.dataOcorrencia !== dataOcorrencia) {
-    return item;
+  if (item.tipo !== 2 && item.tipo !== "Despesa") {
+    return false;
   }
 
-  return { ...item, isPaga };
+  const statusVisual = item.statusVisual ||
+    calcularStatusVisualLocal(item.isPaga, item.dataOcorrencia);
+
+  return (
+    (status === "pagas" && statusVisual === "Paga") ||
+    (status === "pendentes" && statusVisual === "Pendente") ||
+    (status === "atrasadas" && statusVisual === "Atrasada")
+  );
+}
+
+function obterStatusDaQueryKey(queryKey: readonly unknown[]) {
+  if (queryKey[0] === "extrato-paginado") {
+    return String(queryKey[10] ?? "todos");
+  }
+
+  if (queryKey[0] === "extrato") {
+    return String(queryKey[4] ?? "todos");
+  }
+
+  return "todos";
+}
+
+function calcularStatusVisualLocal(isPaga: boolean, dataOcorrencia: string) {
+  if (isPaga) {
+    return "Paga";
+  }
+
+  return dataOcorrencia < toDateInputValue(new Date())
+    ? "Atrasada"
+    : "Pendente";
 }
 
 function criarItemOtimista(
@@ -1029,6 +1073,10 @@ function criarItemOtimista(
     cartaoCreditoApelido: cartao?.apelidoCartao ?? null,
     isFixa: request.isFixa,
     isPaga: request.dataOcorrencia <= hoje,
+    statusVisual: calcularStatusVisualLocal(
+      request.dataOcorrencia <= hoje,
+      request.dataOcorrencia,
+    ),
     isDividida: request.isDividida,
     valorTotalOriginal: request.valorTotalOriginal ?? null,
     percentualDivisao: request.percentualDivisao ?? null,
