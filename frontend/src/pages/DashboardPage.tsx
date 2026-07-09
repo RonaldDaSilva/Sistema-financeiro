@@ -78,7 +78,9 @@ export function DashboardPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [toastErro, setToastErro] = useState<string | null>(null);
   const [apenasDivididas, setApenasDivididas] = useState(false);
-  const [statusFiltro, setStatusFiltro] = useState<StatusFiltro>("todos");
+  const [statusesFiltro, setStatusesFiltro] = useState<StatusFiltro[]>(() =>
+    obterStatusesIniciais(searchParams),
+  );
   const [paginaMovimentacoes, setPaginaMovimentacoes] = useState(1);
   const [ordenacao, setOrdenacao] = useState<{
     campo: CampoOrdenacaoExtrato;
@@ -94,6 +96,10 @@ export function DashboardPage() {
   }, [valoresOcultos]);
 
   const rangePeriodo = useMemo(() => obterRangePeriodo(periodo), [periodo]);
+  const categoriaIdsFiltro = useMemo(
+    () => obterCategoriaIdsPeriodo(periodo),
+    [periodo],
+  );
   const mesesPeriodo = useMemo(
     () => getMonthsBetween(rangePeriodo.inicio, rangePeriodo.fim),
     [rangePeriodo],
@@ -112,8 +118,8 @@ export function DashboardPage() {
     pageSize: pageSizeMovimentacoes,
     apenasDivididas,
     tipoTransacao: periodo.tipoTransacao ?? "todos",
-    categoriaId: periodo.categoriaId,
-    status: statusFiltro,
+    categoriaIds: categoriaIdsFiltro,
+    statuses: statusesFiltro,
     ordenarPor: ordenacao.campo,
     direcao: ordenacao.direcao,
   });
@@ -140,11 +146,11 @@ export function DashboardPage() {
     setPaginaMovimentacoes(1);
   }, [
     apenasDivididas,
-    periodo.categoriaId,
+    categoriaIdsFiltro,
     periodo.tipoTransacao,
     rangePeriodo.fim,
     rangePeriodo.inicio,
-    statusFiltro,
+    statusesFiltro,
   ]);
 
   const faturas = useMemo(() => {
@@ -218,14 +224,31 @@ export function DashboardPage() {
     nextParams.set("fim", toDateInputValue(range.fim));
 
     const tipoTransacao = nextPeriodo.tipoTransacao ?? "todos";
-    const categoriaId = nextPeriodo.categoriaId ?? null;
+    const categoriaIds = obterCategoriaIdsPeriodo(nextPeriodo);
     tipoTransacao === "todos"
       ? nextParams.delete("tipo")
       : nextParams.set("tipo", tipoTransacao);
-    categoriaId
-      ? nextParams.set("categoria", categoriaId)
-      : nextParams.delete("categoria");
+    if (categoriaIds.length > 0) {
+      nextParams.set("categorias", categoriaIds.join(","));
+      nextParams.set("categoria", categoriaIds[0]);
+    } else {
+      nextParams.delete("categorias");
+      nextParams.delete("categoria");
+    }
 
+    setSearchParams(nextParams, { replace: true });
+  }
+
+  function handleStatusesChange(nextStatuses: StatusFiltro[]) {
+    const statuses = normalizarStatuses(nextStatuses);
+    setStatusesFiltro(statuses);
+
+    const nextParams = new URLSearchParams(searchParams);
+    if (statuses.length > 0) {
+      nextParams.set("status", statuses.join(","));
+    } else {
+      nextParams.delete("status");
+    }
     setSearchParams(nextParams, { replace: true });
   }
 
@@ -768,9 +791,9 @@ export function DashboardPage() {
           <PeriodFilter
             value={periodo}
             categorias={categorias}
-            status={statusFiltro}
+            statuses={statusesFiltro}
             onChange={handlePeriodoChange}
-            onStatusChange={setStatusFiltro}
+            onStatusesChange={handleStatusesChange}
           />
           <div className="grid shrink-0 grid-cols-2 gap-2">
             <button
@@ -1004,9 +1027,9 @@ function itemCombinaComStatusQuery(
   queryKey: readonly unknown[],
   item: ExtratoMensalItem,
 ) {
-  const status = obterStatusDaQueryKey(queryKey);
+  const statuses = obterStatusesDaQueryKey(queryKey);
 
-  if (status === "todos") {
+  if (statuses.length === 0) {
     return true;
   }
 
@@ -1017,23 +1040,23 @@ function itemCombinaComStatusQuery(
   const statusVisual = item.statusVisual ||
     calcularStatusVisualLocal(item.isPaga, item.dataOcorrencia);
 
-  return (
+  return statuses.some((status) =>
     (status === "pagas" && statusVisual === "Paga") ||
     (status === "pendentes" && statusVisual === "Pendente") ||
-    (status === "atrasadas" && statusVisual === "Atrasada")
+    (status === "atrasadas" && statusVisual === "Atrasada"),
   );
 }
 
-function obterStatusDaQueryKey(queryKey: readonly unknown[]) {
+function obterStatusesDaQueryKey(queryKey: readonly unknown[]) {
   if (queryKey[0] === "extrato-paginado") {
-    return String(queryKey[10] ?? "todos");
+    return splitQueryList(queryKey[10]);
   }
 
   if (queryKey[0] === "extrato") {
-    return String(queryKey[4] ?? "todos");
+    return splitQueryList(queryKey[4]);
   }
 
-  return "todos";
+  return [];
 }
 
 function calcularStatusVisualLocal(isPaga: boolean, dataOcorrencia: string) {
@@ -1104,7 +1127,8 @@ function obterPeriodoInicial(
   const tipoTransacao = tiposValidos.includes(tipoParam as TipoTransacaoFiltro)
     ? (tipoParam as TipoTransacaoFiltro)
     : "todos";
-  const categoriaId = searchParams.get("categoria");
+  const categoriaIds = obterCategoriaIdsIniciais(searchParams);
+  const categoriaId = categoriaIds[0] ?? null;
 
   if (
     inicio &&
@@ -1119,6 +1143,7 @@ function obterPeriodoInicial(
       fim,
       tipoTransacao,
       categoriaId,
+      categoriaIds,
     };
   }
 
@@ -1132,7 +1157,49 @@ function obterPeriodoInicial(
     ),
     tipoTransacao,
     categoriaId,
+    categoriaIds,
   };
+}
+
+function obterCategoriaIdsPeriodo(periodo: PeriodoFiltro) {
+  return [
+    ...new Set([
+      ...(periodo.categoriaIds ?? []),
+      ...(periodo.categoriaId ? [periodo.categoriaId] : []),
+    ]),
+  ].filter(Boolean);
+}
+
+function obterCategoriaIdsIniciais(searchParams: URLSearchParams) {
+  return [
+    ...new Set([
+      ...(searchParams.get("categorias") ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      ...(searchParams.get("categoria") ? [searchParams.get("categoria")!] : []),
+    ]),
+  ];
+}
+
+function obterStatusesIniciais(searchParams: URLSearchParams): StatusFiltro[] {
+  return normalizarStatuses(
+    (searchParams.get("status") ?? "")
+      .split(",")
+      .map((item) => item.trim() as StatusFiltro),
+  );
+}
+
+function normalizarStatuses(statuses: StatusFiltro[]) {
+  const validos: StatusFiltro[] = ["pagas", "pendentes", "atrasadas"];
+  return [...new Set(statuses.filter((status) => validos.includes(status)))];
+}
+
+function splitQueryList(value: unknown) {
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function obterRangePeriodo(periodo: PeriodoFiltro) {

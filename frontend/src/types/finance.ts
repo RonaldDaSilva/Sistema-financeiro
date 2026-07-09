@@ -196,6 +196,6 @@ export type CampoOrdenacaoExtrato = 'data' | 'movimentacao' | 'categoria' | 'val
 export type DirecaoOrdenacao = 'asc' | 'desc';
 
 export type PeriodoFiltro =
-  | { tipo: 'dias'; dias: 7 | 15 | 30; tipoTransacao?: TipoTransacaoFiltro; categoriaId?: string | null }
-  | { tipo: 'mes'; mes: number; ano: number; tipoTransacao?: TipoTransacaoFiltro; categoriaId?: string | null }
-  | { tipo: 'intervalo'; inicio: string; fim: string; tipoTransacao?: TipoTransacaoFiltro; categoriaId?: string | null };
+  | { tipo: 'dias'; dias: 7 | 15 | 30; tipoTransacao?: TipoTransacaoFiltro; categoriaId?: string | null; categoriaIds?: string[] }
+  | { tipo: 'mes'; mes: number; ano: number; tipoTransacao?: TipoTransacaoFiltro; categoriaId?: string | null; categoriaIds?: string[] }
+  | { tipo: 'intervalo'; inicio: string; fim: string; tipoTransacao?: TipoTransacaoFiltro; categoriaId?: string | null; categoriaIds?: string[] };

@@ -14,20 +14,29 @@ import type {
 } from "../types/finance";
 import { addDays, parseLocalDate, toDateInputValue } from "../utils/date";
 
+const STATUS_OPTIONS: Array<{
+  value: Exclude<StatusFiltro, "todos">;
+  label: string;
+}> = [
+  { value: "pagas", label: "Pagas" },
+  { value: "pendentes", label: "Pendentes" },
+  { value: "atrasadas", label: "Atrasadas" },
+];
+
 type PeriodFilterProps = {
   value: PeriodoFiltro;
   categorias: Categoria[];
-  status: StatusFiltro;
+  statuses: StatusFiltro[];
   onChange: (value: PeriodoFiltro) => void;
-  onStatusChange: (value: StatusFiltro) => void;
+  onStatusesChange: (value: StatusFiltro[]) => void;
 };
 
 export function PeriodFilter({
   value,
   categorias,
-  status,
+  statuses,
   onChange,
-  onStatusChange,
+  onStatusesChange,
 }: PeriodFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isDateOpen, setIsDateOpen] = useState(false);
@@ -39,7 +48,7 @@ export function PeriodFilter({
     value.tipo === "intervalo" ? value.inicio : toDateInputValue(today);
   const fim = value.tipo === "intervalo" ? value.fim : toDateInputValue(today);
   const tipoTransacao = value.tipoTransacao ?? "todos";
-  const categoriaId = value.categoriaId ?? "todas";
+  const categoriaIds = obterCategoriaIds(value);
   const inicioMesAtual = toDateInputValue(
     new Date(today.getFullYear(), today.getMonth(), 1),
   );
@@ -50,8 +59,8 @@ export function PeriodFilter({
     inicio !== inicioMesAtual ||
     fim !== fimMesAtual ||
     tipoTransacao !== "todos" ||
-    categoriaId !== "todas" ||
-    status !== "todos";
+    categoriaIds.length > 0 ||
+    statuses.length > 0;
   const [rangeStart, setRangeStart] = useState(inicio);
   const [rangeEnd, setRangeEnd] = useState(fim);
   const [selectingEnd, setSelectingEnd] = useState(false);
@@ -98,7 +107,8 @@ export function PeriodFilter({
       inicio: nextInicio,
       fim: nextFim,
       tipoTransacao,
-      categoriaId: value.categoriaId ?? null,
+      categoriaId: categoriaIds[0] ?? null,
+      categoriaIds,
     });
   }
 
@@ -113,7 +123,8 @@ export function PeriodFilter({
       inicio: toDateInputValue(start),
       fim: toDateInputValue(end),
       tipoTransacao,
-      categoriaId: value.categoriaId ?? null,
+      categoriaId: categoriaIds[0] ?? null,
+      categoriaIds,
     });
   }
 
@@ -133,7 +144,8 @@ export function PeriodFilter({
       inicio: toDateInputValue(firstDay),
       fim: toDateInputValue(lastDay),
       tipoTransacao,
-      categoriaId: value.categoriaId ?? null,
+      categoriaId: categoriaIds[0] ?? null,
+      categoriaIds,
     });
   }
 
@@ -141,23 +153,37 @@ export function PeriodFilter({
     onChange({ ...value, tipoTransacao: nextTipoTransacao });
   }
 
-  function aplicarCategoria(nextCategoriaId: string) {
+  function alternarCategoria(nextCategoriaId: string) {
+    const nextCategoriaIds = categoriaIds.includes(nextCategoriaId)
+      ? categoriaIds.filter((id) => id !== nextCategoriaId)
+      : [...categoriaIds, nextCategoriaId];
+
     onChange({
       ...value,
-      categoriaId: nextCategoriaId === "todas" ? null : nextCategoriaId,
+      categoriaId: nextCategoriaIds[0] ?? null,
+      categoriaIds: nextCategoriaIds,
     });
+  }
+
+  function alternarStatus(nextStatus: Exclude<StatusFiltro, "todos">) {
+    const nextStatuses = statuses.includes(nextStatus)
+      ? statuses.filter((item) => item !== nextStatus)
+      : [...statuses, nextStatus];
+
+    onStatusesChange(nextStatuses);
   }
 
   function limparFiltros() {
     setErro(null);
     setIsOpen(false);
-    onStatusChange("todos");
+    onStatusesChange([]);
     onChange({
       tipo: "intervalo",
       inicio: inicioMesAtual,
       fim: fimMesAtual,
       tipoTransacao: "todos",
       categoriaId: null,
+      categoriaIds: [],
     });
   }
 
@@ -224,22 +250,26 @@ export function PeriodFilter({
               </div>
 
               <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
-                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Status
-                  <select
-                    className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-700 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-white"
-                    value={status}
-                    onChange={(event) =>
-                      onStatusChange(event.target.value as StatusFiltro)
-                    }
-                  >
-                    <option value="todos">Todas</option>
-                    <option value="pagas">Pagas</option>
-                    <option value="pendentes">Pendentes</option>
-                    <option value="atrasadas">Atrasadas</option>
-                  </select>
-                </label>
-                {status !== "todos" && (
+                </p>
+                <div className="mt-2 grid gap-2">
+                  {STATUS_OPTIONS.map((option) => (
+                    <label
+                      key={option.value}
+                      className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300 text-[var(--app-primary)] focus:ring-[var(--app-primary)]"
+                        checked={statuses.includes(option.value)}
+                        onChange={() => alternarStatus(option.value)}
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+                {statuses.length > 0 && (
                   <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
                     Este filtro considera apenas despesas.
                   </p>
@@ -267,21 +297,34 @@ export function PeriodFilter({
               </div>
 
               <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
-                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Categoria
-                  <select
-                    className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium normal-case tracking-normal text-slate-700 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-white"
-                    value={categoriaId}
-                    onChange={(event) => aplicarCategoria(event.target.value)}
-                  >
-                    <option value="todas">Todas as categorias</option>
-                    {categorias.map((categoria) => (
-                      <option key={categoria.id} value={categoria.id}>
-                        {categoria.nome}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                </p>
+                <div className="mt-2 max-h-56 overflow-y-auto pr-1">
+                  {categorias.map((categoria) => (
+                    <label
+                      key={categoria.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300 text-[var(--app-primary)] focus:ring-[var(--app-primary)]"
+                        checked={categoriaIds.includes(categoria.id)}
+                        onChange={() => alternarCategoria(categoria.id)}
+                      />
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: categoria.corHexa }}
+                      />
+                      <span className="min-w-0 truncate">{categoria.nome}</span>
+                    </label>
+                  ))}
+                </div>
+                {categoriaIds.length === 0 && (
+                  <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Nenhuma categoria selecionada = todas.
+                  </p>
+                )}
               </div>
 
               {hasActiveFilters && (
@@ -487,4 +530,13 @@ function DateRangeCalendar({
 function formatDisplayDate(value: string) {
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year}`;
+}
+
+function obterCategoriaIds(value: PeriodoFiltro) {
+  return [
+    ...new Set([
+      ...(value.categoriaIds ?? []),
+      ...(value.categoriaId ? [value.categoriaId] : []),
+    ]),
+  ].filter(Boolean);
 }

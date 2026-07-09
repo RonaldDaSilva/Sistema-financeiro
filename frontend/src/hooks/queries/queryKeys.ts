@@ -14,8 +14,8 @@ export const queryKeys = {
     pageSize: number,
     apenasDivididas = false,
     tipoTransacao = "todos",
-    categoriaId: string | null = null,
-    status = "todos",
+    categoriaIds: string[] = [],
+    statuses: string[] = [],
     ordenarPor = "data",
     direcao = "desc",
   ) =>
@@ -29,8 +29,8 @@ export const queryKeys = {
       pageSize,
       apenasDivididas,
       tipoTransacao,
-      categoriaId,
-      status,
+      normalizeKeyList(categoriaIds),
+      normalizeKeyList(statuses),
       ordenarPor,
       direcao,
     ] as const,
@@ -44,3 +44,7 @@ export const queryKeys = {
     ["relatorios", dataInicial, dataFinal] as const,
   configuracoesNotificacao: ["notificacoes", "configuracoes"] as const,
 };
+
+function normalizeKeyList(values: string[]) {
+  return [...new Set(values.filter(Boolean))].sort().join(",");
+}

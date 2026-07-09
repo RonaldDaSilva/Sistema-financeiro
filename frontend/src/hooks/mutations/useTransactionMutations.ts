@@ -281,21 +281,22 @@ function matchesPagedFilter(key: QueryKey, item: ExtratoMensalItem) {
   const dataFinal = String(key[4] ?? "");
   const apenasDivididas = Boolean(key[7]);
   const tipo = String(key[8] ?? "todos");
-  const categoriaId = key[9] ? String(key[9]) : null;
-  const status = String(key[10] ?? "todos");
+  const categoriaIds = splitQueryList(key[9]);
+  const statuses = splitQueryList(key[10]);
 
   return (
     (!dataInicial || item.dataOcorrencia >= dataInicial) &&
     (!dataFinal || item.dataOcorrencia <= dataFinal) &&
     (!apenasDivididas || item.isDividida) &&
     (tipo === "todos" || tipo === itemType(item)) &&
-    (!categoriaId || categoriaId === item.categoriaId) &&
-    matchesStatusFilter(status, item)
+    (categoriaIds.length === 0 ||
+      (Boolean(item.categoriaId) && categoriaIds.includes(item.categoriaId!))) &&
+    matchesStatusFilter(statuses, item)
   );
 }
 
-function matchesStatusFilter(status: string, item: ExtratoMensalItem) {
-  if (status === "todos") {
+function matchesStatusFilter(statuses: string[], item: ExtratoMensalItem) {
+  if (statuses.length === 0) {
     return true;
   }
 
@@ -305,11 +306,18 @@ function matchesStatusFilter(status: string, item: ExtratoMensalItem) {
 
   const visual = item.statusVisual || statusVisual(item);
 
-  return (
+  return statuses.some((status) =>
     (status === "pagas" && visual === "Paga") ||
     (status === "pendentes" && visual === "Pendente") ||
-    (status === "atrasadas" && visual === "Atrasada")
+    (status === "atrasadas" && visual === "Atrasada"),
   );
+}
+
+function splitQueryList(value: unknown) {
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function statusVisual(item: ExtratoMensalItem) {

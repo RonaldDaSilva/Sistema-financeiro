@@ -56,29 +56,42 @@ export async function getExtratoMensalPaginado(params: {
   apenasDivididas?: boolean;
   tipo?: TipoTransacao | null;
   categoriaId?: string | null;
+  categoriaIds?: string[];
   status?: StatusFiltro;
+  statuses?: StatusFiltro[];
   ordenarPor?: CampoOrdenacaoExtrato;
   direcao?: DirecaoOrdenacao;
 }) {
+  const categoriaIds = normalizarLista([
+    ...(params.categoriaIds ?? []),
+    ...(params.categoriaId ? [params.categoriaId] : []),
+  ]);
+  const statuses = normalizarStatusLista(
+    params.statuses ?? (params.status ? [params.status] : []),
+  );
+
   try {
+    const requestParams = new URLSearchParams();
+    requestParams.set('mes', String(params.mes));
+    requestParams.set('ano', String(params.ano));
+    requestParams.set('pageNumber', String(params.pageNumber));
+    requestParams.set('pageSize', String(params.pageSize));
+    requestParams.set('ordenarPor', params.ordenarPor ?? 'data');
+    requestParams.set('direcao', params.direcao ?? 'desc');
+    if (params.dataInicial) requestParams.set('dataInicial', params.dataInicial);
+    if (params.dataFinal) requestParams.set('dataFinal', params.dataFinal);
+    if (params.apenasDivididas) requestParams.set('apenasDivididas', 'true');
+    if (params.tipo) requestParams.set('tipo', String(params.tipo));
+    categoriaIds.forEach((categoriaId) =>
+      requestParams.append('categoriaIds', categoriaId),
+    );
+    statuses.forEach((status) =>
+      requestParams.append('statuses', status),
+    );
+
     const { data } = await api.get<PagedResponse<ExtratoMensalItem>>(
       '/api/transacoes/extrato-mensal/paginado',
-      {
-        params: {
-          mes: params.mes,
-          ano: params.ano,
-          dataInicial: params.dataInicial,
-          dataFinal: params.dataFinal,
-          pageNumber: params.pageNumber,
-          pageSize: params.pageSize,
-          apenasDivididas: params.apenasDivididas || undefined,
-          tipo: params.tipo ?? undefined,
-          categoriaId: params.categoriaId ?? undefined,
-          status: normalizarStatusFiltro(params.status),
-          ordenarPor: params.ordenarPor ?? 'data',
-          direcao: params.direcao ?? 'desc',
-        },
-      },
+      { params: requestParams },
     );
 
     return data;
@@ -109,11 +122,14 @@ export async function getExtratoMensalPaginado(params: {
           return false;
         }
 
-        if (params.categoriaId && item.categoriaId !== params.categoriaId) {
+        if (
+          categoriaIds.length > 0 &&
+          (!item.categoriaId || !categoriaIds.includes(item.categoriaId))
+        ) {
           return false;
         }
 
-        if (!aplicarFiltroStatusFallback(item, params.status)) {
+        if (!aplicarFiltroStatusFallback(item, statuses)) {
           return false;
         }
 
@@ -216,11 +232,22 @@ function normalizarStatusFiltro(status?: StatusFiltro) {
   }[status];
 }
 
+function normalizarLista(values: string[]) {
+  return [...new Set(values.filter(Boolean))].sort();
+}
+
+function normalizarStatusLista(statuses: StatusFiltro[] = []) {
+  return [...new Set(statuses)]
+    .map(normalizarStatusFiltro)
+    .filter((status): status is string => Boolean(status))
+    .sort();
+}
+
 function aplicarFiltroStatusFallback(
   item: ExtratoMensalItem,
-  status?: StatusFiltro,
+  statuses: string[] = [],
 ) {
-  if (!status || status === 'todos') {
+  if (statuses.length === 0) {
     return true;
   }
 
@@ -230,11 +257,11 @@ function aplicarFiltroStatusFallback(
 
   const visual = item.statusVisual || calcularStatusVisualFallback(item);
 
-  return {
-    pagas: visual === 'Paga',
-    pendentes: visual === 'Pendente',
-    atrasadas: visual === 'Atrasada',
-  }[status];
+  return statuses.some((status) =>
+    (status === 'Pagas' && visual === 'Paga') ||
+    (status === 'Pendentes' && visual === 'Pendente') ||
+    (status === 'Atrasadas' && visual === 'Atrasada'),
+  );
 }
 
 function calcularStatusVisualFallback(item: ExtratoMensalItem) {

@@ -41,6 +41,8 @@ export function useExtratoMensalPaginado({
   tipoTransacao = "todos",
   categoriaId = null,
   status = "todos",
+  categoriaIds = categoriaId ? [categoriaId] : [],
+  statuses = status !== "todos" ? [status] : [],
   ordenarPor = "data",
   direcao = "desc",
 }: {
@@ -53,7 +55,9 @@ export function useExtratoMensalPaginado({
   apenasDivididas?: boolean;
   tipoTransacao?: TipoTransacaoFiltro;
   categoriaId?: string | null;
+  categoriaIds?: string[];
   status?: StatusFiltro;
+  statuses?: StatusFiltro[];
   ordenarPor?: CampoOrdenacaoExtrato;
   direcao?: DirecaoOrdenacao;
 }) {
@@ -76,8 +80,8 @@ export function useExtratoMensalPaginado({
       pageSize,
       apenasDivididas,
       tipoTransacao,
-      categoriaId,
-      status,
+      categoriaIds,
+      statuses,
       ordenarPor,
       direcao,
     ),
@@ -92,7 +96,8 @@ export function useExtratoMensalPaginado({
         apenasDivididas,
         tipo,
         categoriaId,
-        status,
+        categoriaIds,
+        statuses,
         ordenarPor,
         direcao,
       }),

@@ -234,6 +234,9 @@ public sealed class TransacaoService : ITransacaoService
         var pageSize = Math.Clamp(request.PageSize, 5, 100);
         var dataInicial = request.DataInicial;
         var dataFinal = request.DataFinal;
+        var categoriaIds = ObterCategoriaIdsFiltro(request);
+        var statuses = ObterStatusesFiltro(request);
+        var temFiltroCategorias = categoriaIds.Count > 0;
 
         if (dataInicial.HasValue && dataFinal.HasValue && dataFinal.Value < dataInicial.Value)
         {
@@ -257,7 +260,7 @@ public sealed class TransacaoService : ITransacaoService
                 request.ApenasDivididas,
                 cancellationToken: cancellationToken);
 
-            if (request.CategoriaId.HasValue && request.ApenasDivididas != true)
+            if (temFiltroCategorias && request.ApenasDivididas != true)
             {
                 itens.AddRange(extrato.Itens.Where(item => item.Origem != "FaturaCartao"));
 
@@ -269,7 +272,9 @@ public sealed class TransacaoService : ITransacaoService
 
                 itens.AddRange(faturasDoMes.SelectMany(fatura =>
                     fatura.Detalhes
-                        .Where(detalhe => detalhe.CategoriaId == request.CategoriaId.Value)
+                        .Where(detalhe =>
+                            detalhe.CategoriaId.HasValue &&
+                            categoriaIds.Contains(detalhe.CategoriaId.Value))
                         .Select(detalhe => MapearDetalheFaturaParaExtrato(fatura, detalhe))));
             }
             else
@@ -286,7 +291,7 @@ public sealed class TransacaoService : ITransacaoService
         {
             itensFiltrados = itensFiltrados.Where(item =>
                 item.DataOcorrencia >= dataInicial.Value ||
-                ((request.ApenasDivididas == true || request.CategoriaId.HasValue) &&
+                ((request.ApenasDivididas == true || temFiltroCategorias) &&
                     item.FormaPagamento == "Cartão de crédito"));
         }
 
@@ -294,7 +299,7 @@ public sealed class TransacaoService : ITransacaoService
         {
             itensFiltrados = itensFiltrados.Where(item =>
                 item.DataOcorrencia <= dataFinal.Value ||
-                ((request.ApenasDivididas == true || request.CategoriaId.HasValue) &&
+                ((request.ApenasDivididas == true || temFiltroCategorias) &&
                     item.FormaPagamento == "Cartão de crédito"));
         }
 
@@ -303,12 +308,14 @@ public sealed class TransacaoService : ITransacaoService
             itensFiltrados = itensFiltrados.Where(item => item.Tipo == request.Tipo.Value);
         }
 
-        if (request.CategoriaId.HasValue)
+        if (temFiltroCategorias)
         {
-            itensFiltrados = itensFiltrados.Where(item => item.CategoriaId == request.CategoriaId.Value);
+            itensFiltrados = itensFiltrados.Where(item =>
+                item.CategoriaId.HasValue &&
+                categoriaIds.Contains(item.CategoriaId.Value));
         }
 
-        itensFiltrados = AplicarFiltroStatus(itensFiltrados, request.Status, hoje);
+        itensFiltrados = AplicarFiltroStatus(itensFiltrados, statuses, hoje);
 
         var descendente = string.Equals(
             request.Direcao,
@@ -364,21 +371,65 @@ public sealed class TransacaoService : ITransacaoService
         StatusFiltro? status,
         DateOnly hoje)
     {
+        return AplicarFiltroStatus(itens, ObterStatusesFiltro(status), hoje);
+    }
+
+    private static IEnumerable<ExtratoMensalItemResponse> AplicarFiltroStatus(
+        IEnumerable<ExtratoMensalItemResponse> itens,
+        IReadOnlyCollection<StatusFiltro> statuses,
+        DateOnly hoje)
+    {
+        if (statuses.Count == 0)
+        {
+            return itens;
+        }
+
+        return itens.Where(item =>
+            item.Tipo == TipoTransacao.Despesa &&
+            statuses.Any(status => ItemCombinaComStatus(item, status, hoje)));
+    }
+
+    private static bool ItemCombinaComStatus(
+        ExtratoMensalItemResponse item,
+        StatusFiltro status,
+        DateOnly hoje)
+    {
         return status switch
         {
-            StatusFiltro.Pagas => itens.Where(item =>
-                item.Tipo == TipoTransacao.Despesa &&
-                item.IsPaga),
-            StatusFiltro.Pendentes => itens.Where(item =>
-                item.Tipo == TipoTransacao.Despesa &&
-                !item.IsPaga &&
-                item.DataOcorrencia >= hoje),
-            StatusFiltro.Atrasadas => itens.Where(item =>
-                item.Tipo == TipoTransacao.Despesa &&
-                !item.IsPaga &&
-                item.DataOcorrencia < hoje),
-            _ => itens
+            StatusFiltro.Pagas => item.IsPaga,
+            StatusFiltro.Pendentes => !item.IsPaga && item.DataOcorrencia >= hoje,
+            StatusFiltro.Atrasadas => !item.IsPaga && item.DataOcorrencia < hoje,
+            _ => true
         };
+    }
+
+    private static IReadOnlyList<Guid> ObterCategoriaIdsFiltro(ExtratoPaginadoRequest request)
+    {
+        return request.CategoriaIds
+            .Concat(request.CategoriaId.HasValue
+                ? new[] { request.CategoriaId.Value }
+                : Array.Empty<Guid>())
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+    }
+
+    private static IReadOnlyList<StatusFiltro> ObterStatusesFiltro(ExtratoPaginadoRequest request)
+    {
+        return request.Statuses
+            .Concat(request.Status.HasValue
+                ? new[] { request.Status.Value }
+                : Array.Empty<StatusFiltro>())
+            .Where(status => status != StatusFiltro.Todos)
+            .Distinct()
+            .ToList();
+    }
+
+    private static IReadOnlyList<StatusFiltro> ObterStatusesFiltro(StatusFiltro? status)
+    {
+        return status.HasValue && status.Value != StatusFiltro.Todos
+            ? [status.Value]
+            : [];
     }
 
     private static void PreencherStatusVisual(
