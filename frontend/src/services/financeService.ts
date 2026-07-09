@@ -278,10 +278,17 @@ function calcularStatusVisualFallback(item: ExtratoMensalItem) {
   return item.dataOcorrencia < hojeLocal ? 'Atrasada' : 'Pendente';
 }
 
-export async function alternarStatusPagamento(id: string, dataOcorrencia?: string) {
+export async function alternarStatusPagamento(
+  id: string,
+  dataOcorrencia?: string,
+  request?: {
+    isPaga?: boolean;
+    contaBancariaId?: string | null;
+  },
+) {
   const { data } = await api.patch<{ isPaga: boolean }>(
     `/api/transacoes/${id}/alternar-status`,
-    null,
+    request ?? null,
     { params: dataOcorrencia ? { dataOcorrencia } : undefined },
   );
 
@@ -398,6 +405,11 @@ export async function atualizarContaBancaria(
   request: ContaBancariaRequest,
 ) {
   const { data } = await api.put<ContaBancaria>(`/api/contas/${id}`, request);
+  return data;
+}
+
+export async function favoritarContaBancaria(id: string) {
+  const { data } = await api.patch<ContaBancaria>(`/api/contas/${id}/favoritar`);
   return data;
 }
 

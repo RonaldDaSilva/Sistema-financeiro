@@ -17,6 +17,7 @@ import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import { NewTransactionModal } from "../components/NewTransactionModal";
 import { PeriodFilter } from "../components/PeriodFilter";
+import { PaymentConfirmationModal } from "../components/PaymentConfirmationModal";
 import { TransactionList } from "../components/TransactionList";
 import { useAuth } from "../contexts/AuthContext";
 import {
@@ -72,6 +73,8 @@ export function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] =
     useState<ExtratoMensalItem | null>(null);
+  const [payingTransaction, setPayingTransaction] =
+    useState<ExtratoMensalItem | null>(null);
   const [anticipatingInstallment, setAnticipatingInstallment] =
     useState<ExtratoMensalItem | null>(null);
   const [exportando, setExportando] = useState<"excel" | "pdf" | null>(null);
@@ -106,7 +109,7 @@ export function DashboardPage() {
   );
   const categoriasQuery = useCategorias();
   const cartoesQuery = useCartoes(isModalOpen);
-  const contasQuery = useContas(isModalOpen);
+  const contasQuery = useContas(isModalOpen || Boolean(payingTransaction));
   const configuracoesQuery = useConfiguracoesNotificacao(isModalOpen);
   const extratosQueries = useExtratosMensais(mesesPeriodo, apenasDivididas);
   const extratoPaginadoQuery = useExtratoMensalPaginado({
@@ -211,6 +214,7 @@ export function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
       queryClient.invalidateQueries({ queryKey: ["faturas"] }),
       queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
       queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
     ]);
   }
@@ -498,17 +502,20 @@ export function DashboardPage() {
     id: string,
     isPaga: boolean,
     dataOcorrencia?: string,
+    contaBancariaId?: string | null,
   ) {
     atualizarStatusPagamentoCaches(
       (item) => item.id === id &&
         (!dataOcorrencia || item.dataOcorrencia === dataOcorrencia),
       isPaga,
+      contaBancariaId,
     );
   }
 
   function atualizarStatusPagamentoCaches(
     matchesItem: (item: ExtratoMensalItem) => boolean,
     isPaga: boolean,
+    contaBancariaId?: string | null,
   ) {
     queryClient.getQueriesData<ExtratoMensal>({ queryKey: ["extrato"] })
       .forEach(([queryKey, current]) => {
@@ -520,7 +527,9 @@ export function DashboardPage() {
           ...current,
           itens: current.itens
             .map((item) =>
-              matchesItem(item) ? atualizarStatusItem(item, isPaga) : item,
+              matchesItem(item)
+                ? atualizarStatusItem(item, isPaga, contaBancariaId)
+                : item,
             )
             .filter((item) => itemCombinaComStatusQuery(queryKey, item)),
         });
@@ -535,7 +544,9 @@ export function DashboardPage() {
 
       const items = current.items
         .map((item) =>
-          matchesItem(item) ? atualizarStatusItem(item, isPaga) : item,
+          matchesItem(item)
+            ? atualizarStatusItem(item, isPaga, contaBancariaId)
+            : item,
         )
         .filter((item) => itemCombinaComStatusQuery(queryKey, item));
       const removedFromPage = current.items.length - items.length;
@@ -637,6 +648,11 @@ export function DashboardPage() {
   }
 
   async function handleTogglePagamento(item: ExtratoMensalItem) {
+    if (!item.isPaga && item.origem !== "FaturaCartao") {
+      setPayingTransaction(item);
+      return;
+    }
+
     if (
       item.origem === "Carne" &&
       item.isProjetada &&
@@ -712,6 +728,7 @@ export function DashboardPage() {
       const response = await financeService.alternarStatusPagamento(
         item.id,
         dataOcorrenciaStatus,
+        { isPaga: nextStatus },
       );
       aplicarImpactoSaldoGlobalLocal(item, nextStatus, response.isPaga);
       atualizarStatusPagamentoLocal(item.id, response.isPaga, dataOcorrenciaStatus);
@@ -720,6 +737,78 @@ export function DashboardPage() {
       aplicarImpactoSaldoGlobalLocal(item, nextStatus, item.isPaga);
       setToastErro("Não foi possível atualizar o status de pagamento.");
       window.setTimeout(() => setToastErro(null), 3500);
+    }
+  }
+
+  async function handleConfirmarPagamento(contaBancariaId: string | null) {
+    const item = payingTransaction;
+    if (!item) {
+      return;
+    }
+
+    if (
+      item.origem === "Carne" &&
+      item.isProjetada &&
+      item.compraParceladaId &&
+      item.numeroParcela
+    ) {
+      setToastErro(null);
+      aplicarImpactoSaldoGlobalLocal(item, item.isPaga, true);
+
+      try {
+        await financeService.anteciparParcela({
+          idCompraParcelada: item.compraParceladaId,
+          numeroParcela: item.numeroParcela,
+          dataAntecipacao: item.dataOcorrencia,
+          valorPago: item.valor,
+          contaBancariaId,
+          anteciparParcelasFuturas: false,
+        });
+        await invalidarDadosFinanceiros();
+      } catch {
+        aplicarImpactoSaldoGlobalLocal(item, true, item.isPaga);
+        setToastErro("Não foi possível marcar a parcela de carnê como paga.");
+        window.setTimeout(() => setToastErro(null), 3500);
+        throw new Error("Falha ao baixar carnê.");
+      }
+
+      return;
+    }
+
+    if (!item.id) {
+      return;
+    }
+
+    const dataOcorrenciaStatus = item.isFixa ? item.dataOcorrencia : undefined;
+    atualizarStatusPagamentoLocal(item.id, true, dataOcorrenciaStatus, contaBancariaId);
+    aplicarImpactoSaldoGlobalLocal(item, item.isPaga, true);
+    setToastErro(null);
+
+    try {
+      const response = await financeService.alternarStatusPagamento(
+        item.id,
+        dataOcorrenciaStatus,
+        { isPaga: true, contaBancariaId },
+      );
+      aplicarImpactoSaldoGlobalLocal(item, true, response.isPaga);
+      atualizarStatusPagamentoLocal(
+        item.id,
+        response.isPaga,
+        dataOcorrenciaStatus,
+        contaBancariaId,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["extrato"] }),
+        queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
+      ]);
+    } catch {
+      atualizarStatusPagamentoLocal(item.id, item.isPaga, dataOcorrenciaStatus);
+      aplicarImpactoSaldoGlobalLocal(item, true, item.isPaga);
+      setToastErro("Não foi possível atualizar o status de pagamento.");
+      window.setTimeout(() => setToastErro(null), 3500);
+      throw new Error("Falha ao baixar transação.");
     }
   }
 
@@ -1002,6 +1091,13 @@ export function DashboardPage() {
         onUpdateCompraParcelada={handleUpdateCompraParcelada}
         onCreateCompraParcelada={handleCreateCompraParcelada}
       />
+      <PaymentConfirmationModal
+        item={payingTransaction}
+        contas={contas}
+        isLoadingContas={contasQuery.isLoading}
+        onClose={() => setPayingTransaction(null)}
+        onConfirm={handleConfirmarPagamento}
+      />
       <AnticipateInstallmentModal
         item={anticipatingInstallment}
         onClose={() => setAnticipatingInstallment(null)}
@@ -1015,10 +1111,15 @@ export function DashboardPage() {
 function atualizarStatusItem(
   item: ExtratoMensalItem,
   isPaga: boolean,
+  contaBancariaId?: string | null,
 ) {
   return {
     ...item,
     isPaga,
+    contaBancariaId:
+      isPaga && contaBancariaId !== undefined
+        ? contaBancariaId
+        : item.contaBancariaId,
     statusVisual: calcularStatusVisualLocal(isPaga, item.dataOcorrencia),
   };
 }

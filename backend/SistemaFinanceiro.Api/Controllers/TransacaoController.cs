@@ -206,6 +206,7 @@ public sealed class TransacaoController : ControllerBase
     [HttpPatch("{id:guid}/alternar-status")]
     public async Task<IActionResult> AlternarStatusPagamento(
         Guid id,
+        [FromBody] AlterarStatusPagamentoRequest? request,
         CancellationToken cancellationToken,
         [FromQuery] DateOnly? dataOcorrencia = null)
     {
@@ -215,13 +216,21 @@ public sealed class TransacaoController : ControllerBase
             return Unauthorized(new { message = "Usuário não identificado no token." });
         }
 
-        var isPaga = await _transacaoService.AlternarStatusPagamentoAsync(
-            id,
-            usuarioId.Value,
-            dataOcorrencia,
-            cancellationToken);
+        try
+        {
+            var isPaga = await _transacaoService.AlternarStatusPagamentoAsync(
+                id,
+                usuarioId.Value,
+                dataOcorrencia,
+                request,
+                cancellationToken);
 
-        return isPaga.HasValue ? Ok(new { isPaga = isPaga.Value }) : NotFound();
+            return isPaga.HasValue ? Ok(new { isPaga = isPaga.Value }) : NotFound();
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
     }
 
     [HttpPatch("faturas/{cartaoCreditoId:guid}/alternar-status")]

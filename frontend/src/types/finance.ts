@@ -85,6 +85,7 @@ export type AnteciparParcelaRequest = {
   numeroParcela: number;
   dataAntecipacao: string;
   valorPago: number;
+  contaBancariaId?: string | null;
   anteciparParcelasFuturas?: boolean;
 };
 
@@ -113,6 +114,7 @@ export type ContaBancaria = {
   nomeCustomizado: string;
   codigoBanco: string;
   saldoInicial: number;
+  isFavorita: boolean;
   dataCriacao: string;
 };
 

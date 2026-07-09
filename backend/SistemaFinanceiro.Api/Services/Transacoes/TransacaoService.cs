@@ -1172,6 +1172,14 @@ public sealed class TransacaoService : ITransacaoService
             throw new InvalidOperationException("A parcela informada não existe para esta compra.");
         }
 
+        if (request.ContaBancariaId.HasValue)
+        {
+            await ValidarContaBancariaAsync(
+                request.ContaBancariaId.Value,
+                usuarioId,
+                cancellationToken);
+        }
+
         var ultimaParcela = request.AnteciparParcelasFuturas
             ? compra.QuantidadeParcelas
             : request.NumeroParcela;
@@ -1227,6 +1235,7 @@ public sealed class TransacaoService : ITransacaoService
                 CartaoCreditoId = compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito
                     ? compra.CartaoCreditoId
                     : null,
+                ContaBancariaId = request.ContaBancariaId,
                 IsFixa = false,
                 IsPaga = true,
                 IsDividida = compra.IsDividida,
@@ -1252,6 +1261,7 @@ public sealed class TransacaoService : ITransacaoService
         Guid id,
         Guid usuarioId,
         DateOnly? dataOcorrencia = null,
+        AlterarStatusPagamentoRequest? request = null,
         CancellationToken cancellationToken = default)
     {
         var transacao = await _dbContext.Transacoes
@@ -1262,6 +1272,14 @@ public sealed class TransacaoService : ITransacaoService
         if (transacao is null)
         {
             return null;
+        }
+
+        if (request?.ContaBancariaId.HasValue == true)
+        {
+            await ValidarContaBancariaAsync(
+                request.ContaBancariaId.Value,
+                usuarioId,
+                cancellationToken);
         }
 
         if (transacao.IsFixa && dataOcorrencia.HasValue)
@@ -1284,14 +1302,19 @@ public sealed class TransacaoService : ITransacaoService
                     UsuarioId = usuarioId,
                     TransacaoFixaId = transacao.Id,
                     DataOcorrencia = dataOcorrencia.Value,
-                    IsPaga = !isPagaAtual
+                    IsPaga = request?.IsPaga ?? !isPagaAtual
                 };
 
                 _dbContext.TransacoesFixasPagamentos.Add(pagamento);
             }
             else
             {
-                pagamento.IsPaga = !pagamento.IsPaga;
+                pagamento.IsPaga = request?.IsPaga ?? !pagamento.IsPaga;
+            }
+
+            if (pagamento.IsPaga && request?.ContaBancariaId.HasValue == true)
+            {
+                transacao.ContaBancariaId = request.ContaBancariaId.Value;
             }
 
             transacao.IsPaga = false;
@@ -1299,7 +1322,12 @@ public sealed class TransacaoService : ITransacaoService
             return pagamento.IsPaga;
         }
 
-        transacao.IsPaga = !transacao.IsPaga;
+        transacao.IsPaga = request?.IsPaga ?? !transacao.IsPaga;
+        if (transacao.IsPaga && request?.ContaBancariaId.HasValue == true)
+        {
+            transacao.ContaBancariaId = request.ContaBancariaId.Value;
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         return transacao.IsPaga;
@@ -1704,6 +1732,24 @@ public sealed class TransacaoService : ITransacaoService
             {
                 throw new InvalidOperationException("Compra parcelada não encontrada para este usuário.");
             }
+        }
+    }
+
+    private async Task ValidarContaBancariaAsync(
+        Guid contaBancariaId,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var contaExiste = await _dbContext.ContasBancarias
+            .AsNoTracking()
+            .AnyAsync(
+                conta => conta.Id == contaBancariaId &&
+                    conta.UsuarioId == usuarioId,
+                cancellationToken);
+
+        if (!contaExiste)
+        {
+            throw new InvalidOperationException("Conta bancária não encontrada para este usuário.");
         }
     }
 

@@ -28,6 +28,7 @@ public sealed class ContaBancariaService : IContaBancariaService
                 NomeCustomizado = conta.NomeCustomizado,
                 CodigoBanco = conta.CodigoBanco,
                 SaldoInicial = conta.SaldoInicial,
+                IsFavorita = conta.IsFavorita,
                 DataCriacao = conta.DataCriacao
             })
             .ToListAsync(cancellationToken);
@@ -47,6 +48,7 @@ public sealed class ContaBancariaService : IContaBancariaService
                 NomeCustomizado = conta.NomeCustomizado,
                 CodigoBanco = conta.CodigoBanco,
                 SaldoInicial = conta.SaldoInicial,
+                IsFavorita = conta.IsFavorita,
                 DataCriacao = conta.DataCriacao
             })
             .SingleOrDefaultAsync(cancellationToken);
@@ -91,6 +93,30 @@ public sealed class ContaBancariaService : IContaBancariaService
         conta.SaldoInicial = request.SaldoInicial;
         await _dbContext.SaveChangesAsync(cancellationToken);
         return Mapear(conta);
+    }
+
+    public async Task<ContaBancariaResponse?> FavoritarAsync(
+        Guid id,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        var contas = await _dbContext.ContasBancarias
+            .Where(conta => conta.UsuarioId == usuarioId)
+            .ToListAsync(cancellationToken);
+
+        var contaFavorita = contas.SingleOrDefault(conta => conta.Id == id);
+        if (contaFavorita is null)
+        {
+            return null;
+        }
+
+        foreach (var conta in contas)
+        {
+            conta.IsFavorita = conta.Id == id;
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Mapear(contaFavorita);
     }
 
     public async Task<bool> ExcluirAsync(
@@ -145,9 +171,9 @@ public sealed class ContaBancariaService : IContaBancariaService
                 (conta, movimentos) => new ContaDistribuicaoResponse
                 {
                     Id = conta.Id,
-                    CodigoBanco = conta.CodigoBanco,
-                    NomeCustomizado = conta.NomeCustomizado,
-                    SaldoAtual = conta.SaldoInicial +
+            CodigoBanco = conta.CodigoBanco,
+            NomeCustomizado = conta.NomeCustomizado,
+            SaldoAtual = conta.SaldoInicial +
                         (movimentos.Select(item => (decimal?)item.Movimento).Sum() ?? 0m)
                 })
             .OrderBy(conta => conta.NomeCustomizado)
@@ -162,6 +188,7 @@ public sealed class ContaBancariaService : IContaBancariaService
             NomeCustomizado = conta.NomeCustomizado,
             CodigoBanco = conta.CodigoBanco,
             SaldoInicial = conta.SaldoInicial,
+            IsFavorita = conta.IsFavorita,
             DataCriacao = conta.DataCriacao
         };
     }

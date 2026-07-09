@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Landmark, Pencil, Plus, Trash2 } from "lucide-react";
+import { Landmark, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
 import { BankBadge } from "../components/BankBadge";
 import { useConfirmDialog } from "../components/ConfirmDialog";
@@ -29,6 +29,7 @@ export function AccountsPage() {
   const distribuicaoQuery = useDistribuicaoContas();
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [favoritingId, setFavoritingId] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const saldos = new Map(
     (distribuicaoQuery.data ?? []).map((conta) => [conta.id, conta.saldoAtual]),
@@ -92,6 +93,20 @@ export function AccountsPage() {
       await invalidarContas();
     } catch {
       setErro("Não foi possível excluir a conta bancária.");
+    }
+  }
+
+  async function favoritar(conta: ContaBancaria) {
+    setErro(null);
+    setFavoritingId(conta.id);
+
+    try {
+      await financeService.favoritarContaBancaria(conta.id);
+      await invalidarContas();
+    } catch {
+      setErro("Não foi possível definir a conta favorita.");
+    } finally {
+      setFavoritingId(null);
     }
   }
 
@@ -235,6 +250,26 @@ export function AccountsPage() {
                       </div>
                     </div>
                     <div className="flex gap-1">
+                      <button
+                        className={`rounded-xl p-2 transition ${
+                          conta.isFavorita
+                            ? "text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                            : "text-slate-400 hover:bg-amber-50 hover:text-amber-500 dark:hover:bg-slate-800"
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                        type="button"
+                        title={
+                          conta.isFavorita
+                            ? "Conta favorita"
+                            : "Definir como favorita"
+                        }
+                        disabled={favoritingId === conta.id}
+                        onClick={() => favoritar(conta)}
+                      >
+                        <Star
+                          size={18}
+                          fill={conta.isFavorita ? "currentColor" : "none"}
+                        />
+                      </button>
                       <button
                         className="rounded-xl p-2 text-slate-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-slate-800"
                         type="button"

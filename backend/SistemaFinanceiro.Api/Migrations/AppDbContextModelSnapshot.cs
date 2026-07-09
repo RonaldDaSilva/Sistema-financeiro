@@ -275,6 +275,12 @@ namespace SistemaFinanceiro.Api.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("nome_customizado");
 
+                    b.Property<bool>("IsFavorita")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_favorita")
+                        .HasDefaultValue(false);
+
                     b.Property<decimal>("SaldoInicial")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)")

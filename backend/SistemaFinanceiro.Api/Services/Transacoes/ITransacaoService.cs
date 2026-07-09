@@ -12,6 +12,6 @@ public interface ITransacaoService
     Task<Guid?> AtualizarAsync(Guid id, CriarTransacaoRequest request, Guid usuarioId, bool replicarFuturas = true, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<TransacaoResponse>> AnteciparParcelaAsync(AnteciparParcelaRequest request, Guid usuarioId, CancellationToken cancellationToken = default);
     Task<bool> ExcluirAsync(Guid id, Guid usuarioId, DateOnly? dataOcorrencia = null, bool replicarFuturas = true, CancellationToken cancellationToken = default);
-    Task<bool?> AlternarStatusPagamentoAsync(Guid id, Guid usuarioId, DateOnly? dataOcorrencia = null, CancellationToken cancellationToken = default);
+    Task<bool?> AlternarStatusPagamentoAsync(Guid id, Guid usuarioId, DateOnly? dataOcorrencia = null, AlterarStatusPagamentoRequest? request = null, CancellationToken cancellationToken = default);
     Task<bool?> AlternarStatusFaturaAsync(Guid cartaoCreditoId, DateOnly dataVencimento, Guid usuarioId, CancellationToken cancellationToken = default);
 }

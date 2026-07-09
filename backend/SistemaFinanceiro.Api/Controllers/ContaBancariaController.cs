@@ -84,6 +84,21 @@ public sealed class ContaBancariaController : ControllerBase
         return conta is null ? NotFound() : Ok(conta);
     }
 
+    [HttpPatch("{id:guid}/favoritar")]
+    public async Task<ActionResult<ContaBancariaResponse>> Favoritar(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        var conta = await _service.FavoritarAsync(id, usuarioId.Value, cancellationToken);
+        return conta is null ? NotFound() : Ok(conta);
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Excluir(Guid id, CancellationToken cancellationToken)
     {

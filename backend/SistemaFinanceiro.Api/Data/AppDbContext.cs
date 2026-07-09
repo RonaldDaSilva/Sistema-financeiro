@@ -338,6 +338,11 @@ public sealed class AppDbContext : DbContext
                 .HasPrecision(18, 2)
                 .IsRequired();
 
+            entity.Property(conta => conta.IsFavorita)
+                .HasColumnName("is_favorita")
+                .HasDefaultValue(false)
+                .IsRequired();
+
             entity.Property(conta => conta.DataCriacao)
                 .HasColumnName("data_criacao")
                 .HasDefaultValueSql("now()")
