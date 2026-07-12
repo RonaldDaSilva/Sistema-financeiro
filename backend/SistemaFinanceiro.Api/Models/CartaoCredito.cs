@@ -11,8 +11,10 @@ public sealed class CartaoCredito : IHasGuidId, IMustHaveTenant
     public int DiaVencimento { get; set; }
     public int MelhorDiaCompra { get; set; }
     public decimal LimiteTotal { get; set; }
+    public Guid? ContaBancariaId { get; set; }
 
     public Usuario Usuario { get; set; } = null!;
+    public ContaBancaria? ContaBancaria { get; set; }
     public ICollection<CompraParcelada> ComprasParceladas { get; set; } = new List<CompraParcelada>();
     public ICollection<Transacao> Transacoes { get; set; } = new List<Transacao>();
     public ICollection<FaturaCartaoPagamento> FaturasPagamentos { get; set; } = new List<FaturaCartaoPagamento>();

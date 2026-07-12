@@ -216,11 +216,20 @@ public sealed class AppDbContext : DbContext
                 .HasPrecision(18, 2)
                 .IsRequired();
 
+            entity.Property(cartao => cartao.ContaBancariaId)
+                .HasColumnName("id_conta_bancaria");
+
             entity.HasOne(cartao => cartao.Usuario)
                 .WithMany(usuario => usuario.CartoesCredito)
                 .HasForeignKey(cartao => cartao.UsuarioId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            entity.HasOne(cartao => cartao.ContaBancaria)
+                .WithMany()
+                .HasForeignKey(cartao => cartao.ContaBancariaId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(cartao => cartao.ContaBancariaId);
             entity.HasIndex(cartao => new { cartao.UsuarioId, cartao.ApelidoCartao });
         });
     }

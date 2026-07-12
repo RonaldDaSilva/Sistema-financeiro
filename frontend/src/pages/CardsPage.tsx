@@ -1,11 +1,11 @@
 import { FormEvent, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Pencil, Plus, Trash2 } from "lucide-react";
+import { CreditCard, Pencil, Plus, Trash2, X } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
-import { useCartoes } from "../hooks/queries/useFinanceQueries";
+import { useCartoes, useContas } from "../hooks/queries/useFinanceQueries";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import * as financeService from "../services/financeService";
-import type { CartaoCredito } from "../types/finance";
+import type { CartaoCredito, ContaBancaria } from "../types/finance";
 import {
   formatCurrency,
   formatCurrencyInput,
@@ -15,26 +15,29 @@ import {
 
 type CardForm = {
   apelidoCartao: string;
-  banco: string;
   diaVencimento: number;
   melhorDiaCompra: number;
   limiteTotal: number;
+  contaBancariaId: string | null;
 };
 
 const emptyForm: CardForm = {
   apelidoCartao: "",
-  banco: "",
   diaVencimento: 10,
   melhorDiaCompra: 4,
   limiteTotal: 0,
+  contaBancariaId: null,
 };
 
 export function CardsPage() {
   const queryClient = useQueryClient();
   const cartoesQuery = useCartoes();
+  const contasQuery = useContas();
   const cartoes = cartoesQuery.data ?? [];
+  const contas = contasQuery.data ?? [];
   const [form, setForm] = useState<CardForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const isLoading = cartoesQuery.isLoading;
 
@@ -43,29 +46,78 @@ export function CardsPage() {
     setErro(null);
 
     try {
-      if (editingId) {
-        await financeService.atualizarCartaoCredito(editingId, form);
-      } else {
-        await financeService.criarCartaoCredito(form);
-      }
+      const contaSelecionada = contas.find(
+        (conta) => conta.id === form.contaBancariaId,
+      );
+      const request = {
+        ...form,
+        banco:
+          contaSelecionada?.nomeCustomizado?.trim() ||
+          form.apelidoCartao.trim() ||
+          "Cartão",
+      };
 
-      setForm(emptyForm);
-      setEditingId(null);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.cartoes });
+      const cartaoSalvo = editingId
+        ? await financeService.atualizarCartaoCredito(editingId, request)
+        : await financeService.criarCartaoCredito(request);
+      const cartaoAtualizado = {
+        ...cartaoSalvo,
+        contaBancariaId: cartaoSalvo.contaBancariaId ?? request.contaBancariaId ?? null,
+      };
+
+      queryClient.setQueryData<CartaoCredito[]>(queryKeys.cartoes, (current) => {
+        const cartoesAtuais = current ?? [];
+        const existeNoCache = cartoesAtuais.some(
+          (cartao) => cartao.id === cartaoAtualizado.id,
+        );
+        const proximosCartoes = existeNoCache
+          ? cartoesAtuais.map((cartao) =>
+              cartao.id === cartaoAtualizado.id ? cartaoAtualizado : cartao,
+            )
+          : [...cartoesAtuais, cartaoAtualizado];
+
+        return proximosCartoes.sort((a, b) =>
+          a.apelidoCartao.localeCompare(b.apelidoCartao, "pt-BR", {
+            sensitivity: "base",
+          }),
+        );
+      });
+
+      fecharModal();
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.cartoes,
+        refetchType: "active",
+      });
     } catch {
       setErro("Não foi possível salvar o cartão.");
     }
+  }
+
+  function abrirNovoCartao() {
+    setEditingId(null);
+    setForm(emptyForm);
+    setErro(null);
+    setIsModalOpen(true);
   }
 
   function editar(cartao: CartaoCredito) {
     setEditingId(cartao.id);
     setForm({
       apelidoCartao: cartao.apelidoCartao,
-      banco: cartao.banco,
       diaVencimento: cartao.diaVencimento,
       melhorDiaCompra: cartao.melhorDiaCompra,
       limiteTotal: cartao.limiteTotal,
+      contaBancariaId: cartao.contaBancariaId ?? null,
     });
+    setErro(null);
+    setIsModalOpen(true);
+  }
+
+  function fecharModal() {
+    setIsModalOpen(false);
+    setEditingId(null);
+    setForm(emptyForm);
+    setErro(null);
   }
 
   async function excluir(id: string) {
@@ -74,193 +126,313 @@ export function CardsPage() {
       await queryClient.invalidateQueries({ queryKey: queryKeys.cartoes });
     } catch {
       setErro("Não foi possível excluir o cartão.");
+      setIsModalOpen(false);
     }
   }
 
   return (
     <AppLayout>
-      <section className="mx-auto grid max-w-[1400px] gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[360px_1fr] lg:px-8">
-        <form
-          className="rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:sticky lg:top-24 lg:self-start"
-          onSubmit={handleSubmit}
-        >
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
-              {editingId ? <Pencil size={20} /> : <Plus size={20} />}
-            </div>
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
-              {editingId ? "Editar cartão" : "Novo cartão"}
-            </h2>
-          </div>
-          <div className="mt-5 space-y-4">
-            <TextField
-              label="Apelido"
-              value={form.apelidoCartao}
-              onChange={(value) => setForm({ ...form, apelidoCartao: value })}
-            />
-            <TextField
-              label="Banco"
-              value={form.banco}
-              onChange={(value) => setForm({ ...form, banco: value })}
-            />
-            <NumberField
-              label="Dia vencimento"
-              value={form.diaVencimento}
-              min={1}
-              max={31}
-              onChange={(value) => setForm({ ...form, diaVencimento: value })}
-            />
-            <NumberField
-              label="Melhor dia compra"
-              value={form.melhorDiaCompra}
-              min={1}
-              max={31}
-              onChange={(value) => setForm({ ...form, melhorDiaCompra: value })}
-            />
-            <NumberField
-              label="Limite total"
-              value={form.limiteTotal}
-              onChange={(value) => setForm({ ...form, limiteTotal: value })}
-              currency
-            />
-          </div>
-          <div className="mt-5 flex gap-3">
-            <button
-              className="rounded-lg bg-[var(--app-accent)] px-4 py-2 font-medium text-[var(--app-accent-contrast)] shadow-sm transition-colors hover:opacity-90 dark:bg-white dark:text-slate-950"
-              type="submit"
-            >
-              Salvar
-            </button>
-            {editingId && (
-              <button
-                className="rounded-xl border border-slate-300 px-4 py-2 font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
-                type="button"
-                onClick={() => {
-                  setEditingId(null);
-                  setForm(emptyForm);
-                }}
-              >
-                Cancelar
-              </button>
-            )}
-          </div>
-          {erro && <p className="mt-4 text-sm text-red-600">{erro}</p>}
-        </form>
-
-        <div className="space-y-4">
+      <section className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Cartões</p>
             <h2 className="text-3xl font-bold text-slate-900 dark:text-white">
-              Limites e cadastro
+              Limites e faturas
             </h2>
           </div>
-          {isLoading ? (
-            <div className="rounded-2xl bg-[var(--app-card)] p-6 text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
-              Carregando cartões...
-            </div>
-          ) : cartoesQuery.isError ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
-              Não foi possível carregar os cartões.
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {cartoes.map((cartao) => {
-                const disponivel = cartao.limiteDisponivel;
-                const utilizado = cartao.valorUtilizado ?? Math.max(0, cartao.limiteTotal - disponivel);
-                const percentualUtilizado = cartao.limiteTotal > 0
+          <button
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[var(--app-accent)] px-6 py-4 text-base font-bold text-[var(--app-accent-contrast)] shadow-sm transition hover:opacity-90 dark:bg-emerald-500 dark:text-slate-950"
+            type="button"
+            onClick={abrirNovoCartao}
+          >
+            <Plus size={22} />
+            Adicionar Cartão
+          </button>
+        </div>
+
+        {erro && !isModalOpen && (
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
+            {erro}
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="rounded-2xl bg-[var(--app-card)] p-6 text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
+            Carregando cartões...
+          </div>
+        ) : cartoesQuery.isError ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
+            Não foi possível carregar os cartões.
+          </div>
+        ) : cartoes.length === 0 ? (
+          <div className="rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-10 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <CreditCard className="mx-auto text-[var(--app-accent)]" size={42} />
+            <h3 className="mt-4 text-xl font-bold text-slate-900 dark:text-white">
+              Nenhum cartão cadastrado
+            </h3>
+            <p className="mx-auto mt-2 max-w-md text-sm text-slate-500 dark:text-slate-400">
+              Cadastre seus cartões para acompanhar limite utilizado, melhor dia de compra e faturas.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {cartoes.map((cartao) => {
+              const disponivel = cartao.limiteDisponivel;
+              const utilizado =
+                cartao.valorUtilizado ?? Math.max(0, cartao.limiteTotal - disponivel);
+              const percentualUtilizado =
+                cartao.limiteTotal > 0
                   ? Math.min(100, Math.max(0, (utilizado / cartao.limiteTotal) * 100))
                   : 0;
+              const contaDebito = contas.find(
+                (conta) => conta.id === cartao.contaBancariaId,
+              );
 
-                return (
-                  <article
-                    className="relative overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900"
-                    key={cartao.id}
-                  >
-                    <div className="absolute left-0 top-0 h-full w-1.5 bg-[var(--app-accent)]" />
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="rounded-xl bg-blue-50 p-2 text-blue-600">
-                          <CreditCard size={20} />
-                        </div>
-                        <div>
-                          <h3 className="font-semibold text-slate-900 dark:text-white">
-                            {cartao.apelidoCartao}
-                          </h3>
-                          <p className="text-sm text-slate-500 dark:text-slate-400">{cartao.banco}</p>
-                        </div>
+              return (
+                <article
+                  className="relative overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900"
+                  key={cartao.id}
+                >
+                  <div className="absolute left-0 top-0 h-full w-1.5 bg-[var(--app-accent)]" />
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
+                        <CreditCard size={20} />
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-slate-800"
-                          type="button"
-                          onClick={() => editar(cartao)}
-                          title="Editar cartão"
-                        >
-                          <Pencil size={18} />
-                        </button>
-                        <button
-                          className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-700"
-                          type="button"
-                          onClick={() => excluir(cartao.id)}
-                          title="Excluir cartão"
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                      <div>
+                        <h3 className="font-semibold text-slate-900 dark:text-white">
+                          {cartao.apelidoCartao}
+                        </h3>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                          Vencimento dia {cartao.diaVencimento}
+                        </p>
                       </div>
                     </div>
-                    <div className="mt-5">
-                      <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                        <span className="font-medium text-slate-500 dark:text-slate-400">
-                          Utilizado
-                        </span>
-                        <span className="font-bold text-slate-900 dark:text-white">
-                          {formatCurrency(utilizado)}
-                        </span>
-                      </div>
-                      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                        <div
-                          className="h-full rounded-full bg-[var(--app-accent)] transition-all"
-                          style={{ width: `${percentualUtilizado}%` }}
-                        />
-                      </div>
+                    <div className="flex gap-2">
+                      <button
+                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:hover:bg-slate-800"
+                        type="button"
+                        onClick={() => editar(cartao)}
+                        title="Editar cartão"
+                      >
+                        <Pencil size={18} />
+                      </button>
+                      <button
+                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-700"
+                        type="button"
+                        onClick={() => excluir(cartao.id)}
+                        title="Excluir cartão"
+                      >
+                        <Trash2 size={18} />
+                      </button>
                     </div>
+                  </div>
 
-                    <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <dt className="text-slate-500 dark:text-slate-400">Limite total</dt>
-                        <dd className="font-semibold text-slate-900 dark:text-white">
-                          {formatCurrency(cartao.limiteTotal)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-slate-500 dark:text-slate-400">Disponível</dt>
-                        <dd
-                          className={`font-semibold ${disponivel >= 0 ? "text-emerald-700" : "text-red-700"}`}
-                        >
-                          {formatCurrency(disponivel)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-slate-500 dark:text-slate-400">Vencimento</dt>
-                        <dd className="font-semibold text-slate-900 dark:text-white">
-                          Dia {cartao.diaVencimento}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-slate-500 dark:text-slate-400">Melhor compra</dt>
-                        <dd className="font-semibold text-slate-900 dark:text-white">
-                          Dia {cartao.melhorDiaCompra}
-                        </dd>
-                      </div>
-                    </dl>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  <div className="mt-5">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                      <span className="font-medium text-slate-500 dark:text-slate-400">
+                        Utilizado
+                      </span>
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {formatCurrency(utilizado)}
+                      </span>
+                    </div>
+                    <div className="h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div
+                        className="h-full rounded-full bg-[var(--app-accent)] transition-all"
+                        style={{ width: `${percentualUtilizado}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">Limite total</dt>
+                      <dd className="font-semibold text-slate-900 dark:text-white">
+                        {formatCurrency(cartao.limiteTotal)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">Disponível</dt>
+                      <dd
+                        className={`font-semibold ${
+                          disponivel >= 0 ? "text-emerald-700" : "text-red-700"
+                        }`}
+                      >
+                        {formatCurrency(disponivel)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">Vencimento</dt>
+                      <dd className="font-semibold text-slate-900 dark:text-white">
+                        Dia {cartao.diaVencimento}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">Melhor compra</dt>
+                      <dd className="font-semibold text-slate-900 dark:text-white">
+                        Dia {cartao.melhorDiaCompra}
+                      </dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-slate-500 dark:text-slate-400">
+                        Conta para débito automático
+                      </dt>
+                      <dd className="font-semibold text-slate-900 dark:text-white">
+                        {contaDebito?.nomeCustomizado ?? "Não vinculada"}
+                      </dd>
+                    </div>
+                  </dl>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
+
+      <CartaoModal
+        isOpen={isModalOpen}
+        isEditing={Boolean(editingId)}
+        form={form}
+        contas={contas}
+        isLoadingContas={contasQuery.isLoading}
+        erro={erro}
+        onClose={fecharModal}
+        onChange={setForm}
+        onSubmit={handleSubmit}
+      />
     </AppLayout>
+  );
+}
+
+function CartaoModal({
+  isOpen,
+  isEditing,
+  form,
+  contas,
+  isLoadingContas,
+  erro,
+  onClose,
+  onChange,
+  onSubmit,
+}: {
+  isOpen: boolean;
+  isEditing: boolean;
+  form: CardForm;
+  contas: ContaBancaria[];
+  isLoadingContas: boolean;
+  erro: string | null;
+  onClose: () => void;
+  onChange: (form: CardForm) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <form
+        className="relative max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950"
+        onSubmit={onSubmit}
+      >
+        <button
+          className="absolute right-4 top-4 rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
+          type="button"
+          onClick={onClose}
+          aria-label="Fechar"
+        >
+          <X size={20} />
+        </button>
+
+        <div className="flex items-center gap-3 pr-10">
+          <div className="rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
+            {isEditing ? <Pencil size={20} /> : <Plus size={20} />}
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+              {isEditing ? "Editar cartão" : "Adicionar cartão"}
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Defina limite, vencimento e a conta de débito da fatura.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <TextField
+              label="Apelido"
+              value={form.apelidoCartao}
+              onChange={(value) => onChange({ ...form, apelidoCartao: value })}
+            />
+          </div>
+          <NumberField
+            label="Dia vencimento"
+            value={form.diaVencimento}
+            min={1}
+            max={31}
+            onChange={(value) => onChange({ ...form, diaVencimento: value })}
+          />
+          <NumberField
+            label="Melhor dia compra"
+            value={form.melhorDiaCompra}
+            min={1}
+            max={31}
+            onChange={(value) => onChange({ ...form, melhorDiaCompra: value })}
+          />
+          <div className="sm:col-span-2">
+            <NumberField
+              label="Limite total"
+              value={form.limiteTotal}
+              onChange={(value) => onChange({ ...form, limiteTotal: value })}
+              currency
+            />
+          </div>
+          <label className="block sm:col-span-2">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              Conta para Débito Automático
+            </span>
+            <select
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              value={form.contaBancariaId ?? ""}
+              onChange={(event) =>
+                onChange({
+                  ...form,
+                  contaBancariaId: event.target.value || null,
+                })
+              }
+              disabled={isLoadingContas}
+            >
+              <option value="">Não vincular conta</option>
+              {contas.map((conta) => (
+                <option key={conta.id} value={conta.id}>
+                  {conta.nomeCustomizado}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {erro && <p className="mt-4 text-sm font-medium text-red-600">{erro}</p>}
+
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            className="rounded-xl border border-slate-300 px-5 py-3 font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"
+            type="button"
+            onClick={onClose}
+          >
+            Cancelar
+          </button>
+          <button
+            className="rounded-xl bg-[var(--app-accent)] px-5 py-3 font-bold text-[var(--app-accent-contrast)] shadow-sm transition hover:opacity-90 dark:bg-white dark:text-slate-950"
+            type="submit"
+          >
+            Salvar cartão
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 

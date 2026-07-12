@@ -55,8 +55,15 @@ public sealed class CartaoCreditoController : ControllerBase
             return Unauthorized(new { message = "Usuário não identificado no token." });
         }
 
-        var cartao = await _cartaoCreditoService.CriarAsync(request, usuarioId.Value, cancellationToken);
-        return CreatedAtAction(nameof(ObterPorId), new { id = cartao.Id }, cartao);
+        try
+        {
+            var cartao = await _cartaoCreditoService.CriarAsync(request, usuarioId.Value, cancellationToken);
+            return CreatedAtAction(nameof(ObterPorId), new { id = cartao.Id }, cartao);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
     }
 
     [HttpPut("{id:guid}")]
@@ -71,8 +78,15 @@ public sealed class CartaoCreditoController : ControllerBase
             return Unauthorized(new { message = "Usuário não identificado no token." });
         }
 
-        var cartao = await _cartaoCreditoService.AtualizarAsync(id, request, usuarioId.Value, cancellationToken);
-        return cartao is null ? NotFound() : Ok(cartao);
+        try
+        {
+            var cartao = await _cartaoCreditoService.AtualizarAsync(id, request, usuarioId.Value, cancellationToken);
+            return cartao is null ? NotFound() : Ok(cartao);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
     }
 
     [HttpDelete("{id:guid}")]

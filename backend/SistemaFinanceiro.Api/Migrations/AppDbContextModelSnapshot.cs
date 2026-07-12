@@ -40,6 +40,10 @@ namespace SistemaFinanceiro.Api.Migrations
                         .HasColumnType("character varying(120)")
                         .HasColumnName("banco");
 
+                    b.Property<Guid?>("ContaBancariaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id_conta_bancaria");
+
                     b.Property<int>("DiaVencimento")
                         .HasColumnType("integer")
                         .HasColumnName("dia_vencimento");
@@ -58,6 +62,8 @@ namespace SistemaFinanceiro.Api.Migrations
                         .HasColumnName("id_usuario");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ContaBancariaId");
 
                     b.HasIndex("UsuarioId", "ApelidoCartao");
 
@@ -650,11 +656,18 @@ namespace SistemaFinanceiro.Api.Migrations
 
             modelBuilder.Entity("SistemaFinanceiro.Api.Models.CartaoCredito", b =>
                 {
+                    b.HasOne("SistemaFinanceiro.Api.Models.ContaBancaria", "ContaBancaria")
+                        .WithMany()
+                        .HasForeignKey("ContaBancariaId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("SistemaFinanceiro.Api.Models.Usuario", "Usuario")
                         .WithMany("CartoesCredito")
                         .HasForeignKey("UsuarioId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("ContaBancaria");
 
                     b.Navigation("Usuario");
                 });

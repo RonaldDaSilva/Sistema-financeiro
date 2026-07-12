@@ -8,6 +8,8 @@ namespace SistemaFinanceiro.Api.Services.Transacoes;
 
 public sealed class TransacaoService : ITransacaoService
 {
+    private const string FormaPagamentoFaturaCartao = "Pagamento de fatura";
+
     private readonly AppDbContext _dbContext;
 
     public TransacaoService(AppDbContext dbContext)
@@ -493,6 +495,7 @@ public sealed class TransacaoService : ITransacaoService
                 transacao.CartaoCreditoId.HasValue &&
                 transacao.Tipo == TipoTransacao.Despesa &&
                 !transacao.CompraParceladaId.HasValue &&
+                transacao.FormaPagamento != FormaPagamentoFaturaCartao &&
                 transacao.DataOcorrencia >= menorInicioCompetencia &&
                 transacao.DataOcorrencia <= maiorFimCompetencia)
             .ToListAsync(cancellationToken);
@@ -504,6 +507,7 @@ public sealed class TransacaoService : ITransacaoService
                 transacao.CartaoCreditoId.HasValue &&
                 transacao.Tipo == TipoTransacao.Despesa &&
                 transacao.IsFixa &&
+                transacao.FormaPagamento != FormaPagamentoFaturaCartao &&
                 transacao.DataOcorrencia <= maiorFimCompetencia)
             .ToListAsync(cancellationToken);
 
@@ -843,6 +847,7 @@ public sealed class TransacaoService : ITransacaoService
                 transacao.CartaoCreditoId.HasValue &&
                 transacao.Tipo == TipoTransacao.Despesa &&
                 !transacao.CompraParceladaId.HasValue &&
+                transacao.FormaPagamento != FormaPagamentoFaturaCartao &&
                 transacao.DataOcorrencia <= maiorFimCompetencia)
             .ToListAsync(cancellationToken);
 
@@ -1337,17 +1342,29 @@ public sealed class TransacaoService : ITransacaoService
         Guid cartaoCreditoId,
         DateOnly dataVencimento,
         Guid usuarioId,
+        PagarFaturaRequest? request = null,
         CancellationToken cancellationToken = default)
     {
-        var cartaoExiste = await _dbContext.CartoesCredito
-            .AnyAsync(
+        var cartao = await _dbContext.CartoesCredito
+            .SingleOrDefaultAsync(
                 cartao => cartao.Id == cartaoCreditoId && cartao.UsuarioId == usuarioId,
                 cancellationToken);
 
-        if (!cartaoExiste)
+        if (cartao is null)
         {
             return null;
         }
+
+        var fatura = (await GetFaturasDoMesAsync(
+                dataVencimento.Month,
+                dataVencimento.Year,
+                usuarioId,
+                cancellationToken))
+            .SingleOrDefault(item =>
+                item.CartaoCreditoId == cartaoCreditoId &&
+                item.DataVencimento == dataVencimento);
+
+        var valorFatura = fatura?.ValorTotal ?? 0m;
 
         var pagamento = await _dbContext.FaturasCartaoPagamentos
             .SingleOrDefaultAsync(
@@ -1357,6 +1374,9 @@ public sealed class TransacaoService : ITransacaoService
                     item.DataVencimento == dataVencimento,
                 cancellationToken);
 
+        var statusAtual = pagamento?.IsPaga ?? fatura?.IsPaga ?? false;
+        var marcarComoPaga = !statusAtual;
+
         if (pagamento is null)
         {
             pagamento = new FaturaCartaoPagamento
@@ -1364,18 +1384,135 @@ public sealed class TransacaoService : ITransacaoService
                 UsuarioId = usuarioId,
                 CartaoCreditoId = cartaoCreditoId,
                 DataVencimento = dataVencimento,
-                IsPaga = true
+                IsPaga = marcarComoPaga
             };
 
             _dbContext.FaturasCartaoPagamentos.Add(pagamento);
         }
         else
         {
-            pagamento.IsPaga = !pagamento.IsPaga;
+            pagamento.IsPaga = marcarComoPaga;
+        }
+
+        var lancamentoPagamento = await ObterLancamentoPagamentoFaturaAsync(
+            cartaoCreditoId,
+            dataVencimento,
+            usuarioId,
+            cancellationToken);
+
+        if (!marcarComoPaga)
+        {
+            if (lancamentoPagamento is not null)
+            {
+                lancamentoPagamento.IsPaga = false;
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return false;
+        }
+
+        if (cartao.ContaBancariaId.HasValue)
+        {
+            var saldoConta = await CalcularSaldoAtualContaBancariaAsync(
+                cartao.ContaBancariaId.Value,
+                usuarioId,
+                cancellationToken);
+
+            if (saldoConta - valorFatura < 0 && request?.ConfirmarSemSaldo != true)
+            {
+                throw new SaldoInsuficienteFaturaException();
+            }
+
+            if (lancamentoPagamento is null)
+            {
+                var ultimoCodigo = await ObterUltimoCodigoExibicaoAsync(usuarioId, cancellationToken);
+
+                lancamentoPagamento = new Transacao
+                {
+                    CodigoExibicao = ultimoCodigo + 1,
+                    UsuarioId = usuarioId,
+                    Tipo = TipoTransacao.Despesa,
+                    Descricao = $"Pagamento fatura {cartao.ApelidoCartao}",
+                    Valor = valorFatura,
+                    DataOcorrencia = dataVencimento,
+                    CategoriaId = null,
+                    FormaPagamento = FormaPagamentoFaturaCartao,
+                    CartaoCreditoId = cartao.Id,
+                    ContaBancariaId = cartao.ContaBancariaId,
+                    IsFixa = false,
+                    IsPaga = true,
+                    IsDividida = false
+                };
+
+                _dbContext.Transacoes.Add(lancamentoPagamento);
+            }
+            else
+            {
+                lancamentoPagamento.Descricao = $"Pagamento fatura {cartao.ApelidoCartao}";
+                lancamentoPagamento.Valor = valorFatura;
+                lancamentoPagamento.DataOcorrencia = dataVencimento;
+                lancamentoPagamento.ContaBancariaId = cartao.ContaBancariaId;
+                lancamentoPagamento.IsPaga = true;
+            }
+        }
+        else if (lancamentoPagamento is not null)
+        {
+            lancamentoPagamento.IsPaga = false;
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         return pagamento.IsPaga;
+    }
+
+    private async Task<Transacao?> ObterLancamentoPagamentoFaturaAsync(
+        Guid cartaoCreditoId,
+        DateOnly dataVencimento,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        return await _dbContext.Transacoes
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.CartaoCreditoId == cartaoCreditoId &&
+                transacao.DataOcorrencia == dataVencimento &&
+                transacao.FormaPagamento == FormaPagamentoFaturaCartao)
+            .OrderBy(transacao => transacao.CodigoExibicao)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<decimal> CalcularSaldoAtualContaBancariaAsync(
+        Guid contaBancariaId,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var saldoInicial = await _dbContext.ContasBancarias
+            .AsNoTracking()
+            .Where(conta =>
+                conta.Id == contaBancariaId &&
+                conta.UsuarioId == usuarioId)
+            .Select(conta => (decimal?)conta.SaldoInicial)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (!saldoInicial.HasValue)
+        {
+            throw new InvalidOperationException("Conta bancária vinculada ao cartão não encontrada.");
+        }
+
+        var movimentacaoPaga = await _dbContext.Transacoes
+            .AsNoTracking()
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.ContaBancariaId == contaBancariaId &&
+                transacao.IsPaga)
+            .Select(transacao =>
+                transacao.Tipo == TipoTransacao.Receita
+                    ? transacao.Valor
+                    : transacao.Tipo == TipoTransacao.Despesa
+                        ? -transacao.Valor
+                        : 0m)
+            .SumAsync(cancellationToken);
+
+        return saldoInicial.Value + movimentacaoPaga;
     }
 
     public async Task<bool> ExcluirAsync(

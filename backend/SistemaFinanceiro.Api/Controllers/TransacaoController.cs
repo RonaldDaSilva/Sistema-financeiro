@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using SistemaFinanceiro.Api.Dtos.Transacoes;
 using SistemaFinanceiro.Api.Services.Transacoes;
 
@@ -237,6 +238,7 @@ public sealed class TransacaoController : ControllerBase
     public async Task<IActionResult> AlternarStatusFatura(
         Guid cartaoCreditoId,
         [FromQuery] DateOnly dataVencimento,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] PagarFaturaRequest? request,
         CancellationToken cancellationToken)
     {
         var usuarioId = ObterUsuarioId();
@@ -245,13 +247,25 @@ public sealed class TransacaoController : ControllerBase
             return Unauthorized(new { message = "Usuário não identificado no token." });
         }
 
-        var isPaga = await _transacaoService.AlternarStatusFaturaAsync(
-            cartaoCreditoId,
-            dataVencimento,
-            usuarioId.Value,
-            cancellationToken);
+        try
+        {
+            var isPaga = await _transacaoService.AlternarStatusFaturaAsync(
+                cartaoCreditoId,
+                dataVencimento,
+                usuarioId.Value,
+                request,
+                cancellationToken);
 
-        return isPaga.HasValue ? Ok(new { isPaga = isPaga.Value }) : NotFound();
+            return isPaga.HasValue ? Ok(new { isPaga = isPaga.Value }) : NotFound();
+        }
+        catch (SaldoInsuficienteFaturaException exception)
+        {
+            return BadRequest(new
+            {
+                erro = exception.Erro,
+                mensagem = exception.Message
+            });
+        }
     }
 
     private Guid? ObterUsuarioId()

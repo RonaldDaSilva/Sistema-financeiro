@@ -105,6 +105,7 @@ export type CartaoCredito = {
   diaVencimento: number;
   melhorDiaCompra: number;
   limiteTotal: number;
+  contaBancariaId: string | null;
   valorUtilizado: number;
   limiteDisponivel: number;
 };

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import { useSearchParams } from "react-router-dom";
 import {
   Activity,
+  AlertTriangle,
   FileSpreadsheet,
   FileText,
   Eye,
@@ -12,6 +14,7 @@ import {
   TrendingUp,
   UsersRound,
   Wallet,
+  X,
 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
@@ -74,6 +77,8 @@ export function DashboardPage() {
   const [editingTransaction, setEditingTransaction] =
     useState<ExtratoMensalItem | null>(null);
   const [payingTransaction, setPayingTransaction] =
+    useState<ExtratoMensalItem | null>(null);
+  const [faturaChequeEspecial, setFaturaChequeEspecial] =
     useState<ExtratoMensalItem | null>(null);
   const [anticipatingInstallment, setAnticipatingInstallment] =
     useState<ExtratoMensalItem | null>(null);
@@ -218,6 +223,85 @@ export function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
     ]);
   }
+
+  const pagarFaturaMutation = useMutation({
+    mutationFn: ({
+      item,
+      confirmarSemSaldo,
+    }: {
+      item: ExtratoMensalItem;
+      confirmarSemSaldo: boolean;
+    }) => {
+      if (!item.cartaoCreditoId) {
+        throw new Error("Fatura sem cartão vinculado.");
+      }
+
+      return financeService.alternarStatusFatura(
+        item.cartaoCreditoId,
+        item.dataOcorrencia,
+        { confirmarSemSaldo },
+      );
+    },
+    onMutate: async ({ item }) => {
+      if (!item.cartaoCreditoId) {
+        return { item, previousStatus: item.isPaga, nextStatus: item.isPaga };
+      }
+
+      const nextStatus = !item.isPaga;
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: ["faturas"] }),
+        queryClient.cancelQueries({ queryKey: ["extrato"] }),
+        queryClient.cancelQueries({ queryKey: ["extrato-paginado"] }),
+      ]);
+
+      atualizarStatusFaturaLocal(
+        item.cartaoCreditoId,
+        item.dataOcorrencia,
+        nextStatus,
+      );
+      aplicarImpactoSaldoGlobalLocal(item, item.isPaga, nextStatus);
+      setToastErro(null);
+
+      return { item, previousStatus: item.isPaga, nextStatus };
+    },
+    onError: (error, { item }, context) => {
+      if (item.cartaoCreditoId && context) {
+        atualizarStatusFaturaLocal(
+          item.cartaoCreditoId,
+          item.dataOcorrencia,
+          context.previousStatus,
+        );
+        aplicarImpactoSaldoGlobalLocal(item, context.nextStatus, context.previousStatus);
+      }
+
+      if (isSaldoInsuficienteError(error)) {
+        setFaturaChequeEspecial(item);
+        return;
+      }
+
+      setToastErro("Não foi possível atualizar o status da fatura.");
+      window.setTimeout(() => setToastErro(null), 3500);
+    },
+    onSuccess: async (response, { item }) => {
+      if (item.cartaoCreditoId) {
+        atualizarStatusFaturaLocal(
+          item.cartaoCreditoId,
+          item.dataOcorrencia,
+          response.isPaga,
+        );
+      }
+
+      setFaturaChequeEspecial(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["faturas"] }),
+        queryClient.invalidateQueries({ queryKey: ["extrato"] }),
+        queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
+      ]);
+    },
+  });
 
   function handlePeriodoChange(nextPeriodo: PeriodoFiltro) {
     setPeriodo(nextPeriodo);
@@ -681,36 +765,7 @@ export function DashboardPage() {
     }
 
     if (item.origem === "FaturaCartao" && item.cartaoCreditoId) {
-      const nextStatus = !item.isPaga;
-      atualizarStatusFaturaLocal(
-        item.cartaoCreditoId,
-        item.dataOcorrencia,
-        nextStatus,
-      );
-      aplicarImpactoSaldoGlobalLocal(item, item.isPaga, nextStatus);
-      setToastErro(null);
-
-      try {
-        const response = await financeService.alternarStatusFatura(
-          item.cartaoCreditoId,
-          item.dataOcorrencia,
-        );
-        atualizarStatusFaturaLocal(
-          item.cartaoCreditoId,
-          item.dataOcorrencia,
-          response.isPaga,
-        );
-      } catch {
-        atualizarStatusFaturaLocal(
-          item.cartaoCreditoId,
-          item.dataOcorrencia,
-          item.isPaga,
-        );
-        aplicarImpactoSaldoGlobalLocal(item, nextStatus, item.isPaga);
-        setToastErro("Não foi possível atualizar o status da fatura.");
-        window.setTimeout(() => setToastErro(null), 3500);
-      }
-
+      pagarFaturaMutation.mutate({ item, confirmarSemSaldo: false });
       return;
     }
 
@@ -1098,6 +1153,21 @@ export function DashboardPage() {
         onClose={() => setPayingTransaction(null)}
         onConfirm={handleConfirmarPagamento}
       />
+      <ModalConfirmacaoChequeEspecial
+        isOpen={Boolean(faturaChequeEspecial)}
+        isLoading={pagarFaturaMutation.isPending}
+        onClose={() => setFaturaChequeEspecial(null)}
+        onConfirm={() => {
+          if (!faturaChequeEspecial) {
+            return;
+          }
+
+          pagarFaturaMutation.mutate({
+            item: faturaChequeEspecial,
+            confirmarSemSaldo: true,
+          });
+        }}
+      />
       <AnticipateInstallmentModal
         item={anticipatingInstallment}
         onClose={() => setAnticipatingInstallment(null)}
@@ -1105,6 +1175,83 @@ export function DashboardPage() {
       />
       {dialog}
     </AppLayout>
+  );
+}
+
+function ModalConfirmacaoChequeEspecial({
+  isOpen,
+  isLoading,
+  onClose,
+  onConfirm,
+}: {
+  isOpen: boolean;
+  isLoading: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <div className="relative w-full max-w-md rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+        <button
+          className="absolute right-4 top-4 rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
+          type="button"
+          onClick={onClose}
+          aria-label="Fechar"
+        >
+          <X size={20} />
+        </button>
+
+        <div className="flex items-start gap-4 pr-8">
+          <div className="rounded-2xl bg-amber-50 p-3 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300">
+            <AlertTriangle size={24} />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+              Saldo insuficiente
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+              A conta vinculada não possui saldo suficiente para pagar esta
+              fatura. Deseja utilizar o limite da conta (cheque especial) para
+              confirmar o pagamento?
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            className="rounded-xl border border-slate-300 px-5 py-3 font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"
+            type="button"
+            onClick={onClose}
+            disabled={isLoading}
+          >
+            Cancelar
+          </button>
+          <button
+            className="rounded-xl bg-[var(--app-accent)] px-5 py-3 font-bold text-[var(--app-accent-contrast)] shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-emerald-500 dark:text-slate-950"
+            type="button"
+            onClick={onConfirm}
+            disabled={isLoading}
+          >
+            {isLoading ? "Confirmando..." : "Confirmar pagamento"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function isSaldoInsuficienteError(error: unknown) {
+  return (
+    axios.isAxiosError(error) &&
+    error.response?.status === 400 &&
+    error.response.data &&
+    typeof error.response.data === "object" &&
+    "erro" in error.response.data &&
+    error.response.data.erro === "SALDO_INSUFICIENTE"
   );
 }
 

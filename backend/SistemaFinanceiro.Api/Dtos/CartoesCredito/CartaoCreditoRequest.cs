@@ -20,4 +20,6 @@ public sealed class CartaoCreditoRequest
 
     [Range(0, 999999999999.99)]
     public decimal LimiteTotal { get; set; }
+
+    public Guid? ContaBancariaId { get; set; }
 }

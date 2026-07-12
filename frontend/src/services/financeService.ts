@@ -298,10 +298,11 @@ export async function alternarStatusPagamento(
 export async function alternarStatusFatura(
   cartaoCreditoId: string,
   dataVencimento: string,
+  request: { confirmarSemSaldo?: boolean } = { confirmarSemSaldo: false },
 ) {
   const { data } = await api.patch<{ isPaga: boolean }>(
     `/api/transacoes/faturas/${cartaoCreditoId}/alternar-status`,
-    null,
+    request,
     { params: { dataVencimento } },
   );
 
@@ -362,6 +363,7 @@ export async function criarCartaoCredito(request: {
   diaVencimento: number;
   melhorDiaCompra: number;
   limiteTotal: number;
+  contaBancariaId?: string | null;
 }) {
   const { data } = await api.post<CartaoCredito>('/api/cartoes-credito', request);
   return data;
@@ -375,6 +377,7 @@ export async function atualizarCartaoCredito(
     diaVencimento: number;
     melhorDiaCompra: number;
     limiteTotal: number;
+    contaBancariaId?: string | null;
   },
 ) {
   const { data } = await api.put<CartaoCredito>(`/api/cartoes-credito/${id}`, request);

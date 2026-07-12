@@ -8,6 +8,8 @@ namespace SistemaFinanceiro.Api.Services.CartoesCredito;
 
 public sealed class CartaoCreditoService : ICartaoCreditoService
 {
+    private const string FormaPagamentoFaturaCartao = "Pagamento de fatura";
+
     private readonly AppDbContext _dbContext;
     private readonly ITransacaoService _transacaoService;
 
@@ -48,6 +50,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         Guid usuarioId,
         CancellationToken cancellationToken = default)
     {
+        await ValidarContaBancariaAsync(request.ContaBancariaId, usuarioId, cancellationToken);
+
         var cartao = new CartaoCredito
         {
             UsuarioId = usuarioId,
@@ -55,7 +59,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             Banco = request.Banco.Trim(),
             DiaVencimento = request.DiaVencimento,
             MelhorDiaCompra = request.MelhorDiaCompra,
-            LimiteTotal = request.LimiteTotal
+            LimiteTotal = request.LimiteTotal,
+            ContaBancariaId = request.ContaBancariaId
         };
 
         _dbContext.CartoesCredito.Add(cartao);
@@ -76,11 +81,14 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             return null;
         }
 
+        await ValidarContaBancariaAsync(request.ContaBancariaId, usuarioId, cancellationToken);
+
         cartao.ApelidoCartao = request.ApelidoCartao.Trim();
         cartao.Banco = request.Banco.Trim();
         cartao.DiaVencimento = request.DiaVencimento;
         cartao.MelhorDiaCompra = request.MelhorDiaCompra;
         cartao.LimiteTotal = request.LimiteTotal;
+        cartao.ContaBancariaId = request.ContaBancariaId;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
@@ -115,7 +123,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.CartaoCreditoId.HasValue &&
-                !transacao.CompraParceladaId.HasValue)
+                !transacao.CompraParceladaId.HasValue &&
+                transacao.FormaPagamento != FormaPagamentoFaturaCartao)
             .Select(transacao => new
             {
                 CartaoId = transacao.CartaoCreditoId!.Value,
@@ -207,7 +216,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.CartaoCreditoId.HasValue &&
-                transacao.Tipo == TipoTransacao.Despesa)
+                transacao.Tipo == TipoTransacao.Despesa &&
+                transacao.FormaPagamento != FormaPagamentoFaturaCartao)
             .MinAsync(transacao => (DateOnly?)transacao.DataOcorrencia, cancellationToken);
 
         var primeiraCompraParceladaCredito = await _dbContext.ComprasParceladas
@@ -289,8 +299,32 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             DiaVencimento = cartao.DiaVencimento,
             MelhorDiaCompra = cartao.MelhorDiaCompra,
             LimiteTotal = cartao.LimiteTotal,
+            ContaBancariaId = cartao.ContaBancariaId,
             ValorUtilizado = valorUtilizadoAtual,
             LimiteDisponivel = cartao.LimiteTotal - valorUtilizadoAtual
         };
+    }
+
+    private async Task ValidarContaBancariaAsync(
+        Guid? contaBancariaId,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        if (!contaBancariaId.HasValue)
+        {
+            return;
+        }
+
+        var contaExiste = await _dbContext.ContasBancarias
+            .AsNoTracking()
+            .AnyAsync(
+                conta => conta.Id == contaBancariaId.Value &&
+                    conta.UsuarioId == usuarioId,
+                cancellationToken);
+
+        if (!contaExiste)
+        {
+            throw new InvalidOperationException("Conta bancária não encontrada para este usuário.");
+        }
     }
 }
