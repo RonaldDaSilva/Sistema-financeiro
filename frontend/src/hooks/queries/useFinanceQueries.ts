@@ -145,6 +145,36 @@ export function useRelatorioGraficos(
   });
 }
 
+export function useDashboardInicio(enabled = true) {
+  const canFetch = hasUsableStoredAuth();
+
+  return useQuery({
+    queryKey: queryKeys.dashboardInicio,
+    queryFn: financeService.getDashboardInicio,
+    enabled: enabled && canFetch,
+    placeholderData: keepPreviousData,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useDashboardRelatorios(
+  mes: number,
+  ano: number,
+  contaBancariaId?: string | null,
+  enabled = true,
+) {
+  const canFetch = hasUsableStoredAuth();
+
+  return useQuery({
+    queryKey: queryKeys.dashboardRelatorios(mes, ano, contaBancariaId),
+    queryFn: () =>
+      financeService.getDashboardRelatorios(mes, ano, contaBancariaId),
+    enabled: enabled && canFetch && mes >= 1 && mes <= 12 && ano > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useFaturasMensais(meses: MesAno[]) {
   const canFetch = hasUsableStoredAuth();
 

@@ -9,6 +9,8 @@ import type {
   Categoria,
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
+  DashboardInicio,
+  DashboardRelatorios,
   ExtratoMensal,
   ExtratoMensalItem,
   FaturaConsolidada,
@@ -177,6 +179,27 @@ export async function getRelatorioGraficos(
 ) {
   const { data } = await api.get<RelatorioGraficos>('/api/relatorios/graficos', {
     params: { dataInicial, dataFinal },
+  });
+
+  return data;
+}
+
+export async function getDashboardInicio() {
+  const { data } = await api.get<DashboardInicio>('/api/dashboard/inicio');
+  return data;
+}
+
+export async function getDashboardRelatorios(
+  mes: number,
+  ano: number,
+  contaBancariaId?: string | null,
+) {
+  const { data } = await api.get<DashboardRelatorios>('/api/dashboard/relatorios', {
+    params: {
+      mes,
+      ano,
+      contaBancariaId: contaBancariaId || undefined,
+    },
   });
 
   return data;

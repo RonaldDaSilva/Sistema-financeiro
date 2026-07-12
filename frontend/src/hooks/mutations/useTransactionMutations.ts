@@ -393,5 +393,7 @@ function reconcileDerivedData(
         type: "active",
       });
     }
+
+    await queryClient.refetchQueries({ queryKey: ["dashboard"], type: "active" });
   })();
 }

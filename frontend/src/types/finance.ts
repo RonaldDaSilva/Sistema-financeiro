@@ -80,6 +80,43 @@ export type RelatorioGraficos = {
   serieFluxo: RelatorioMensal[];
 };
 
+export type DashboardLancamento = {
+  id: string;
+  tipo: TipoTransacao;
+  descricao: string;
+  valor: number;
+  dataOcorrencia: string;
+  statusVisual: string;
+  categoriaNome: string;
+  formaPagamento: string;
+};
+
+export type DashboardInicio = {
+  saldoAtual: number;
+  livreParaGastar: number;
+  despesasAPagar: number;
+  proximosLancamentos: DashboardLancamento[];
+  insights: string[];
+};
+
+export type DashboardCategoriaRanking = {
+  nomeCategoria: string;
+  valorTotal: number;
+  percentual: number;
+};
+
+export type DashboardProjecaoDiaria = {
+  data: string;
+  entradas: number;
+  saidas: number;
+  saldoAcumulado: number;
+};
+
+export type DashboardRelatorios = {
+  rankingCategorias: DashboardCategoriaRanking[];
+  projecaoDiaria: DashboardProjecaoDiaria[];
+};
+
 export type AnteciparParcelaRequest = {
   idCompraParcelada: string;
   numeroParcela: number;

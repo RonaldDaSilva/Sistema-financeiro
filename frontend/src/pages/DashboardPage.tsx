@@ -22,6 +22,7 @@ import { NewTransactionModal } from "../components/NewTransactionModal";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { PaymentConfirmationModal } from "../components/PaymentConfirmationModal";
 import { TransactionList } from "../components/TransactionList";
+import { DashboardInicioPanel } from "../components/dashboard/DashboardInicioPanel";
 import { useAuth } from "../contexts/AuthContext";
 import {
   useCartoes,
@@ -221,6 +222,7 @@ export function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
       queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
       queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
     ]);
   }
 
@@ -299,6 +301,7 @@ export function DashboardPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
         queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
         queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
       ]);
     },
   });
@@ -857,6 +860,7 @@ export function DashboardPage() {
         queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
         queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
         queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
       ]);
     } catch {
       atualizarStatusPagamentoLocal(item.id, item.isPaga, dataOcorrenciaStatus);
@@ -961,73 +965,26 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="relative z-10 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {apenasDivididas ? (
-            <>
-              <ResumoCard
-                label="Sua parte nestas despesas"
-                value={resumoDivididas.totalSuaParte}
-                tone="investment"
-                icon="shared"
-                hiddenValues={valoresOcultos}
-              />
-              <ResumoCard
-                label="Valor total original"
-                value={resumoDivididas.totalOriginal}
-                tone="danger"
-                icon="expense"
-                hiddenValues={valoresOcultos}
-              />
-            </>
-          ) : (
-            <>
-              <ResumoCard
-                label="Saldo Atual (Global)"
-                value={resumo.saldoAtualGlobal}
-                secondaryLabel={`Previsto para o fim do mês: ${formatCurrency(
-                  resumo.saldoPrevistoFimDoMes,
-                )}`}
-                tone={resumo.saldoAtualGlobal >= 0 ? "success" : "danger"}
-                icon="balance"
-                featured
-                hiddenValues={valoresOcultos}
-              />
-              <ResumoCard
-                label="Total gasto"
-                value={resumo.totalGasto}
-                tone="danger"
-                icon="expense"
-                hiddenValues={valoresOcultos}
-              />
-              <ResumoCard
-                label="Total recebido"
-                value={resumo.totalRecebido}
-                tone="success"
-                icon="income"
-                hiddenValues={valoresOcultos}
-              />
-              <ResumoCard
-                label="Total investido"
-                value={resumo.totalInvestido}
-                tone="investment"
-                icon="investment"
-                hiddenValues={valoresOcultos}
-              />
-              <ResumoCard
-                label="Balanço do Mês"
-                value={resumo.balancoDoMes}
-                secondaryLabel={
-                  resumo.balancoDoMes >= 0
-                    ? `Sobrando: + ${formatCurrency(resumo.balancoDoMes)}`
-                    : `Déficit: - ${formatCurrency(Math.abs(resumo.balancoDoMes))}`
-                }
-                tone={resumo.balancoDoMes >= 0 ? "success" : "danger"}
-                icon={resumo.balancoDoMes >= 0 ? "income" : "expense"}
-                hiddenValues={valoresOcultos}
-              />
-            </>
-          )}
-        </div>
+        {apenasDivididas ? (
+          <div className="relative z-10 grid gap-6 md:grid-cols-2">
+            <ResumoCard
+              label="Sua parte nestas despesas"
+              value={resumoDivididas.totalSuaParte}
+              tone="investment"
+              icon="shared"
+              hiddenValues={valoresOcultos}
+            />
+            <ResumoCard
+              label="Valor total original"
+              value={resumoDivididas.totalOriginal}
+              tone="danger"
+              icon="expense"
+              hiddenValues={valoresOcultos}
+            />
+          </div>
+        ) : (
+          <DashboardInicioPanel hiddenValues={valoresOcultos} />
+        )}
 
         <div className="space-y-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
