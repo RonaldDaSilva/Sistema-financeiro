@@ -33,6 +33,11 @@ vi.mock("../hooks/queries/useFinanceQueries", () => ({
     isLoading: false,
     isError: false,
   }),
+  useFaturaMes: () => ({
+    data: [],
+    isLoading: false,
+    isError: false,
+  }),
 }));
 
 vi.mock("../services/financeService", () => ({

@@ -120,13 +120,13 @@ export function useExtratosMensais(meses: MesAno[], apenasDivididas = false) {
   });
 }
 
-export function useFaturaMes(mes: number, ano: number) {
+export function useFaturaMes(mes: number, ano: number, enabled = true) {
   const canFetch = hasUsableStoredAuth();
 
   return useQuery({
     queryKey: queryKeys.faturas(mes, ano),
     queryFn: () => financeService.getFaturasDoMes(mes, ano),
-    enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
+    enabled: enabled && canFetch && mes >= 1 && mes <= 12 && ano > 0,
   });
 }
 

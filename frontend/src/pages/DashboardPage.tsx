@@ -99,6 +99,7 @@ export function DashboardPage() {
   const [valoresOcultos, setValoresOcultos] = useState(() => {
     return localStorage.getItem("dashboard-values-hidden") === "true";
   });
+  const highlightedLancamentoKey = searchParams.get("highlight");
 
   useEffect(() => {
     localStorage.setItem("dashboard-values-hidden", String(valoresOcultos));
@@ -972,6 +973,7 @@ export function DashboardPage() {
                 items={movimentacoesPaginadas}
                 faturas={faturas}
                 ordenacao={ordenacao}
+                highlightKey={highlightedLancamentoKey}
                 onOrdenar={(campo) => {
                   setPaginaMovimentacoes(1);
                   setOrdenacao((current) => ({

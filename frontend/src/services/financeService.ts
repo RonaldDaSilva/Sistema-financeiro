@@ -349,7 +349,10 @@ export async function alternarStatusPagamento(
 export async function alternarStatusFatura(
   cartaoCreditoId: string,
   dataVencimento: string,
-  request: { confirmarSemSaldo?: boolean } = { confirmarSemSaldo: false },
+  request: {
+    confirmarSemSaldo?: boolean;
+    contaBancariaId?: string | null;
+  } = { confirmarSemSaldo: false },
 ) {
   const { data } = await api.patch<{ isPaga: boolean }>(
     `/api/transacoes/faturas/${cartaoCreditoId}/alternar-status`,

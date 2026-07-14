@@ -1,16 +1,33 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import axios from "axios";
 import { useQueryClient } from "@tanstack/react-query";
-import { Archive, CreditCard, Eye, Pencil, Plus, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Archive,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  CreditCard,
+  Eye,
+  Pencil,
+  Plus,
+  X,
+} from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
-import { useCartoes, useContas } from "../hooks/queries/useFinanceQueries";
+import { useCartoes, useContas, useFaturaMes } from "../hooks/queries/useFinanceQueries";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import * as financeService from "../services/financeService";
-import type { CartaoCredito, ContaBancaria } from "../types/finance";
+import type {
+  CartaoCredito,
+  ContaBancaria,
+  FaturaConsolidada,
+  FaturaDetalhe,
+} from "../types/finance";
 import {
   formatCurrency,
   formatCurrencyInput,
+  formatDate,
   maskBrlCurrencyInput,
   parseBrlCurrency,
 } from "../utils/date";
@@ -21,6 +38,19 @@ type CardForm = {
   melhorDiaCompra: number;
   limiteTotal: number;
   contaBancariaId: string | null;
+};
+
+type FaturaModalState = {
+  cartao: CartaoCredito;
+  mes: number;
+  ano: number;
+};
+
+type PagamentoFaturaState = {
+  cartao: CartaoCredito;
+  fatura: FaturaConsolidada;
+  erro?: string | null;
+  saldoInsuficiente?: boolean;
 };
 
 const emptyForm: CardForm = {
@@ -36,11 +66,17 @@ export function CardsPage() {
   const { confirm, dialog } = useConfirmDialog();
   const cartoesQuery = useCartoes();
   const contasQuery = useContas();
+  const hoje = new Date();
+  const faturasAtualQuery = useFaturaMes(hoje.getMonth() + 1, hoje.getFullYear());
   const cartoes = cartoesQuery.data ?? [];
   const contas = contasQuery.data ?? [];
   const [form, setForm] = useState<CardForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [faturaModal, setFaturaModal] = useState<FaturaModalState | null>(null);
+  const [pagamentoFatura, setPagamentoFatura] =
+    useState<PagamentoFaturaState | null>(null);
+  const [isPagandoFatura, setIsPagandoFatura] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const isLoading = cartoesQuery.isLoading;
 
@@ -144,46 +180,104 @@ export function CardsPage() {
     }
   }
 
-  async function pagarFatura(cartao: CartaoCredito, confirmarSemSaldo = false) {
-    if (!cartao.dataVencimentoAtual || cartao.statusFaturaAtual === "SemFatura") {
+  function abrirFatura(cartao: CartaoCredito) {
+    const referencia = cartao.dataVencimentoAtual
+      ? new Date(`${cartao.dataVencimentoAtual}T00:00:00`)
+      : new Date();
+
+    setFaturaModal({
+      cartao,
+      mes: referencia.getMonth() + 1,
+      ano: referencia.getFullYear(),
+    });
+  }
+
+  function abrirPagamentoFatura(cartao: CartaoCredito) {
+    const fatura = obterFaturaAtual(cartao);
+
+    if (!fatura) {
+      setErro("Não foi possível localizar a fatura desta competência.");
       return;
     }
 
+    setPagamentoFatura({ cartao, fatura, erro: null, saldoInsuficiente: false });
+  }
+
+  async function confirmarPagamentoFatura(
+    contaBancariaId: string | null,
+    confirmarSemSaldo = false,
+  ) {
+    if (!pagamentoFatura || pagamentoFatura.fatura.isPaga || isPagandoFatura) {
+      return;
+    }
+
+    setIsPagandoFatura(true);
+    setPagamentoFatura((current) =>
+      current ? { ...current, erro: null } : current,
+    );
+
     try {
-      await financeService.alternarStatusFatura(cartao.id, cartao.dataVencimentoAtual, {
+      await financeService.alternarStatusFatura(
+        pagamentoFatura.cartao.id,
+        pagamentoFatura.fatura.dataVencimento,
+        {
         confirmarSemSaldo,
-      });
+          contaBancariaId,
+        },
+      );
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
         queryClient.invalidateQueries({ queryKey: ["faturas"] }),
         queryClient.invalidateQueries({ queryKey: ["extrato"] }),
+        queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
         queryClient.invalidateQueries({ queryKey: ["contas"] }),
         queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: ["relatorios"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.notificacoesNaoLidas }),
       ]);
+
+      setPagamentoFatura(null);
     } catch (error) {
       const responseData = axios.isAxiosError(error) ? error.response?.data : null;
       const erroCodigo = responseData?.erro;
       const mensagem = responseData?.mensagem ?? responseData?.message;
 
       if (erroCodigo === "SALDO_INSUFICIENTE") {
-        const confirmed = await confirm({
-          title: "Saldo insuficiente",
-          message:
-            mensagem ??
-            "A conta vinculada não possui saldo suficiente. Deseja confirmar usando o limite da conta?",
-          confirmLabel: "Confirmar pagamento",
-          variant: "danger",
-        });
-
-        if (confirmed) {
-          await pagarFatura(cartao, true);
-        }
-
+        setPagamentoFatura((current) =>
+          current
+            ? {
+                ...current,
+                erro:
+                  mensagem ??
+                  "A conta selecionada não possui saldo suficiente para este pagamento.",
+                saldoInsuficiente: true,
+              }
+            : current,
+        );
         return;
       }
 
-      setErro(mensagem ?? "Não foi possível pagar a fatura.");
+      setPagamentoFatura((current) =>
+        current
+          ? {
+              ...current,
+              erro: mensagem ?? "Não foi possível pagar a fatura.",
+            }
+          : current,
+      );
+    } finally {
+      setIsPagandoFatura(false);
     }
+  }
+
+  function obterFaturaAtual(cartao: CartaoCredito) {
+    return (faturasAtualQuery.data ?? []).find(
+      (fatura) =>
+        fatura.cartaoCreditoId === cartao.id &&
+        fatura.dataVencimento === cartao.dataVencimentoAtual,
+    );
   }
 
   return (
@@ -240,10 +334,12 @@ export function CardsPage() {
                 (conta) => conta.id === cartao.contaBancariaId,
               );
               const possuiFaturaAtual = cartao.statusFaturaAtual !== "SemFatura";
+              const faturaAtual = obterFaturaAtual(cartao);
               const podePagarFatura =
                 possuiFaturaAtual &&
                 cartao.statusFaturaAtual !== "Paga" &&
-                Boolean(cartao.dataVencimentoAtual);
+                Boolean(faturaAtual) &&
+                !faturaAtual?.isPaga;
               const alertas = [
                 percentualUtilizado >= 90 ? "Uso acima de 90%" : null,
                 percentualUtilizado >= 70 && percentualUtilizado < 90
@@ -285,6 +381,7 @@ export function CardsPage() {
                         className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:hover:bg-slate-800"
                         type="button"
                         title="Ver fatura"
+                        onClick={() => abrirFatura(cartao)}
                         aria-label={`Ver fatura do cartão ${cartao.apelidoCartao}`}
                       >
                         <Eye size={18} />
@@ -373,6 +470,7 @@ export function CardsPage() {
                       <button
                         className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"
                         type="button"
+                        onClick={() => abrirFatura(cartao)}
                         aria-label={`Ver fatura atual do cartão ${cartao.apelidoCartao}`}
                       >
                         Ver fatura
@@ -381,7 +479,7 @@ export function CardsPage() {
                         <button
                           className="rounded-xl bg-[var(--app-accent)] px-3 py-2 text-sm font-bold text-[var(--app-accent-contrast)] transition hover:opacity-90 dark:bg-emerald-500 dark:text-slate-950"
                           type="button"
-                          onClick={() => pagarFatura(cartao)}
+                          onClick={() => abrirPagamentoFatura(cartao)}
                           aria-label={`Pagar fatura do cartão ${cartao.apelidoCartao}`}
                         >
                           Pagar fatura
@@ -483,9 +581,435 @@ export function CardsPage() {
         onChange={setForm}
         onSubmit={handleSubmit}
       />
+      <FaturaDetalheModal
+        state={faturaModal}
+        onClose={() => setFaturaModal(null)}
+        onChangeCompetencia={(mes, ano) =>
+          setFaturaModal((current) =>
+            current ? { ...current, mes, ano } : current,
+          )
+        }
+        onPagar={(cartao, fatura) =>
+          setPagamentoFatura({ cartao, fatura, erro: null, saldoInsuficiente: false })
+        }
+      />
+      <PagamentoFaturaModal
+        state={pagamentoFatura}
+        contas={contas}
+        isLoadingContas={contasQuery.isLoading}
+        isSubmitting={isPagandoFatura}
+        onClose={() => {
+          if (!isPagandoFatura) {
+            setPagamentoFatura(null);
+          }
+        }}
+        onConfirm={confirmarPagamentoFatura}
+      />
       {dialog}
     </AppLayout>
   );
+}
+
+function FaturaDetalheModal({
+  state,
+  onClose,
+  onChangeCompetencia,
+  onPagar,
+}: {
+  state: FaturaModalState | null;
+  onClose: () => void;
+  onChangeCompetencia: (mes: number, ano: number) => void;
+  onPagar: (cartao: CartaoCredito, fatura: FaturaConsolidada) => void;
+}) {
+  const faturasQuery = useFaturaMes(
+    state?.mes ?? 1,
+    state?.ano ?? 1,
+    Boolean(state),
+  );
+
+  if (!state) {
+    return null;
+  }
+
+  const { cartao, mes, ano } = state;
+  const fatura = (faturasQuery.data ?? []).find(
+    (item) => item.cartaoCreditoId === cartao.id,
+  );
+  const competenciaValue = `${ano}-${String(mes).padStart(2, "0")}`;
+
+  function navegar(delta: number) {
+    const next = new Date(ano, mes - 1 + delta, 1);
+    onChangeCompetencia(next.getMonth() + 1, next.getFullYear());
+  }
+
+  function selecionarCompetencia(value: string) {
+    const [ano, mes] = value.split("-").map(Number);
+    if (mes >= 1 && mes <= 12 && ano > 0) {
+      onChangeCompetencia(mes, ano);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-4">
+      <div className="relative flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+        <div className="border-b border-[color:var(--app-card-border)] p-5 pr-14 dark:border-slate-800 sm:p-6">
+          <button
+            className="absolute right-4 top-4 rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar modal de fatura"
+          >
+            <X size={20} />
+          </button>
+          <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+            Cartão
+          </p>
+          <h2 className="text-2xl font-black text-slate-950 dark:text-white">
+            {cartao.apelidoCartao}
+          </h2>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded-xl border border-[color:var(--app-card-border)] p-3 text-slate-600 transition hover:bg-[var(--app-card-muted)] dark:border-slate-700 dark:text-slate-200"
+                type="button"
+                onClick={() => navegar(-1)}
+                aria-label="Competência anterior"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <label className="flex h-12 items-center gap-3 rounded-xl border border-[color:var(--app-card-border)] px-3 text-sm font-bold text-slate-800 dark:border-slate-700 dark:text-white">
+                <CalendarDays size={18} className="text-slate-500" />
+                <input
+                  className="bg-transparent outline-none"
+                  type="month"
+                  value={competenciaValue}
+                  onChange={(event) => selecionarCompetencia(event.target.value)}
+                  aria-label="Selecionar competência da fatura"
+                />
+              </label>
+              <button
+                className="rounded-xl border border-[color:var(--app-card-border)] p-3 text-slate-600 transition hover:bg-[var(--app-card-muted)] dark:border-slate-700 dark:text-slate-200"
+                type="button"
+                onClick={() => navegar(1)}
+                aria-label="Próxima competência"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+            {fatura && !fatura.isPaga && fatura.valorTotal > 0 && (
+              <button
+                className="rounded-xl bg-[var(--app-accent)] px-4 py-3 text-sm font-bold text-[var(--app-accent-contrast)] transition hover:opacity-90"
+                type="button"
+                onClick={() => onPagar(cartao, fatura)}
+              >
+                Pagar fatura
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="overflow-y-auto p-5 sm:p-6">
+          {faturasQuery.isLoading ? (
+            <div className="rounded-2xl bg-[var(--app-card-muted)] p-6 text-sm font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-300">
+              Carregando fatura...
+            </div>
+          ) : faturasQuery.isError ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              Não foi possível carregar esta fatura.
+            </div>
+          ) : !fatura ? (
+            <div className="rounded-2xl bg-[var(--app-card-muted)] p-6 text-center text-sm font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-300">
+              Nenhuma fatura encontrada para esta competência.
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="grid gap-3 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-2 lg:grid-cols-5">
+                <MetricItem label="Total" value={formatCurrency(fatura.valorTotal)} />
+                <MetricItem
+                  label="Status"
+                  value={fatura.isPaga ? "Paga" : fatura.status}
+                />
+                <MetricItem label="Vencimento" value={formatDate(fatura.dataVencimento)} />
+                <MetricItem
+                  label="Competência"
+                  value={`${formatDate(fatura.inicioCompetencia)} até ${formatDate(fatura.fimCompetencia)}`}
+                  className="sm:col-span-2"
+                />
+              </div>
+
+              {fatura.detalhes.length === 0 ? (
+                <div className="rounded-2xl bg-[var(--app-card-muted)] p-6 text-center text-sm font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-300">
+                  Nenhuma compra nesta fatura.
+                </div>
+              ) : (
+                <>
+                  <div className="hidden overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] dark:border-slate-800 md:block">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-[var(--app-card-muted)] text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                        <tr>
+                          <th className="px-4 py-3">Data</th>
+                          <th className="px-4 py-3">Compra</th>
+                          <th className="px-4 py-3">Categoria</th>
+                          <th className="px-4 py-3">Origem</th>
+                          <th className="px-4 py-3 text-right">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {fatura.detalhes.map((detalhe, index) => (
+                          <tr key={detalheKey(detalhe, index)}>
+                            <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                              {formatDate(detalhe.dataOcorrencia)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <DetalheDescricao detalhe={detalhe} />
+                            </td>
+                            <td className="px-4 py-3">
+                              <CategoriaFatura detalhe={detalhe} />
+                            </td>
+                            <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                              {formatOrigemFatura(detalhe.origem)}
+                            </td>
+                            <td className="px-4 py-3 text-right font-black text-red-600">
+                              - {formatCurrency(detalhe.valor)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="space-y-3 md:hidden">
+                    {fatura.detalhes.map((detalhe, index) => (
+                      <article
+                        key={detalheKey(detalhe, index)}
+                        className="rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-900"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <DetalheDescricao detalhe={detalhe} />
+                          <strong className="shrink-0 text-red-600">
+                            - {formatCurrency(detalhe.valor)}
+                          </strong>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                          <span>{formatDate(detalhe.dataOcorrencia)}</span>
+                          <span>{formatOrigemFatura(detalhe.origem)}</span>
+                          <span>{detalhe.status || (fatura.isPaga ? "Paga" : fatura.status)}</span>
+                        </div>
+                        <div className="mt-3">
+                          <CategoriaFatura detalhe={detalhe} />
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PagamentoFaturaModal({
+  state,
+  contas,
+  isLoadingContas,
+  isSubmitting,
+  onClose,
+  onConfirm,
+}: {
+  state: PagamentoFaturaState | null;
+  contas: ContaBancaria[];
+  isLoadingContas: boolean;
+  isSubmitting: boolean;
+  onClose: () => void;
+  onConfirm: (contaBancariaId: string | null, confirmarSemSaldo?: boolean) => Promise<void>;
+}) {
+  const contaPadraoId =
+    state?.cartao.contaBancariaId ??
+    contas.find((conta) => conta.isFavorita)?.id ??
+    "";
+  const [contaBancariaId, setContaBancariaId] = useState(contaPadraoId);
+
+  useEffect(() => {
+    setContaBancariaId(contaPadraoId);
+  }, [contaPadraoId, state?.fatura.dataVencimento, state?.cartao.id]);
+
+  if (!state) {
+    return null;
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await onConfirm(contaBancariaId || null, false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <form
+        className="relative w-full max-w-lg rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950"
+        onSubmit={handleSubmit}
+      >
+        <button
+          className="absolute right-4 top-4 rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-white"
+          type="button"
+          disabled={isSubmitting}
+          onClick={onClose}
+          aria-label="Fechar pagamento de fatura"
+        >
+          <X size={20} />
+        </button>
+
+        <div className="pr-10">
+          <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+            Confirmar pagamento
+          </p>
+          <h2 className="text-xl font-black text-slate-950 dark:text-white">
+            Fatura {state.cartao.apelidoCartao}
+          </h2>
+        </div>
+
+        <div className="mt-5 grid gap-3 rounded-2xl bg-[var(--app-card-muted)] p-4 dark:bg-slate-900 sm:grid-cols-2">
+          <MetricItem label="Competência" value={formatMonthYear(state.fatura.dataVencimento)} />
+          <MetricItem label="Valor" value={formatCurrency(state.fatura.valorTotal)} />
+          <MetricItem label="Vencimento" value={formatDate(state.fatura.dataVencimento)} />
+          <MetricItem
+            label="Status"
+            value={state.fatura.isPaga ? "Paga" : state.fatura.status}
+          />
+        </div>
+
+        <label className="mt-5 block">
+          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            Conta para pagamento
+          </span>
+          <select
+            className="mt-2 w-full rounded-2xl border border-[color:var(--app-card-border)] bg-transparent px-4 py-3 text-slate-900 outline-none transition focus:border-[var(--app-primary)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-white"
+            value={contaBancariaId}
+            disabled={isLoadingContas || isSubmitting}
+            onChange={(event) => setContaBancariaId(event.target.value)}
+          >
+            <option value="">Não informar</option>
+            {contas.map((conta) => (
+              <option key={conta.id} value={conta.id}>
+                {conta.nomeCustomizado}
+                {conta.id === state.cartao.contaBancariaId ? " - vinculada" : ""}
+                {conta.isFavorita ? " - favorita" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {state.erro && (
+          <div className="mt-4 flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+            <span>{state.erro}</span>
+          </div>
+        )}
+
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            className="rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+          >
+            Cancelar
+          </button>
+          {state.saldoInsuficiente ? (
+            <button
+              className="rounded-xl bg-amber-500 px-5 py-3 font-bold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              disabled={isSubmitting || state.fatura.isPaga}
+              onClick={() => onConfirm(contaBancariaId || null, true)}
+            >
+              {isSubmitting ? "Confirmando..." : "Usar limite e pagar"}
+            </button>
+          ) : (
+            <button
+              className="rounded-xl bg-[var(--app-accent)] px-5 py-3 font-bold text-[var(--app-accent-contrast)] shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              type="submit"
+              disabled={isSubmitting || isLoadingContas || state.fatura.isPaga}
+            >
+              {isSubmitting ? "Pagando..." : "Confirmar pagamento"}
+            </button>
+          )}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function DetalheDescricao({ detalhe }: { detalhe: FaturaDetalhe }) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate font-bold text-slate-900 dark:text-white">
+        {detalhe.descricao}
+      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        {detalhe.numeroParcela && detalhe.quantidadeParcelas && (
+          <span className="rounded bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-200">
+            {detalhe.numeroParcela}/{detalhe.quantidadeParcelas}
+          </span>
+        )}
+        {detalhe.isDividida && (
+          <span className="rounded bg-violet-50 px-2 py-1 text-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-200">
+            Dividida
+            {detalhe.percentualDivisao
+              ? ` · ${detalhe.percentualDivisao.toLocaleString("pt-BR")}%`
+              : ""}
+          </span>
+        )}
+        {detalhe.status && (
+          <span className={getFaturaStatusClass(detalhe.status)}>
+            {getFaturaStatusLabel(detalhe.status)}
+          </span>
+        )}
+      </div>
+      {detalhe.isDividida && detalhe.valorTotalOriginal != null && (
+        <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          Total original: {formatCurrency(detalhe.valorTotalOriginal)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CategoriaFatura({ detalhe }: { detalhe: FaturaDetalhe }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+      <span
+        className="h-3 w-3 shrink-0 rounded-full"
+        style={{ backgroundColor: detalhe.categoriaCorHexa || "#64748B" }}
+      />
+      <span className="truncate">{detalhe.categoriaNome || "Sem categoria"}</span>
+    </div>
+  );
+}
+
+function detalheKey(detalhe: FaturaDetalhe, index: number) {
+  return [
+    detalhe.transacaoId ?? detalhe.compraParceladaId ?? detalhe.descricao,
+    detalhe.dataOcorrencia,
+    detalhe.numeroParcela ?? index,
+    detalhe.origem,
+  ].join("-");
+}
+
+function formatOrigemFatura(origem: string) {
+  return {
+    Transacao: "Compra",
+    CompraParcelada: "Compra parcelada",
+    DespesaFixa: "Despesa fixa",
+  }[origem] ?? origem;
+}
+
+function formatMonthYear(value: string) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function CartaoModal({

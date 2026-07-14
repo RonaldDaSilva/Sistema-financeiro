@@ -288,13 +288,41 @@ public sealed class DashboardService : IDashboardService
 
     private static DashboardLancamentoDto MapearLancamento(ExtratoMensalItemResponse item)
     {
+        var inicio = new DateOnly(item.DataOcorrencia.Year, item.DataOcorrencia.Month, 1);
+        var fim = inicio.AddMonths(1).AddDays(-1);
+        var filtrosDestino = new Dictionary<string, string>
+        {
+            ["inicio"] = inicio.ToString("yyyy-MM-dd"),
+            ["fim"] = fim.ToString("yyyy-MM-dd"),
+            ["highlight"] = ConstruirChaveDestaque(item)
+        };
+
+        if (item.Tipo == TipoTransacao.Receita)
+        {
+            filtrosDestino["tipo"] = "receita";
+        }
+        else if (item.Tipo == TipoTransacao.Despesa)
+        {
+            filtrosDestino["tipo"] = "despesa";
+        }
+        else if (item.Tipo == TipoTransacao.Investimento)
+        {
+            filtrosDestino["tipo"] = "investimento";
+        }
+
+        if (item.CategoriaId.HasValue)
+        {
+            filtrosDestino["categoria"] = item.CategoriaId.Value.ToString();
+        }
+
         return new DashboardLancamentoDto
         {
-            Id = item.Id ?? Guid.Empty,
+            Id = item.Id,
             Tipo = item.Tipo,
             Descricao = item.Descricao,
             Valor = item.Valor,
             DataOcorrencia = item.DataOcorrencia,
+            Competencia = $"{item.DataOcorrencia.Year:D4}-{item.DataOcorrencia.Month:D2}",
             StatusVisual = item.StatusVisual,
             CategoriaNome = string.IsNullOrWhiteSpace(item.CategoriaNome)
                 ? "Sem categoria"
@@ -304,8 +332,43 @@ public sealed class DashboardService : IDashboardService
                 ? "Vencido"
                 : item.DataOcorrencia == DateOnly.FromDateTime(DateTime.Today)
                     ? "Hoje"
-                    : "Proximo"
+                    : "Proximo",
+            TipoOrigem = item.Origem,
+            OrigemId = item.Origem switch
+            {
+                "FaturaCartao" => item.CartaoCreditoId,
+                "CompraParcelada" or "Carne" => item.CompraParceladaId,
+                _ => item.Id
+            },
+            CartaoCreditoId = item.CartaoCreditoId,
+            ContaBancariaId = item.ContaBancariaId,
+            CompraParceladaId = item.CompraParceladaId,
+            NumeroParcela = item.NumeroParcela,
+            IsProjetada = item.IsProjetada,
+            PodeLiquidar =
+                !item.IsPaga &&
+                (item.Id.HasValue ||
+                 item.Origem == "FaturaCartao" ||
+                 item.IsFixa ||
+                 (item.CompraParceladaId.HasValue && item.NumeroParcela.HasValue)),
+            RotaDestino = "/",
+            FiltrosDestino = filtrosDestino
         };
+    }
+
+    private static string ConstruirChaveDestaque(ExtratoMensalItemResponse item)
+    {
+        var id = item.Id ??
+            item.CompraParceladaId ??
+            item.CartaoCreditoId;
+
+        return string.Join("|", new[]
+        {
+            id?.ToString() ?? item.Descricao,
+            item.DataOcorrencia.ToString("yyyy-MM-dd"),
+            item.NumeroParcela?.ToString() ?? string.Empty,
+            item.Origem
+        });
     }
 
     private static string FormatarMoeda(decimal valor)

@@ -16,4 +16,5 @@ public sealed class FaturaDetalheResponse
     public string CategoriaNome { get; set; } = string.Empty;
     public string CategoriaCorHexa { get; set; } = string.Empty;
     public string Origem { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
 }

@@ -614,6 +614,16 @@ public sealed class TransacaoService : ITransacaoService
                     .ThenBy(detalhe => detalhe.Descricao)
                     .ToList();
 
+                var statusFatura = CalcularStatusFatura(periodo.DataVencimento, periodo.FimCompetencia);
+                var isFaturaPaga = pagamentosFaturasMap.TryGetValue(
+                    (cartao.Id, periodo.DataVencimento),
+                    out var isPaga)
+                        ? isPaga
+                        : periodo.DataVencimento <= hoje;
+                var statusDetalhe = isFaturaPaga ? "Paga" : statusFatura;
+
+                detalhesOrdenados.ForEach(detalhe => detalhe.Status = statusDetalhe);
+
                 return new FaturaConsolidadaResponse
                 {
                     CartaoCreditoId = cartao.Id,
@@ -626,10 +636,8 @@ public sealed class TransacaoService : ITransacaoService
                     DataVencimento = periodo.DataVencimento,
                     InicioCompetencia = periodo.InicioCompetencia,
                     FimCompetencia = periodo.FimCompetencia,
-                    Status = CalcularStatusFatura(periodo.DataVencimento, periodo.FimCompetencia),
-                    IsPaga = pagamentosFaturasMap.TryGetValue((cartao.Id, periodo.DataVencimento), out var isPaga)
-                        ? isPaga
-                        : periodo.DataVencimento <= hoje,
+                    Status = statusFatura,
+                    IsPaga = isFaturaPaga,
                     Detalhes = detalhesOrdenados
                 };
             })
@@ -1440,10 +1448,12 @@ public sealed class TransacaoService : ITransacaoService
             return false;
         }
 
-        if (cartao.ContaBancariaId.HasValue)
+        var contaPagamentoId = request?.ContaBancariaId ?? cartao.ContaBancariaId;
+
+        if (contaPagamentoId.HasValue)
         {
             var saldoConta = await CalcularSaldoAtualContaBancariaAsync(
-                cartao.ContaBancariaId.Value,
+                contaPagamentoId.Value,
                 usuarioId,
                 cancellationToken);
 
@@ -1467,7 +1477,7 @@ public sealed class TransacaoService : ITransacaoService
                     CategoriaId = null,
                     FormaPagamento = FormaPagamentoFaturaCartao,
                     CartaoCreditoId = cartao.Id,
-                    ContaBancariaId = cartao.ContaBancariaId,
+                    ContaBancariaId = contaPagamentoId,
                     IsFixa = false,
                     IsPaga = true,
                     IsDividida = false
@@ -1480,7 +1490,7 @@ public sealed class TransacaoService : ITransacaoService
                 lancamentoPagamento.Descricao = $"Pagamento fatura {cartao.ApelidoCartao}";
                 lancamentoPagamento.Valor = valorFatura;
                 lancamentoPagamento.DataOcorrencia = dataVencimento;
-                lancamentoPagamento.ContaBancariaId = cartao.ContaBancariaId;
+                lancamentoPagamento.ContaBancariaId = contaPagamentoId;
                 lancamentoPagamento.IsPaga = true;
             }
         }

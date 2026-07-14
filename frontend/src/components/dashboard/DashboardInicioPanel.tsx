@@ -227,7 +227,11 @@ function TimelineItem({
   const isReceita = lancamento.tipo === 1 || lancamento.tipo === "Receita";
 
   return (
-    <article className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3 dark:bg-slate-950">
+    <a
+      className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3 outline-none transition hover:bg-[var(--app-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--app-primary)] dark:bg-slate-950 dark:hover:bg-slate-900"
+      href={buildLancamentoHref(lancamento)}
+      aria-label={`Abrir ${lancamento.descricao} no extrato`}
+    >
       <div
         className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
           isReceita
@@ -250,10 +254,17 @@ function TimelineItem({
           {formatDate(lancamento.dataOcorrencia)} · {lancamento.categoriaNome || lancamento.formaPagamento}
         </p>
       </div>
-      <p className={`shrink-0 text-sm font-black ${isReceita ? "text-emerald-600" : "text-red-500"}`}>
-        {isReceita ? "+" : "-"} {maskCurrency(lancamento.valor, hiddenValues)}
-      </p>
-    </article>
+      <div className="shrink-0 text-right">
+        <p className={`text-sm font-black ${isReceita ? "text-emerald-600" : "text-red-500"}`}>
+          {isReceita ? "+" : "-"} {maskCurrency(lancamento.valor, hiddenValues)}
+        </p>
+        {lancamento.podeLiquidar && (
+          <span className="mt-1 inline-flex rounded-full bg-white px-2 py-0.5 text-[11px] font-black text-[var(--app-primary)] ring-1 ring-[color:var(--app-card-border)] dark:bg-slate-900 dark:ring-slate-700">
+            {isReceita ? "Receber" : "Pagar"}
+          </span>
+        )}
+      </div>
+    </a>
   );
 }
 
@@ -300,4 +311,22 @@ function relativeDate(value: string) {
   if (diff > 1 && diff <= 7) return `${diff} dias`;
 
   return formatDate(value);
+}
+
+function buildLancamentoHref(lancamento: DashboardLancamento) {
+  const params = new URLSearchParams(lancamento.filtrosDestino);
+
+  if (!params.has("inicio") || !params.has("fim")) {
+    const data = parseLocalDate(lancamento.dataOcorrencia);
+    const inicio = new Date(data.getFullYear(), data.getMonth(), 1);
+    const fim = new Date(data.getFullYear(), data.getMonth() + 1, 0);
+    params.set("inicio", toDateOnly(inicio));
+    params.set("fim", toDateOnly(fim));
+  }
+
+  return `${lancamento.rotaDestino || "/"}?${params.toString()}#movimentacoes-recentes`;
+}
+
+function toDateOnly(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }

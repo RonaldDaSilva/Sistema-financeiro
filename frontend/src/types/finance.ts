@@ -128,15 +128,26 @@ export type RelatorioGraficos = {
 };
 
 export type DashboardLancamento = {
-  id: string;
+  id: string | null;
   tipo: TipoTransacao;
   descricao: string;
   valor: number;
   dataOcorrencia: string;
+  competencia: string;
   statusVisual: string;
   categoriaNome: string;
   formaPagamento: string;
   grupo: 'Vencido' | 'Hoje' | 'Proximo' | string;
+  tipoOrigem: string;
+  origemId: string | null;
+  cartaoCreditoId: string | null;
+  contaBancariaId: string | null;
+  compraParceladaId: string | null;
+  numeroParcela: number | null;
+  isProjetada: boolean;
+  podeLiquidar: boolean;
+  rotaDestino: string;
+  filtrosDestino: Record<string, string>;
 };
 
 export type DashboardInicio = {
@@ -275,6 +286,7 @@ export type FaturaDetalhe = {
   categoriaNome: string;
   categoriaCorHexa: string;
   origem: string;
+  status: string;
 };
 
 export type FaturaConsolidada = {

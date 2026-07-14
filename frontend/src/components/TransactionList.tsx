@@ -37,6 +37,7 @@ type TransactionListProps = {
     direcao: DirecaoOrdenacao;
   };
   onOrdenar: (campo: CampoOrdenacaoExtrato) => void;
+  highlightKey?: string | null;
 };
 
 export const TransactionList = memo(function TransactionList({
@@ -48,6 +49,7 @@ export const TransactionList = memo(function TransactionList({
   onTogglePagamento,
   ordenacao,
   onOrdenar,
+  highlightKey = null,
 }: TransactionListProps) {
   const [expandedFaturas, setExpandedFaturas] = useState<Set<string>>(
     new Set(),
@@ -133,6 +135,7 @@ export const TransactionList = memo(function TransactionList({
             Boolean(item.numeroParcela) &&
             isFutureMonth(item.dataOcorrencia);
           const itemKey = `${item.id ?? item.compraParceladaId ?? item.descricao}-${item.dataOcorrencia}-${item.numeroParcela ?? index}`;
+          const isHighlighted = highlightKey === buildHighlightKey(item);
           const canTogglePagamento = podeAlternarPagamento(item);
           const isStatusRevealed =
             canTogglePagamento && revealedStatusKey === itemKey;
@@ -144,6 +147,10 @@ export const TransactionList = memo(function TransactionList({
               <div
                 className={`group grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-4 px-4 py-5 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/40 sm:px-5 md:grid-cols-[120px_1fr_170px_170px_120px] md:items-center md:gap-3 md:px-6 ${
                   canTogglePagamento ? "cursor-pointer md:cursor-default" : ""
+                } ${
+                  isHighlighted
+                    ? "bg-[var(--app-primary-soft)] ring-2 ring-inset ring-[var(--app-primary)]"
+                    : ""
                 }`}
                 onClick={(event) => {
                   if (
@@ -597,6 +604,17 @@ function isFutureMonth(value: string) {
   const mesDaParcela = new Date(data.getFullYear(), data.getMonth(), 1);
 
   return mesDaParcela > mesAtual;
+}
+
+function buildHighlightKey(item: ExtratoMensalItem) {
+  const id = item.id ?? item.compraParceladaId ?? item.cartaoCreditoId ?? item.descricao;
+
+  return [
+    id,
+    item.dataOcorrencia,
+    item.numeroParcela ?? "",
+    item.origem,
+  ].join("|");
 }
 
 function mapFaturaDetalheToExtratoItem(
