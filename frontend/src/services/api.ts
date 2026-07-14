@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { type InternalAxiosRequestConfig } from 'axios';
 import type { AuthResponse } from '../types/auth';
 import {
   clearStoredAuth,
@@ -24,7 +24,7 @@ export const publicApi = axios.create({
 let refreshPromise: Promise<AuthResponse | null> | null = null;
 let isRedirectingToLogin = false;
 
-type AuthenticatedRequestConfig = typeof api.defaults & {
+type AuthenticatedRequestConfig = InternalAxiosRequestConfig & {
   __isRetryRequest?: boolean;
   __authToken?: string;
 };
@@ -101,7 +101,7 @@ api.interceptors.request.use(async (config) => {
 
   if (auth?.accessToken) {
     config.headers.Authorization = `Bearer ${auth.accessToken}`;
-    (config as typeof config & { __authToken?: string }).__authToken = auth.accessToken;
+    (config as AuthenticatedRequestConfig).__authToken = auth.accessToken;
   }
 
   return config;
@@ -110,14 +110,7 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config as
-      | (typeof error.config & {
-          __isRetryRequest?: boolean;
-          __authToken?: string;
-          url?: string;
-          headers?: Record<string, string>;
-        })
-      | undefined;
+    const originalRequest = error.config as AuthenticatedRequestConfig | undefined;
 
     if (isPublicAuthRequest(originalRequest?.url)) {
       return Promise.reject(error);

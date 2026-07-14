@@ -2,7 +2,6 @@ import { type ReactNode, useMemo, useState } from "react";
 import {
   Bar,
   CartesianGrid,
-  Cell,
   ComposedChart,
   Legend,
   Line,
@@ -34,7 +33,6 @@ import { formatCurrency, formatDate } from "../utils/date";
 import type {
   RelatorioComparativoValor,
   RelatorioGraficos,
-  RelatorioMensal,
   TipoTransacaoFiltro,
 } from "../types/finance";
 

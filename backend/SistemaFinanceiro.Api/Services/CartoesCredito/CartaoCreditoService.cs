@@ -29,8 +29,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             .OrderBy(cartao => cartao.ApelidoCartao)
             .ToListAsync(cancellationToken);
 
-        var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
         var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var usoPorCartao = await CalcularUsoDetalhadoPorCartaoAsync(usuarioId, hoje, cancellationToken);
         var faturasAtual = (await _transacaoService.GetFaturasDoMesAsync(
                 hoje.Month,
                 hoje.Year,
@@ -44,15 +44,13 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
                 usuarioId,
                 cancellationToken))
             .ToDictionary(fatura => fatura.CartaoCreditoId);
-        var futuroPorCartao = await CalcularCompromissoFuturoAsync(usuarioId, hoje, cancellationToken);
 
         return cartoes
             .Select(cartao => Mapear(
                 cartao,
                 usoPorCartao.GetValueOrDefault(cartao.Id),
                 faturasAtual.GetValueOrDefault(cartao.Id),
-                faturasProximoMes.GetValueOrDefault(cartao.Id),
-                futuroPorCartao.GetValueOrDefault(cartao.Id)))
+                faturasProximoMes.GetValueOrDefault(cartao.Id)))
             .ToList();
     }
 
@@ -64,8 +62,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             return null;
         }
 
-        var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
         var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var usoPorCartao = await CalcularUsoDetalhadoPorCartaoAsync(usuarioId, hoje, cancellationToken);
         var faturaAtual = (await _transacaoService.GetFaturasDoMesAsync(
                 hoje.Month,
                 hoje.Year,
@@ -79,14 +77,12 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
                 usuarioId,
                 cancellationToken))
             .FirstOrDefault(fatura => fatura.CartaoCreditoId == cartao.Id);
-        var futuroPorCartao = await CalcularCompromissoFuturoAsync(usuarioId, hoje, cancellationToken);
 
         return Mapear(
             cartao,
             usoPorCartao.GetValueOrDefault(cartao.Id),
             faturaAtual,
-            proximaFatura,
-            futuroPorCartao.GetValueOrDefault(cartao.Id));
+            proximaFatura);
     }
 
     public async Task<CartaoCreditoResponse> CriarAsync(
@@ -111,7 +107,7 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         _dbContext.CartoesCredito.Add(cartao);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return Mapear(cartao, 0m, null, null, default);
+        return Mapear(cartao, default, null, null);
     }
 
     public async Task<CartaoCreditoResponse?> AtualizarAsync(
@@ -137,8 +133,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         cartao.ContaBancariaId = request.ContaBancariaId;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
-        var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
         var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var usoPorCartao = await CalcularUsoDetalhadoPorCartaoAsync(usuarioId, hoje, cancellationToken);
         var faturaAtual = (await _transacaoService.GetFaturasDoMesAsync(
                 hoje.Month,
                 hoje.Year,
@@ -152,14 +148,12 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
                 usuarioId,
                 cancellationToken))
             .FirstOrDefault(fatura => fatura.CartaoCreditoId == cartao.Id);
-        var futuroPorCartao = await CalcularCompromissoFuturoAsync(usuarioId, hoje, cancellationToken);
 
         return Mapear(
             cartao,
             usoPorCartao.GetValueOrDefault(cartao.Id),
             faturaAtual,
-            proximaFatura,
-            futuroPorCartao.GetValueOrDefault(cartao.Id));
+            proximaFatura);
     }
 
     public async Task<CartaoCreditoResponse?> ArquivarAsync(
@@ -176,8 +170,9 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         cartao.IsArquivado = true;
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
-        return Mapear(cartao, usoPorCartao.GetValueOrDefault(cartao.Id), null, null, default);
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var usoPorCartao = await CalcularUsoDetalhadoPorCartaoAsync(usuarioId, hoje, cancellationToken);
+        return Mapear(cartao, usoPorCartao.GetValueOrDefault(cartao.Id), null, null);
     }
 
     public async Task<bool> ExcluirAsync(Guid id, Guid usuarioId, CancellationToken cancellationToken = default)
@@ -226,103 +221,22 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             .SingleOrDefaultAsync(cartao => cartao.Id == id && cartao.UsuarioId == usuarioId, cancellationToken);
     }
 
-    private async Task<Dictionary<Guid, decimal>> CalcularUsoPorCartaoAsync(
+    private async Task<Dictionary<Guid, UsoCartaoDetalhado>> CalcularUsoDetalhadoPorCartaoAsync(
         Guid usuarioId,
+        DateOnly hoje,
         CancellationToken cancellationToken)
     {
-        var transacoes = await _dbContext.Transacoes
+        var cartoes = await _dbContext.CartoesCredito
             .AsNoTracking()
-            .Where(transacao =>
-                transacao.UsuarioId == usuarioId &&
-                transacao.CartaoCreditoId.HasValue &&
-                !transacao.CompraParceladaId.HasValue &&
-                transacao.FormaPagamento != FormaPagamentoFaturaCartao)
-            .Select(transacao => new
-            {
-                CartaoId = transacao.CartaoCreditoId!.Value,
-                ValorLimite = transacao.IsDividida && transacao.ValorTotalOriginal.HasValue
-                    ? transacao.ValorTotalOriginal.Value
-                    : transacao.Valor
-            })
+            .Where(cartao => cartao.UsuarioId == usuarioId)
+            .Select(cartao => cartao.Id)
             .ToListAsync(cancellationToken);
 
-        var comprasParceladas = await _dbContext.ComprasParceladas
-            .AsNoTracking()
-            .Where(compra =>
-                compra.UsuarioId == usuarioId &&
-                compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito &&
-                compra.CartaoCreditoId.HasValue)
-            .Select(compra => new
-            {
-                compra.Id,
-                CartaoId = compra.CartaoCreditoId!.Value,
-                compra.QuantidadeParcelas,
-                compra.IsDividida,
-                compra.ValorTotalOriginal,
-                compra.ValorTotal,
-                ValorLimite = compra.IsDividida && compra.ValorTotalOriginal.HasValue
-                    ? compra.ValorTotalOriginal.Value
-                    : compra.ValorTotal
-            })
-            .ToListAsync(cancellationToken);
-
-        var comprasIds = comprasParceladas.Select(compra => compra.Id).ToList();
-        var parcelasQuitadas = await _dbContext.Transacoes
-            .AsNoTracking()
-            .Where(transacao =>
-                transacao.UsuarioId == usuarioId &&
-                transacao.CompraParceladaId.HasValue &&
-                comprasIds.Contains(transacao.CompraParceladaId.Value) &&
-                transacao.NumeroParcelaQuitada.HasValue)
-            .Select(transacao => new
-            {
-                CompraParceladaId = transacao.CompraParceladaId!.Value,
-                NumeroParcela = transacao.NumeroParcelaQuitada!.Value
-            })
-            .ToListAsync(cancellationToken);
-
-        var parcelasQuitadasPorCompra = parcelasQuitadas
-            .GroupBy(parcela => parcela.CompraParceladaId)
-            .ToDictionary(
-                grupo => grupo.Key,
-                grupo => grupo.Select(parcela => parcela.NumeroParcela).Distinct().ToList());
-
-        var usoComprasParceladas = comprasParceladas.Select(compra =>
+        if (cartoes.Count == 0)
         {
-            var valorRestituido = parcelasQuitadasPorCompra
-                .GetValueOrDefault(compra.Id, [])
-                .Where(numeroParcela => numeroParcela >= 1 && numeroParcela <= compra.QuantidadeParcelas)
-                .Sum(numeroParcela => CalcularValorParcela(
-                    compra.IsDividida && compra.ValorTotalOriginal.HasValue
-                        ? compra.ValorTotalOriginal.Value
-                        : compra.ValorTotal,
-                    compra.QuantidadeParcelas,
-                    numeroParcela));
+            return [];
+        }
 
-            return new
-            {
-                compra.CartaoId,
-                ValorLimite = Math.Max(0m, compra.ValorLimite - valorRestituido)
-            };
-        });
-
-        var usoBrutoPorCartao = transacoes
-            .Concat(usoComprasParceladas)
-            .GroupBy(item => item.CartaoId)
-            .ToDictionary(grupo => grupo.Key, grupo => grupo.Sum(item => item.ValorLimite));
-
-        var faturasPagasPorCartao = await CalcularFaturasPagasPorCartaoAsync(usuarioId, cancellationToken);
-
-        return usoBrutoPorCartao
-            .ToDictionary(
-                item => item.Key,
-                item => Math.Max(0m, item.Value - faturasPagasPorCartao.GetValueOrDefault(item.Key)));
-    }
-
-    private async Task<Dictionary<Guid, decimal>> CalcularFaturasPagasPorCartaoAsync(
-        Guid usuarioId,
-        CancellationToken cancellationToken)
-    {
         var primeiraTransacaoCredito = await _dbContext.Transacoes
             .AsNoTracking()
             .Where(transacao =>
@@ -332,13 +246,22 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
                 transacao.FormaPagamento != FormaPagamentoFaturaCartao)
             .MinAsync(transacao => (DateOnly?)transacao.DataOcorrencia, cancellationToken);
 
-        var primeiraCompraParceladaCredito = await _dbContext.ComprasParceladas
+        var comprasParceladas = await _dbContext.ComprasParceladas
             .AsNoTracking()
             .Where(compra =>
                 compra.UsuarioId == usuarioId &&
                 compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito &&
                 compra.CartaoCreditoId.HasValue)
-            .MinAsync(compra => (DateOnly?)compra.DataCompra, cancellationToken);
+            .Select(compra => new
+            {
+                compra.DataCompra,
+                compra.QuantidadeParcelas
+            })
+            .ToListAsync(cancellationToken);
+
+        var primeiraCompraParceladaCredito = comprasParceladas.Count == 0
+            ? null
+            : comprasParceladas.Min(compra => (DateOnly?)compra.DataCompra);
 
         var primeiraDataCredito = new[] { primeiraTransacaoCredito, primeiraCompraParceladaCredito }
             .Where(data => data.HasValue)
@@ -351,20 +274,36 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             return [];
         }
 
-        var hoje = DateOnly.FromDateTime(DateTime.Today);
-        var ultimaFaturaMarcada = await _dbContext.FaturasCartaoPagamentos
+        var ultimaTransacaoCredito = await _dbContext.Transacoes
             .AsNoTracking()
-            .Where(pagamento =>
-                pagamento.UsuarioId == usuarioId &&
-                pagamento.IsPaga)
-            .MaxAsync(pagamento => (DateOnly?)pagamento.DataVencimento, cancellationToken);
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.CartaoCreditoId.HasValue &&
+                transacao.Tipo == TipoTransacao.Despesa &&
+                transacao.FormaPagamento != FormaPagamentoFaturaCartao)
+            .MaxAsync(transacao => (DateOnly?)transacao.DataOcorrencia, cancellationToken);
 
-        var ultimoMesReferencia = ultimaFaturaMarcada.HasValue && ultimaFaturaMarcada.Value > hoje
-            ? new DateOnly(ultimaFaturaMarcada.Value.Year, ultimaFaturaMarcada.Value.Month, 1)
-            : new DateOnly(hoje.Year, hoje.Month, 1);
+        var ultimaParcelaCredito = comprasParceladas.Count == 0
+            ? null
+            : comprasParceladas.Max(compra =>
+            {
+                var mesFinal = new DateOnly(compra.DataCompra.Year, compra.DataCompra.Month, 1)
+                    .AddMonths(compra.QuantidadeParcelas - 1);
+                return (DateOnly?)AjustarDiaMes(mesFinal.Year, mesFinal.Month, compra.DataCompra.Day).AddMonths(1);
+            });
+
+        var ultimaDataCredito = new DateOnly?[] { ultimaTransacaoCredito, ultimaParcelaCredito, hoje }
+            .Where(data => data.HasValue)
+            .Select(data => data!.Value)
+            .Max();
+
+        var mesAtual = new DateOnly(hoje.Year, hoje.Month, 1);
+        var ultimoMesReferencia = new DateOnly(ultimaDataCredito.Year, ultimaDataCredito.Month, 1);
 
         var cursor = new DateOnly(primeiraDataCredito.Year, primeiraDataCredito.Month, 1);
-        var faturasPagasPorCartao = new Dictionary<Guid, decimal>();
+        var usoPorCartao = cartoes.ToDictionary(
+            cartaoId => cartaoId,
+            _ => UsoCartaoDetalhado.Vazio);
 
         while (cursor <= ultimoMesReferencia)
         {
@@ -374,74 +313,81 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
                 usuarioId,
                 cancellationToken);
 
-            foreach (var fatura in faturasDoMes.Where(fatura => fatura.IsPaga && fatura.ValorTotal > 0))
+            foreach (var fatura in faturasDoMes.Where(fatura => !fatura.IsPaga && fatura.Detalhes.Count > 0))
             {
-                faturasPagasPorCartao[fatura.CartaoCreditoId] =
-                    faturasPagasPorCartao.GetValueOrDefault(fatura.CartaoCreditoId) +
-                    fatura.Detalhes.Sum(detalhe =>
-                        detalhe.IsDividida && detalhe.ValorTotalOriginal.HasValue
-                            ? detalhe.ValorTotalOriginal.Value
-                            : detalhe.Valor);
+                var atual = usoPorCartao.GetValueOrDefault(fatura.CartaoCreditoId);
+                var valorLimiteFatura = SomarValorLimite(fatura.Detalhes);
+
+                if (cursor < mesAtual)
+                {
+                    usoPorCartao[fatura.CartaoCreditoId] = atual with
+                    {
+                        ValorFaturasFechadasNaoPagas = atual.ValorFaturasFechadasNaoPagas + valorLimiteFatura
+                    };
+                    continue;
+                }
+
+                if (cursor == mesAtual)
+                {
+                    usoPorCartao[fatura.CartaoCreditoId] = atual with
+                    {
+                        ValorFaturaAtual = atual.ValorFaturaAtual + valorLimiteFatura
+                    };
+                    continue;
+                }
+
+                var parcelasFuturas = fatura.Detalhes
+                    .Where(detalhe => detalhe.CompraParceladaId.HasValue)
+                    .ToList();
+                var valorParcelasFuturas = SomarValorLimite(parcelasFuturas);
+                var valorProximasFaturas = valorLimiteFatura - valorParcelasFuturas;
+
+                usoPorCartao[fatura.CartaoCreditoId] = atual with
+                {
+                    ValorProximasFaturas = atual.ValorProximasFaturas + valorProximasFaturas,
+                    QuantidadeParcelasFuturas = atual.QuantidadeParcelasFuturas + parcelasFuturas.Count,
+                    ValorParcelasFuturas = atual.ValorParcelasFuturas + valorParcelasFuturas
+                };
             }
 
             cursor = cursor.AddMonths(1);
         }
 
-        return faturasPagasPorCartao;
+        return usoPorCartao;
     }
 
-    private static decimal CalcularValorParcela(decimal valorTotal, int quantidadeParcelas, int numeroParcela)
+    private static decimal SomarValorLimite(IEnumerable<FaturaDetalheResponse> detalhes)
     {
-        var valorBase = Math.Round(valorTotal / quantidadeParcelas, 2, MidpointRounding.AwayFromZero);
-        return numeroParcela == quantidadeParcelas
-            ? valorTotal - (valorBase * (quantidadeParcelas - 1))
-            : valorBase;
+        return detalhes.Sum(detalhe =>
+            detalhe.IsDividida && detalhe.ValorTotalOriginal.HasValue
+                ? detalhe.ValorTotalOriginal.Value
+                : detalhe.Valor);
     }
 
-    private async Task<Dictionary<Guid, CompromissoFuturoCartao>> CalcularCompromissoFuturoAsync(
-        Guid usuarioId,
-        DateOnly hoje,
-        CancellationToken cancellationToken)
+    private static void ValidarInvarianciaLimite(decimal limiteTotal, decimal limiteDisponivel, decimal valorUtilizado)
     {
-        var compras = await _dbContext.ComprasParceladas
-            .AsNoTracking()
-            .Where(compra =>
-                compra.UsuarioId == usuarioId &&
-                compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito &&
-                compra.CartaoCreditoId.HasValue &&
-                compra.DataCompra > hoje)
-            .Select(compra => new
-            {
-                CartaoId = compra.CartaoCreditoId!.Value,
-                compra.IsDividida,
-                compra.ValorTotalOriginal,
-                compra.ValorTotal
-            })
-            .ToListAsync(cancellationToken);
-
-        return compras
-            .GroupBy(compra => compra.CartaoId)
-            .ToDictionary(
-                grupo => grupo.Key,
-                grupo => new CompromissoFuturoCartao(
-                    grupo.Count(),
-                    grupo.Sum(compra =>
-                        compra.IsDividida && compra.ValorTotalOriginal.HasValue
-                            ? compra.ValorTotalOriginal.Value
-                            : compra.ValorTotal)));
+        if (limiteTotal - limiteDisponivel != valorUtilizado)
+        {
+            throw new InvalidOperationException("Invariância de limite do cartão violada.");
+        }
     }
 
     private static CartaoCreditoResponse Mapear(
         CartaoCredito cartao,
-        decimal valorUtilizado,
+        UsoCartaoDetalhado uso,
         FaturaConsolidadaResponse? faturaAtual,
-        FaturaConsolidadaResponse? proximaFatura,
-        CompromissoFuturoCartao futuro)
+        FaturaConsolidadaResponse? proximaFatura)
     {
-        var valorUtilizadoAtual = Math.Max(0m, valorUtilizado);
+        // Regra de limite: o valor utilizado é a soma das competências de fatura ainda não pagas.
+        // Parcelas futuras são projetadas pela competência de vencimento da fatura, não pela data da compra.
+        var valorUtilizadoAtual = uso.ValorUtilizado;
+        var limiteDisponivel = cartao.LimiteTotal - valorUtilizadoAtual;
+        ValidarInvarianciaLimite(cartao.LimiteTotal, limiteDisponivel, valorUtilizadoAtual);
+
         var hoje = DateOnly.FromDateTime(DateTime.Today);
-        var dataVencimento = faturaAtual?.DataVencimento ?? AjustarDiaMes(hoje.Year, hoje.Month, cartao.DiaVencimento);
-        var dataFechamento = faturaAtual?.FimCompetencia ?? AjustarDiaMes(hoje.Year, hoje.Month, cartao.MelhorDiaCompra).AddDays(-1);
+        var possuiFaturaAtual = faturaAtual is not null && faturaAtual.Detalhes.Count > 0;
+        DateOnly? dataVencimento = possuiFaturaAtual ? faturaAtual!.DataVencimento : null;
+        DateOnly? dataFechamento = possuiFaturaAtual ? faturaAtual!.FimCompetencia : null;
 
         return new CartaoCreditoResponse
         {
@@ -455,21 +401,33 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             ContaBancariaId = cartao.ContaBancariaId,
             ContaBancariaNome = cartao.ContaBancaria?.NomeCustomizado,
             IsArquivado = cartao.IsArquivado,
+            ValorFaturaAtual = uso.ValorFaturaAtual,
+            ValorFaturasFechadasNaoPagas = uso.ValorFaturasFechadasNaoPagas,
+            ValorProximasFaturas = uso.ValorProximasFaturas,
+            QuantidadeParcelasFuturas = uso.QuantidadeParcelasFuturas,
+            ValorParcelasFuturas = uso.ValorParcelasFuturas,
+            ValorOutrosCompromissos = uso.ValorOutrosCompromissos,
             ValorUtilizado = valorUtilizadoAtual,
-            LimiteDisponivel = cartao.LimiteTotal - valorUtilizadoAtual,
+            LimiteDisponivel = limiteDisponivel,
             PercentualUtilizado = cartao.LimiteTotal <= 0
                 ? 0
                 : Math.Round((valorUtilizadoAtual / cartao.LimiteTotal) * 100, 2),
-            FaturaAtual = faturaAtual?.ValorTotal ?? 0,
-            StatusFaturaAtual = faturaAtual?.IsPaga == true
+            FaturaAtual = possuiFaturaAtual ? faturaAtual!.ValorTotal : 0,
+            StatusFaturaAtual = !possuiFaturaAtual
+                ? "SemFatura"
+                : faturaAtual!.IsPaga == true
                 ? "Paga"
-                : faturaAtual?.Status ?? "Aberta",
+                : faturaAtual.Status,
             DataFechamentoAtual = dataFechamento,
             DataVencimentoAtual = dataVencimento,
-            DiasParaFechamento = dataFechamento.DayNumber - hoje.DayNumber,
-            DiasParaVencimento = dataVencimento.DayNumber - hoje.DayNumber,
-            ComprasParceladasFuturas = futuro.QuantidadeCompras,
-            LimiteComprometidoFuturo = futuro.ValorComprometido,
+            DiasParaFechamento = dataFechamento.HasValue
+                ? dataFechamento.Value.DayNumber - hoje.DayNumber
+                : null,
+            DiasParaVencimento = dataVencimento.HasValue
+                ? dataVencimento.Value.DayNumber - hoje.DayNumber
+                : null,
+            ComprasParceladasFuturas = uso.QuantidadeParcelasFuturas,
+            LimiteComprometidoFuturo = uso.ValorProximasFaturas + uso.ValorParcelasFuturas + uso.ValorOutrosCompromissos,
             ProximaFaturaValor = proximaFatura?.ValorTotal ?? 0,
             ProximaFaturaVencimento = proximaFatura?.DataVencimento
         };
@@ -523,5 +481,21 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         }
     }
 
-    private readonly record struct CompromissoFuturoCartao(int QuantidadeCompras, decimal ValorComprometido);
+    private readonly record struct UsoCartaoDetalhado(
+        decimal ValorFaturaAtual,
+        decimal ValorFaturasFechadasNaoPagas,
+        decimal ValorProximasFaturas,
+        int QuantidadeParcelasFuturas,
+        decimal ValorParcelasFuturas,
+        decimal ValorOutrosCompromissos)
+    {
+        public static UsoCartaoDetalhado Vazio => new(0m, 0m, 0m, 0, 0m, 0m);
+
+        public decimal ValorUtilizado =>
+            ValorFaturaAtual +
+            ValorFaturasFechadasNaoPagas +
+            ValorProximasFaturas +
+            ValorParcelasFuturas +
+            ValorOutrosCompromissos;
+    }
 }

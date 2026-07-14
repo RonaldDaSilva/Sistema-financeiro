@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import axios from "axios";
 import { useQueryClient } from "@tanstack/react-query";
 import { Archive, CreditCard, Eye, Pencil, Plus, X } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
@@ -143,6 +144,48 @@ export function CardsPage() {
     }
   }
 
+  async function pagarFatura(cartao: CartaoCredito, confirmarSemSaldo = false) {
+    if (!cartao.dataVencimentoAtual || cartao.statusFaturaAtual === "SemFatura") {
+      return;
+    }
+
+    try {
+      await financeService.alternarStatusFatura(cartao.id, cartao.dataVencimentoAtual, {
+        confirmarSemSaldo,
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
+        queryClient.invalidateQueries({ queryKey: ["faturas"] }),
+        queryClient.invalidateQueries({ queryKey: ["extrato"] }),
+        queryClient.invalidateQueries({ queryKey: ["contas"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
+      ]);
+    } catch (error) {
+      const responseData = axios.isAxiosError(error) ? error.response?.data : null;
+      const erroCodigo = responseData?.erro;
+      const mensagem = responseData?.mensagem ?? responseData?.message;
+
+      if (erroCodigo === "SALDO_INSUFICIENTE") {
+        const confirmed = await confirm({
+          title: "Saldo insuficiente",
+          message:
+            mensagem ??
+            "A conta vinculada não possui saldo suficiente. Deseja confirmar usando o limite da conta?",
+          confirmLabel: "Confirmar pagamento",
+          variant: "danger",
+        });
+
+        if (confirmed) {
+          await pagarFatura(cartao, true);
+        }
+
+        return;
+      }
+
+      setErro(mensagem ?? "Não foi possível pagar a fatura.");
+    }
+  }
+
   return (
     <AppLayout>
       <section className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
@@ -191,18 +234,25 @@ export function CardsPage() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {cartoes.map((cartao) => {
               const disponivel = cartao.limiteDisponivel;
-              const utilizado = cartao.valorUtilizado ?? Math.max(0, cartao.limiteTotal - disponivel);
-              const percentualUtilizado = Math.min(100, Math.max(0, cartao.percentualUtilizado ?? 0));
+              const utilizado = cartao.valorUtilizado;
+              const percentualUtilizado = Math.min(100, Math.max(0, cartao.percentualUtilizado));
               const contaDebito = contas.find(
                 (conta) => conta.id === cartao.contaBancariaId,
               );
+              const possuiFaturaAtual = cartao.statusFaturaAtual !== "SemFatura";
+              const podePagarFatura =
+                possuiFaturaAtual &&
+                cartao.statusFaturaAtual !== "Paga" &&
+                Boolean(cartao.dataVencimentoAtual);
               const alertas = [
                 percentualUtilizado >= 90 ? "Uso acima de 90%" : null,
                 percentualUtilizado >= 70 && percentualUtilizado < 90
                   ? "Uso acima de 70%"
                   : null,
                 cartao.statusFaturaAtual === "Vencida" ? "Fatura vencida" : null,
-                cartao.diasParaFechamento >= 0 && cartao.diasParaFechamento <= 3
+                cartao.diasParaFechamento !== null &&
+                cartao.diasParaFechamento >= 0 &&
+                cartao.diasParaFechamento <= 3
                   ? "Fechamento próximo"
                   : null,
                 !cartao.contaBancariaId ? "Sem conta vinculada" : null,
@@ -223,9 +273,11 @@ export function CardsPage() {
                         <h3 className="font-semibold text-slate-900 dark:text-white">
                           {cartao.apelidoCartao}
                         </h3>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                          Vencimento dia {cartao.diaVencimento}
-                        </p>
+                        {cartao.banco && cartao.banco !== cartao.apelidoCartao && (
+                          <p className="text-sm text-slate-500 dark:text-slate-400">
+                            {cartao.banco}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -258,7 +310,7 @@ export function CardsPage() {
                     </div>
                   </div>
 
-                  <div className="mt-5">
+                  <section className="mt-5" aria-label="Limite do cartão">
                     <div className="mb-2 flex items-center justify-between gap-3 text-sm">
                       <span className="font-medium text-slate-500 dark:text-slate-400">
                         Utilizado
@@ -273,86 +325,134 @@ export function CardsPage() {
                         style={{ width: `${percentualUtilizado}%` }}
                       />
                     </div>
-                  </div>
+                    <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                      <MetricItem label="Limite total" value={formatCurrency(cartao.limiteTotal)} />
+                      <MetricItem
+                        label="Disponível"
+                        value={formatCurrency(disponivel)}
+                        valueClassName={disponivel >= 0 ? "text-emerald-700" : "text-red-700"}
+                      />
+                    </dl>
+                  </section>
 
-                  <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <dt className="text-slate-500 dark:text-slate-400">Limite total</dt>
-                      <dd className="font-semibold text-slate-900 dark:text-white">
-                        {formatCurrency(cartao.limiteTotal)}
-                      </dd>
+                  <section
+                    className="mt-4 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950/70"
+                    aria-label="Fatura atual"
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                          Fatura atual
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {possuiFaturaAtual
+                            ? "Competência consolidada do cartão"
+                            : "Nenhuma fatura nesta competência"}
+                        </p>
+                      </div>
+                      <span className={getFaturaStatusClass(cartao.statusFaturaAtual)}>
+                        {getFaturaStatusLabel(cartao.statusFaturaAtual)}
+                      </span>
                     </div>
-                    <div>
-                      <dt className="text-slate-500 dark:text-slate-400">Disponível</dt>
-                      <dd
-                        className={`font-semibold ${
-                          disponivel >= 0 ? "text-emerald-700" : "text-red-700"
-                        }`}
+                    <dl className="grid grid-cols-2 gap-3 text-sm">
+                      <MetricItem label="Valor" value={formatCurrency(cartao.faturaAtual)} />
+                      <MetricItem
+                        label="Fechamento"
+                        value={formatDateSemantic(cartao.dataFechamentoAtual, "Sem fechamento nesta competência")}
+                      />
+                      <MetricItem
+                        label="Vencimento da fatura"
+                        value={formatDateSemantic(cartao.dataVencimentoAtual, "Sem vencimento nesta competência")}
+                      />
+                      <MetricItem
+                        label="Dia configurado"
+                        value={`Dia ${cartao.diaVencimento}`}
+                      />
+                    </dl>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                      <button
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-900"
+                        type="button"
+                        aria-label={`Ver fatura atual do cartão ${cartao.apelidoCartao}`}
                       >
-                        {formatCurrency(disponivel)}
-                      </dd>
+                        Ver fatura
+                      </button>
+                      {podePagarFatura ? (
+                        <button
+                          className="rounded-xl bg-[var(--app-accent)] px-3 py-2 text-sm font-bold text-[var(--app-accent-contrast)] transition hover:opacity-90 dark:bg-emerald-500 dark:text-slate-950"
+                          type="button"
+                          onClick={() => pagarFatura(cartao)}
+                          aria-label={`Pagar fatura do cartão ${cartao.apelidoCartao}`}
+                        >
+                          Pagar fatura
+                        </button>
+                      ) : (
+                        <span className="rounded-xl border border-transparent px-3 py-2 text-center text-sm font-semibold text-slate-500 dark:text-slate-400">
+                          {cartao.statusFaturaAtual === "Paga" ? "Fatura paga" : "Sem pagamento pendente"}
+                        </span>
+                      )}
                     </div>
-                    <div>
-                      <dt className="text-slate-500 dark:text-slate-400">Vencimento</dt>
-                      <dd className="font-semibold text-slate-900 dark:text-white">
-                        Dia {cartao.diaVencimento}
-                      </dd>
+                  </section>
+
+                  <section className="mt-4" aria-label="Informações complementares">
+                    <dl className="grid grid-cols-2 gap-3 text-sm">
+                      <MetricItem label="Melhor dia de compra" value={`Dia ${cartao.melhorDiaCompra}`} />
+                      <MetricItem
+                        label="Conta de pagamento"
+                        value={cartao.contaBancariaNome ?? contaDebito?.nomeCustomizado ?? "Nenhuma conta vinculada"}
+                      />
+                      <MetricItem label="Parcelas futuras" value={`${cartao.comprasParceladasFuturas}`} />
+                      <MetricItem
+                        label="Comprometido futuro"
+                        value={formatCurrency(cartao.limiteComprometidoFuturo)}
+                      />
+                      <MetricItem
+                        label="Próxima fatura"
+                        value={
+                          cartao.proximaFaturaValor > 0
+                            ? `${formatCurrency(cartao.proximaFaturaValor)} em ${formatDateSemantic(
+                                cartao.proximaFaturaVencimento,
+                                "data não informada",
+                              )}`
+                            : "Nenhuma próxima fatura"
+                        }
+                        className="col-span-2"
+                      />
+                    </dl>
+                  </section>
+
+                  <div className="mt-4 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950/70">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                        Composição do limite
+                      </p>
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        Total: {formatCurrency(cartao.valorUtilizado)}
+                      </span>
                     </div>
-                    <div>
-                      <dt className="text-slate-500 dark:text-slate-400">Melhor compra</dt>
-                      <dd className="font-semibold text-slate-900 dark:text-white">
-                        Dia {cartao.melhorDiaCompra}
-                      </dd>
-                    </div>
-                    <div className="col-span-2">
-                      <dt className="text-slate-500 dark:text-slate-400">
-                        Conta para débito automático
-                      </dt>
-                      <dd className="font-semibold text-slate-900 dark:text-white">
-                        {cartao.contaBancariaNome ?? contaDebito?.nomeCustomizado ?? "Não vinculada"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-slate-500 dark:text-slate-400">Fatura atual</dt>
-                      <dd className="font-semibold text-slate-900 dark:text-white">
-                        {formatCurrency(cartao.faturaAtual ?? 0)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-slate-500 dark:text-slate-400">Status</dt>
-                      <dd className="font-semibold text-slate-900 dark:text-white">
-                        {cartao.statusFaturaAtual || "Aberta"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-slate-500 dark:text-slate-400">Fechamento</dt>
-                      <dd className="font-semibold text-slate-900 dark:text-white">
-                        {cartao.dataFechamentoAtual
-                          ? new Date(`${cartao.dataFechamentoAtual}T00:00:00`).toLocaleDateString("pt-BR")
-                          : "-"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-slate-500 dark:text-slate-400">Vencimento</dt>
-                      <dd className="font-semibold text-slate-900 dark:text-white">
-                        {cartao.dataVencimentoAtual
-                          ? new Date(`${cartao.dataVencimentoAtual}T00:00:00`).toLocaleDateString("pt-BR")
-                          : "-"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-slate-500 dark:text-slate-400">Parcelas futuras</dt>
-                      <dd className="font-semibold text-slate-900 dark:text-white">
-                        {cartao.comprasParceladasFuturas ?? 0}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-slate-500 dark:text-slate-400">Comprometido futuro</dt>
-                      <dd className="font-semibold text-slate-900 dark:text-white">
-                        {formatCurrency(cartao.limiteComprometidoFuturo ?? 0)}
-                      </dd>
-                    </div>
-                  </dl>
+                    <dl className="grid gap-2 text-xs text-slate-600 dark:text-slate-300">
+                      <BreakdownRow
+                        label="Faturas fechadas não pagas"
+                        value={cartao.valorFaturasFechadasNaoPagas}
+                      />
+                      <BreakdownRow
+                        label="Fatura atual no limite"
+                        value={cartao.valorFaturaAtual}
+                      />
+                      <BreakdownRow
+                        label="Próximas faturas"
+                        value={cartao.valorProximasFaturas}
+                      />
+                      <BreakdownRow
+                        label={`Parcelas futuras (${cartao.quantidadeParcelasFuturas})`}
+                        value={cartao.valorParcelasFuturas}
+                      />
+                      <BreakdownRow
+                        label="Outros compromissos"
+                        value={cartao.valorOutrosCompromissos}
+                      />
+                    </dl>
+                  </div>
                   {alertas.length > 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
                       {alertas.map((alerta) => (
@@ -517,6 +617,74 @@ function CartaoModal({
       </form>
     </div>
   );
+}
+
+function BreakdownRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="truncate">{label}</dt>
+      <dd className="shrink-0 font-semibold text-slate-800 dark:text-slate-100">
+        {formatCurrency(value)}
+      </dd>
+    </div>
+  );
+}
+
+function MetricItem({
+  label,
+  value,
+  className = "",
+  valueClassName = "text-slate-900 dark:text-white",
+}: {
+  label: string;
+  value: string;
+  className?: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className={className}>
+      <dt className="text-slate-500 dark:text-slate-400">{label}</dt>
+      <dd className={`font-semibold ${valueClassName}`}>{value}</dd>
+    </div>
+  );
+}
+
+function formatDateSemantic(value: string | null, fallback: string) {
+  if (!value) {
+    return fallback;
+  }
+
+  return new Date(`${value}T00:00:00`).toLocaleDateString("pt-BR");
+}
+
+function getFaturaStatusLabel(status: string) {
+  if (status === "SemFatura") {
+    return "Sem fatura";
+  }
+
+  return status || "Sem fatura";
+}
+
+function getFaturaStatusClass(status: string) {
+  const base = "rounded-full px-2.5 py-1 text-xs font-bold";
+
+  if (status === "Paga") {
+    return `${base} bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300`;
+  }
+
+  if (status === "Vencida") {
+    return `${base} bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300`;
+  }
+
+  if (status === "Fechada") {
+    return `${base} bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300`;
+  }
+
+  if (status === "Aberta") {
+    return `${base} bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300`;
+  }
+
+  return `${base} bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300`;
 }
 
 function TextField({

@@ -316,9 +316,12 @@ export function DashboardPage() {
 
     const tipoTransacao = nextPeriodo.tipoTransacao ?? "todos";
     const categoriaIds = obterCategoriaIdsPeriodo(nextPeriodo);
-    tipoTransacao === "todos"
-      ? nextParams.delete("tipo")
-      : nextParams.set("tipo", tipoTransacao);
+    if (tipoTransacao === "todos") {
+      nextParams.delete("tipo");
+    } else {
+      nextParams.set("tipo", tipoTransacao);
+    }
+
     if (categoriaIds.length > 0) {
       nextParams.set("categorias", categoriaIds.join(","));
       nextParams.set("categoria", categoriaIds[0]);
@@ -342,60 +345,6 @@ export function DashboardPage() {
     }
     setSearchParams(nextParams, { replace: true });
   }
-
-  const resumoApi = useMemo(() => {
-    const extratos = extratosQueries
-      .map((query, index) => {
-        const data = query.data;
-        const referencia = mesesPeriodo[index];
-
-        return data &&
-          referencia &&
-          data.mes === referencia.mes &&
-          data.ano === referencia.ano
-          ? data
-          : null;
-      })
-      .filter((data): data is ExtratoMensal => Boolean(data));
-
-    return extratos.reduce(
-      (acc, item) => {
-        acc.totalRecebido += item.receitasDoMes ?? item.totalReceitas;
-        acc.totalGasto += item.despesasDoMes ?? item.totalDespesas;
-        acc.totalInvestido += item.investimentosDoMes ?? item.totalInvestido;
-        acc.balancoDoMes +=
-          item.balancoDoMes ??
-          (item.totalReceitas - item.totalDespesas - item.totalInvestido);
-
-        if (acc.saldoAtualGlobal === null) {
-          acc.saldoAtualGlobal = item.saldoAtualGlobal ?? item.saldoAtual;
-        }
-
-        if (acc.saldoPrevistoFimDoMes === null) {
-          acc.saldoPrevistoFimDoMes = item.saldoPrevistoFimDoMes;
-        }
-
-        return acc;
-      },
-      {
-        totalGasto: 0,
-        totalRecebido: 0,
-        totalInvestido: 0,
-        balancoDoMes: 0,
-        saldoAtualGlobal: null as number | null,
-        saldoPrevistoFimDoMes: null as number | null,
-      },
-    );
-  }, [extratosQueries, mesesPeriodo]);
-
-  const resumo = {
-    totalGasto: resumoApi.totalGasto,
-    totalRecebido: resumoApi.totalRecebido,
-    totalInvestido: resumoApi.totalInvestido,
-    balancoDoMes: resumoApi.balancoDoMes,
-    saldoAtualGlobal: resumoApi.saldoAtualGlobal ?? 0,
-    saldoPrevistoFimDoMes: resumoApi.saldoPrevistoFimDoMes ?? 0,
-  };
 
   const resumoDivididas = useMemo(() => {
     return extratosQueries.reduce(
