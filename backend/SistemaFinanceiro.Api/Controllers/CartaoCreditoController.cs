@@ -109,6 +109,19 @@ public sealed class CartaoCreditoController : ControllerBase
         }
     }
 
+    [HttpPatch("{id:guid}/arquivar")]
+    public async Task<ActionResult<CartaoCreditoResponse>> Arquivar(Guid id, CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized(new { message = "Usuário não identificado no token." });
+        }
+
+        var cartao = await _cartaoCreditoService.ArquivarAsync(id, usuarioId.Value, cancellationToken);
+        return cartao is null ? NotFound() : Ok(cartao);
+    }
+
     private Guid? ObterUsuarioId()
     {
         var id = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");

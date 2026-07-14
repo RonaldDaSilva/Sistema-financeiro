@@ -43,8 +43,29 @@ export const queryKeys = {
   dashboardInicio: ["dashboard", "inicio"] as const,
   dashboardRelatorios: (mes: number, ano: number, contaBancariaId?: string | null) =>
     ["dashboard", "relatorios", mes, ano, contaBancariaId ?? "todas"] as const,
-  relatorios: (dataInicial: string, dataFinal: string) =>
-    ["relatorios", dataInicial, dataFinal] as const,
+  relatorios: (
+    dataInicial: string,
+    dataFinal: string,
+    contaBancariaId = "",
+    cartaoCreditoId = "",
+    categoriaIds: string[] = [],
+    tipoTransacao = "todos",
+    status = "todos",
+    somenteRecorrentes = false,
+    somenteParceladas = false,
+  ) =>
+    [
+      "relatorios",
+      dataInicial,
+      dataFinal,
+      contaBancariaId,
+      cartaoCreditoId,
+      normalizeKeyList(categoriaIds),
+      tipoTransacao,
+      status,
+      somenteRecorrentes,
+      somenteParceladas,
+    ] as const,
   configuracoesNotificacao: ["notificacoes", "configuracoes"] as const,
 };
 

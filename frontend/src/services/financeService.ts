@@ -2,6 +2,7 @@ import axios from 'axios';
 import { api } from './api';
 import type {
   AnteciparParcelaRequest,
+  AjustarSaldoContaRequest,
   CartaoCredito,
   ContaBancaria,
   ContaBancariaRequest,
@@ -19,6 +20,7 @@ import type {
   TipoTransacao,
   TipoTransacaoFiltro,
   StatusFiltro,
+  TransferenciaContaRequest,
   CampoOrdenacaoExtrato,
   DirecaoOrdenacao,
 } from '../types/finance';
@@ -28,6 +30,18 @@ export type ExportacaoParams = {
   dataFinal: string;
   categoriaId?: string | null;
   tipoTransacao?: TipoTransacaoFiltro;
+};
+
+export type RelatorioGraficosParams = {
+  dataInicial: string;
+  dataFinal: string;
+  contaBancariaId?: string | null;
+  cartaoCreditoId?: string | null;
+  categoriaIds?: string[];
+  tipoTransacao?: TipoTransacaoFiltro;
+  status?: 'todos' | 'realizado' | 'pendente';
+  somenteRecorrentes?: boolean;
+  somenteParceladas?: boolean;
 };
 
 export async function getExtratoMensal(
@@ -173,12 +187,26 @@ export async function getFaturasDoMes(mes: number, ano: number) {
   return data;
 }
 
-export async function getRelatorioGraficos(
-  dataInicial: string,
-  dataFinal: string,
-) {
+export async function getRelatorioGraficos(params: RelatorioGraficosParams) {
   const { data } = await api.get<RelatorioGraficos>('/api/relatorios/graficos', {
-    params: { dataInicial, dataFinal },
+    params: {
+      dataInicial: params.dataInicial,
+      dataFinal: params.dataFinal,
+      contaBancariaId: params.contaBancariaId || undefined,
+      cartaoCreditoId: params.cartaoCreditoId || undefined,
+      categoriaIds: params.categoriaIds?.length ? params.categoriaIds : undefined,
+      tipoTransacao:
+        params.tipoTransacao && params.tipoTransacao !== 'todos'
+          ? ({
+              receita: 'Receita',
+              despesa: 'Despesa',
+              investimento: 'Investimento',
+            }[params.tipoTransacao] ?? undefined)
+          : undefined,
+      status: params.status && params.status !== 'todos' ? params.status : undefined,
+      somenteRecorrentes: params.somenteRecorrentes || undefined,
+      somenteParceladas: params.somenteParceladas || undefined,
+    },
   });
 
   return data;
@@ -411,6 +439,11 @@ export async function excluirCartaoCredito(id: string) {
   await api.delete(`/api/cartoes-credito/${id}`);
 }
 
+export async function arquivarCartaoCredito(id: string) {
+  const { data } = await api.patch<CartaoCredito>(`/api/cartoes-credito/${id}/arquivar`);
+  return data;
+}
+
 export async function listarContasBancarias() {
   const { data } = await api.get<ContaBancaria[]>('/api/contas');
   return data;
@@ -436,6 +469,38 @@ export async function atualizarContaBancaria(
 
 export async function favoritarContaBancaria(id: string) {
   const { data } = await api.patch<ContaBancaria>(`/api/contas/${id}/favoritar`);
+  return data;
+}
+
+export async function arquivarContaBancaria(id: string) {
+  const { data } = await api.patch<ContaBancaria>(`/api/contas/${id}/arquivar`);
+  return data;
+}
+
+export async function ajustarSaldoContaBancaria(
+  id: string,
+  request: AjustarSaldoContaRequest,
+) {
+  const { data } = await api.post<{ id: string; diferenca: number }>(
+    `/api/contas/${id}/ajustar-saldo`,
+    {
+      saldoInformado: request.saldoInformado,
+      data: request.dataAjuste,
+      observacao: request.observacao,
+    },
+  );
+  return data;
+}
+
+export async function transferirEntreContas(request: TransferenciaContaRequest) {
+  const { data } = await api.post<{ transferenciaId: string }>('/api/contas/transferir', {
+    contaOrigemId: request.contaOrigemId,
+    contaDestinoId: request.contaDestinoId,
+    valor: request.valor,
+    data: request.dataTransferencia,
+    descricao: request.descricao,
+    confirmarSemSaldo: request.confirmarSemSaldo,
+  });
   return data;
 }
 

@@ -7,5 +7,7 @@ public sealed class ContaBancariaResponse
     public string CodigoBanco { get; set; } = string.Empty;
     public decimal SaldoInicial { get; set; }
     public bool IsFavorita { get; set; }
+    public bool IsArquivada { get; set; }
+    public bool PermiteEditarSaldoInicial { get; set; }
     public DateTimeOffset DataCriacao { get; set; }
 }

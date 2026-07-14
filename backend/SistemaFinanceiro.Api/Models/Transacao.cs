@@ -20,6 +20,11 @@ public sealed class Transacao : IHasGuidId, IMustHaveTenant
     public bool IsDividida { get; set; }
     public decimal? ValorTotalOriginal { get; set; }
     public decimal? PercentualDivisao { get; set; }
+    public OrigemTransacao OrigemTransacao { get; set; } = OrigemTransacao.Lancamento;
+    public Guid? TransferenciaId { get; set; }
+    public decimal? SaldoAnteriorAjuste { get; set; }
+    public decimal? SaldoInformadoAjuste { get; set; }
+    public string? Observacao { get; set; }
     public Guid? CompraParceladaId { get; set; }
     public int? NumeroParcelaQuitada { get; set; }
 

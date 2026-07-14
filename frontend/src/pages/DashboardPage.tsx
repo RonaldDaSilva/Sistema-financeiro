@@ -986,7 +986,7 @@ export function DashboardPage() {
           <DashboardInicioPanel hiddenValues={valoresOcultos} />
         )}
 
-        <div className="space-y-3">
+        <div id="movimentacoes-recentes" className="space-y-3 scroll-mt-24">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-xl font-bold text-slate-900 dark:text-white">
               Movimentações recentes

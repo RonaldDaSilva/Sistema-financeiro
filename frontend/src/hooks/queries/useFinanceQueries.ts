@@ -8,6 +8,7 @@ import type {
   StatusFiltro,
   TipoTransacaoFiltro,
 } from "../../types/finance";
+import type { RelatorioGraficosParams } from "../../services/financeService";
 
 type MesAno = {
   mes: number;
@@ -130,16 +131,25 @@ export function useFaturaMes(mes: number, ano: number) {
 }
 
 export function useRelatorioGraficos(
-  dataInicial: string,
-  dataFinal: string,
+  params: RelatorioGraficosParams,
 ) {
   const canFetch = hasUsableStoredAuth();
 
   return useQuery({
-    queryKey: queryKeys.relatorios(dataInicial, dataFinal),
+    queryKey: queryKeys.relatorios(
+      params.dataInicial,
+      params.dataFinal,
+      params.contaBancariaId ?? "",
+      params.cartaoCreditoId ?? "",
+      params.categoriaIds ?? [],
+      params.tipoTransacao ?? "todos",
+      params.status ?? "todos",
+      params.somenteRecorrentes ?? false,
+      params.somenteParceladas ?? false,
+    ),
     queryFn: () =>
-      financeService.getRelatorioGraficos(dataInicial, dataFinal),
-    enabled: canFetch && Boolean(dataInicial) && Boolean(dataFinal),
+      financeService.getRelatorioGraficos(params),
+    enabled: canFetch && Boolean(params.dataInicial) && Boolean(params.dataFinal),
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
   });

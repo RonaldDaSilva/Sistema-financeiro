@@ -20,8 +20,9 @@ public sealed class ContaBancariaService : IContaBancariaService
     {
         return await _dbContext.ContasBancarias
             .AsNoTracking()
-            .Where(conta => conta.UsuarioId == usuarioId)
-            .OrderBy(conta => conta.NomeCustomizado)
+            .Where(conta => conta.UsuarioId == usuarioId && !conta.IsArquivada)
+            .OrderByDescending(conta => conta.IsFavorita)
+            .ThenBy(conta => conta.NomeCustomizado)
             .Select(conta => new ContaBancariaResponse
             {
                 Id = conta.Id,
@@ -29,6 +30,8 @@ public sealed class ContaBancariaService : IContaBancariaService
                 CodigoBanco = conta.CodigoBanco,
                 SaldoInicial = conta.SaldoInicial,
                 IsFavorita = conta.IsFavorita,
+                IsArquivada = conta.IsArquivada,
+                PermiteEditarSaldoInicial = !conta.Transacoes.Any(),
                 DataCriacao = conta.DataCriacao
             })
             .ToListAsync(cancellationToken);
@@ -49,6 +52,8 @@ public sealed class ContaBancariaService : IContaBancariaService
                 CodigoBanco = conta.CodigoBanco,
                 SaldoInicial = conta.SaldoInicial,
                 IsFavorita = conta.IsFavorita,
+                IsArquivada = conta.IsArquivada,
+                PermiteEditarSaldoInicial = !conta.Transacoes.Any(),
                 DataCriacao = conta.DataCriacao
             })
             .SingleOrDefaultAsync(cancellationToken);
@@ -69,7 +74,7 @@ public sealed class ContaBancariaService : IContaBancariaService
 
         _dbContext.ContasBancarias.Add(conta);
         await _dbContext.SaveChangesAsync(cancellationToken);
-        return Mapear(conta);
+        return Mapear(conta, permiteEditarSaldoInicial: true);
     }
 
     public async Task<ContaBancariaResponse?> AtualizarAsync(
@@ -88,11 +93,22 @@ public sealed class ContaBancariaService : IContaBancariaService
             return null;
         }
 
+        var possuiMovimentacao = await _dbContext.Transacoes
+            .AsNoTracking()
+            .AnyAsync(
+                transacao => transacao.UsuarioId == usuarioId &&
+                    transacao.ContaBancariaId == id,
+                cancellationToken);
+
         conta.NomeCustomizado = request.NomeCustomizado.Trim();
         conta.CodigoBanco = request.CodigoBanco;
-        conta.SaldoInicial = request.SaldoInicial;
+        if (!possuiMovimentacao)
+        {
+            conta.SaldoInicial = request.SaldoInicial;
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
-        return Mapear(conta);
+        return Mapear(conta, !possuiMovimentacao);
     }
 
     public async Task<ContaBancariaResponse?> FavoritarAsync(
@@ -101,7 +117,7 @@ public sealed class ContaBancariaService : IContaBancariaService
         CancellationToken cancellationToken = default)
     {
         var contas = await _dbContext.ContasBancarias
-            .Where(conta => conta.UsuarioId == usuarioId)
+            .Where(conta => conta.UsuarioId == usuarioId && !conta.IsArquivada)
             .ToListAsync(cancellationToken);
 
         var contaFavorita = contas.SingleOrDefault(conta => conta.Id == id);
@@ -119,6 +135,151 @@ public sealed class ContaBancariaService : IContaBancariaService
         return Mapear(contaFavorita);
     }
 
+    public async Task<ContaBancariaResponse?> ArquivarAsync(
+        Guid id,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        var conta = await _dbContext.ContasBancarias
+            .SingleOrDefaultAsync(
+                item => item.Id == id && item.UsuarioId == usuarioId,
+                cancellationToken);
+
+        if (conta is null)
+        {
+            return null;
+        }
+
+        conta.IsArquivada = true;
+        conta.IsFavorita = false;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Mapear(conta);
+    }
+
+    /// <summary>
+    /// Ajuste de saldo é persistido como transação paga de origem AjusteSaldo.
+    /// A movimentação afeta o saldo da conta, mas deve ser excluída dos relatórios
+    /// de consumo/receita/despesa por ser uma reconciliação patrimonial.
+    /// </summary>
+    public async Task<ContaBancariaResponse?> AjustarSaldoAsync(
+        Guid id,
+        AjustarSaldoContaRequest request,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        var conta = await _dbContext.ContasBancarias
+            .SingleOrDefaultAsync(
+                item => item.Id == id && item.UsuarioId == usuarioId && !item.IsArquivada,
+                cancellationToken);
+
+        if (conta is null)
+        {
+            return null;
+        }
+
+        var saldoAtual = await CalcularSaldoContaAsync(id, usuarioId, cancellationToken);
+        var diferenca = request.SaldoInformado - saldoAtual;
+        if (diferenca == 0)
+        {
+            return Mapear(conta);
+        }
+
+        _dbContext.Transacoes.Add(new Transacao
+        {
+            UsuarioId = usuarioId,
+            CodigoExibicao = await ObterProximoCodigoExibicaoAsync(usuarioId, cancellationToken),
+            Tipo = diferenca > 0 ? TipoTransacao.Receita : TipoTransacao.Despesa,
+            Descricao = "Ajuste de saldo",
+            Valor = Math.Abs(diferenca),
+            DataOcorrencia = request.Data ?? DateOnly.FromDateTime(DateTime.Today),
+            FormaPagamento = "Ajuste de saldo",
+            ContaBancariaId = conta.Id,
+            IsPaga = true,
+            OrigemTransacao = OrigemTransacao.AjusteSaldo,
+            SaldoAnteriorAjuste = saldoAtual,
+            SaldoInformadoAjuste = request.SaldoInformado,
+            Observacao = string.IsNullOrWhiteSpace(request.Observacao)
+                ? null
+                : request.Observacao.Trim()
+        });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Mapear(conta);
+    }
+
+    public async Task<Guid> TransferirAsync(
+        TransferenciaContaRequest request,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.ContaOrigemId == request.ContaDestinoId)
+        {
+            throw new InvalidOperationException("A conta de origem deve ser diferente da conta de destino.");
+        }
+
+        var contas = await _dbContext.ContasBancarias
+            .Where(conta =>
+                conta.UsuarioId == usuarioId &&
+                !conta.IsArquivada &&
+                (conta.Id == request.ContaOrigemId || conta.Id == request.ContaDestinoId))
+            .ToListAsync(cancellationToken);
+
+        var origem = contas.SingleOrDefault(conta => conta.Id == request.ContaOrigemId);
+        var destino = contas.SingleOrDefault(conta => conta.Id == request.ContaDestinoId);
+        if (origem is null || destino is null)
+        {
+            throw new InvalidOperationException("Conta de origem ou destino não encontrada.");
+        }
+
+        var saldoOrigem = await CalcularSaldoContaAsync(origem.Id, usuarioId, cancellationToken);
+        if (saldoOrigem - request.Valor < 0 && !request.ConfirmarSemSaldo)
+        {
+            throw new InvalidOperationException("SALDO_INSUFICIENTE");
+        }
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var transferenciaId = Guid.NewGuid();
+        var data = request.Data ?? DateOnly.FromDateTime(DateTime.Today);
+        var descricao = string.IsNullOrWhiteSpace(request.Descricao)
+            ? "Transferência entre contas"
+            : request.Descricao.Trim();
+        var proximoCodigo = await ObterProximoCodigoExibicaoAsync(usuarioId, cancellationToken);
+
+        _dbContext.Transacoes.AddRange(
+            new Transacao
+            {
+                UsuarioId = usuarioId,
+                CodigoExibicao = proximoCodigo,
+                Tipo = TipoTransacao.Despesa,
+                Descricao = descricao,
+                Valor = request.Valor,
+                DataOcorrencia = data,
+                FormaPagamento = "Transferência",
+                ContaBancariaId = origem.Id,
+                IsPaga = true,
+                OrigemTransacao = OrigemTransacao.Transferencia,
+                TransferenciaId = transferenciaId
+            },
+            new Transacao
+            {
+                UsuarioId = usuarioId,
+                CodigoExibicao = proximoCodigo + 1,
+                Tipo = TipoTransacao.Receita,
+                Descricao = descricao,
+                Valor = request.Valor,
+                DataOcorrencia = data,
+                FormaPagamento = "Transferência",
+                ContaBancariaId = destino.Id,
+                IsPaga = true,
+                OrigemTransacao = OrigemTransacao.Transferencia,
+                TransferenciaId = transferenciaId
+            });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return transferenciaId;
+    }
+
     public async Task<bool> ExcluirAsync(
         Guid id,
         Guid usuarioId,
@@ -134,7 +295,23 @@ public sealed class ContaBancariaService : IContaBancariaService
             return false;
         }
 
-        _dbContext.ContasBancarias.Remove(conta);
+        var possuiVinculo = await _dbContext.Transacoes
+            .AsNoTracking()
+            .AnyAsync(
+                transacao => transacao.UsuarioId == usuarioId &&
+                    transacao.ContaBancariaId == id,
+                cancellationToken);
+
+        if (possuiVinculo)
+        {
+            conta.IsArquivada = true;
+            conta.IsFavorita = false;
+        }
+        else
+        {
+            _dbContext.ContasBancarias.Remove(conta);
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -156,14 +333,15 @@ public sealed class ContaBancariaService : IContaBancariaService
                 Movimento = grupo.Sum(transacao =>
                     transacao.Tipo == TipoTransacao.Receita
                         ? transacao.Valor
-                        : transacao.Tipo == TipoTransacao.Despesa
+                        : transacao.Tipo == TipoTransacao.Despesa ||
+                          transacao.Tipo == TipoTransacao.Investimento
                             ? -transacao.Valor
                             : 0m)
             });
 
         return await _dbContext.ContasBancarias
             .AsNoTracking()
-            .Where(conta => conta.UsuarioId == usuarioId)
+            .Where(conta => conta.UsuarioId == usuarioId && !conta.IsArquivada)
             .GroupJoin(
                 movimentosPorConta,
                 conta => conta.Id,
@@ -171,16 +349,18 @@ public sealed class ContaBancariaService : IContaBancariaService
                 (conta, movimentos) => new ContaDistribuicaoResponse
                 {
                     Id = conta.Id,
-            CodigoBanco = conta.CodigoBanco,
-            NomeCustomizado = conta.NomeCustomizado,
-            SaldoAtual = conta.SaldoInicial +
+                    CodigoBanco = conta.CodigoBanco,
+                    NomeCustomizado = conta.NomeCustomizado,
+                    SaldoAtual = conta.SaldoInicial +
                         (movimentos.Select(item => (decimal?)item.Movimento).Sum() ?? 0m)
                 })
-            .OrderBy(conta => conta.NomeCustomizado)
+            .OrderByDescending(conta => conta.SaldoAtual)
             .ToListAsync(cancellationToken);
     }
 
-    private static ContaBancariaResponse Mapear(ContaBancaria conta)
+    private static ContaBancariaResponse Mapear(
+        ContaBancaria conta,
+        bool permiteEditarSaldoInicial = false)
     {
         return new ContaBancariaResponse
         {
@@ -189,7 +369,49 @@ public sealed class ContaBancariaService : IContaBancariaService
             CodigoBanco = conta.CodigoBanco,
             SaldoInicial = conta.SaldoInicial,
             IsFavorita = conta.IsFavorita,
+            IsArquivada = conta.IsArquivada,
+            PermiteEditarSaldoInicial = permiteEditarSaldoInicial,
             DataCriacao = conta.DataCriacao
         };
+    }
+
+    private async Task<decimal> CalcularSaldoContaAsync(
+        Guid contaId,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var conta = await _dbContext.ContasBancarias
+            .AsNoTracking()
+            .Where(item => item.Id == contaId && item.UsuarioId == usuarioId)
+            .Select(item => new { item.SaldoInicial })
+            .SingleAsync(cancellationToken);
+
+        var movimentos = await _dbContext.Transacoes
+            .AsNoTracking()
+            .Where(transacao =>
+                transacao.UsuarioId == usuarioId &&
+                transacao.ContaBancariaId == contaId &&
+                transacao.IsPaga)
+            .Select(transacao =>
+                transacao.Tipo == TipoTransacao.Receita
+                    ? transacao.Valor
+                    : transacao.Tipo == TipoTransacao.Despesa ||
+                      transacao.Tipo == TipoTransacao.Investimento
+                        ? -transacao.Valor
+                        : 0m)
+            .SumAsync(cancellationToken);
+
+        return conta.SaldoInicial + movimentos;
+    }
+
+    private async Task<int> ObterProximoCodigoExibicaoAsync(
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var ultimoCodigo = await _dbContext.Transacoes
+            .Where(transacao => transacao.UsuarioId == usuarioId)
+            .MaxAsync(transacao => (int?)transacao.CodigoExibicao, cancellationToken);
+
+        return (ultimoCodigo ?? 0) + 1;
     }
 }

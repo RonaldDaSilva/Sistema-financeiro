@@ -7,4 +7,9 @@ public sealed class RelatorioGraficosResponse
     public IReadOnlyList<RelatorioCategoriaResponse> DespesasPorCategoria { get; set; } = [];
     public IReadOnlyList<RelatorioMensalResponse> SaldoAnual { get; set; } = [];
     public IReadOnlyList<RelatorioMensalResponse> SerieFluxo { get; set; } = [];
+    public RelatorioKpisResponse Kpis { get; set; } = new();
+    public IReadOnlyList<RelatorioProjecaoDiariaResponse> ProjecaoDiaria { get; set; } = [];
+    public IReadOnlyList<RelatorioPrevistoRealizadoResponse> PrevistoVersusRealizado { get; set; } = [];
+    public IReadOnlyList<RelatorioMensalResponse> EvolucaoMensal { get; set; } = [];
+    public IReadOnlyList<RelatorioCompromissoFuturoResponse> CompromissosFuturos { get; set; } = [];
 }

@@ -25,6 +25,7 @@ public sealed class ExtratoMensalItemResponse
     public decimal? PercentualDivisao { get; set; }
     public bool IsProjetada { get; set; }
     public string Origem { get; set; } = string.Empty;
+    public OrigemTransacao OrigemTransacao { get; set; } = OrigemTransacao.Lancamento;
     public Guid? CompraParceladaId { get; set; }
     public int? NumeroParcela { get; set; }
     public int? QuantidadeParcelas { get; set; }

@@ -22,6 +22,7 @@ export type ExtratoMensalItem = {
   percentualDivisao: number | null;
   isProjetada: boolean;
   origem: string;
+  origemTransacao?: 'Lancamento' | 'AjusteSaldo' | 'Transferencia' | number | string;
   compraParceladaId: string | null;
   numeroParcela: number | null;
   quantidadeParcelas: number | null;
@@ -63,6 +64,24 @@ export type RelatorioCategoria = {
   valor: number;
 };
 
+export type RelatorioComparativoValor = {
+  valorAtual: number;
+  valorAnterior: number;
+  diferencaAbsoluta: number;
+  variacaoPercentual: number | null;
+  tendencia: 'Melhora' | 'Piora' | 'Neutra' | string;
+  mensagem: string;
+};
+
+export type RelatorioKpis = {
+  receitas: RelatorioComparativoValor;
+  despesas: RelatorioComparativoValor;
+  investimentos: RelatorioComparativoValor;
+  resultadoLiquido: RelatorioComparativoValor;
+  saldoPrevistoFimPeriodo: RelatorioComparativoValor;
+  taxaEconomia: RelatorioComparativoValor;
+};
+
 export type RelatorioMensal = {
   mes: number;
   ano: number;
@@ -72,12 +91,40 @@ export type RelatorioMensal = {
   saldo: number;
 };
 
+export type RelatorioProjecaoDiaria = {
+  data: string;
+  entradas: number;
+  saidas: number;
+  saldoAcumulado: number;
+};
+
+export type RelatorioPrevistoRealizado = {
+  nome: string;
+  previsto: number;
+  realizado: number;
+};
+
+export type RelatorioCompromissoFuturo = {
+  mes: number;
+  ano: number;
+  faturas: number;
+  parcelas: number;
+  despesasFixas: number;
+  receitasRecorrentes: number;
+  total: number;
+};
+
 export type RelatorioGraficos = {
   mes: number;
   ano: number;
   despesasPorCategoria: RelatorioCategoria[];
   saldoAnual: RelatorioMensal[];
   serieFluxo: RelatorioMensal[];
+  kpis: RelatorioKpis;
+  projecaoDiaria: RelatorioProjecaoDiaria[];
+  previstoVersusRealizado: RelatorioPrevistoRealizado[];
+  evolucaoMensal: RelatorioMensal[];
+  compromissosFuturos: RelatorioCompromissoFuturo[];
 };
 
 export type DashboardLancamento = {
@@ -89,10 +136,18 @@ export type DashboardLancamento = {
   statusVisual: string;
   categoriaNome: string;
   formaPagamento: string;
+  grupo: 'Vencido' | 'Hoje' | 'Proximo' | string;
 };
 
 export type DashboardInicio = {
   saldoAtual: number;
+  receitasRealizadasNoMes: number;
+  despesasRealizadasNoMes: number;
+  investimentosRealizadosNoMes: number;
+  balancoRealizadoNoMes: number;
+  receitasPendentesNoMes: number;
+  despesasPendentesNoMes: number;
+  saldoPrevistoFimDoMes: number;
   livreParaGastar: number;
   despesasAPagar: number;
   proximosLancamentos: DashboardLancamento[];
@@ -143,8 +198,21 @@ export type CartaoCredito = {
   melhorDiaCompra: number;
   limiteTotal: number;
   contaBancariaId: string | null;
+  contaBancariaNome: string | null;
+  isArquivado: boolean;
   valorUtilizado: number;
   limiteDisponivel: number;
+  percentualUtilizado: number;
+  faturaAtual: number;
+  statusFaturaAtual: string;
+  dataFechamentoAtual: string;
+  dataVencimentoAtual: string;
+  diasParaFechamento: number;
+  diasParaVencimento: number;
+  comprasParceladasFuturas: number;
+  limiteComprometidoFuturo: number;
+  proximaFaturaValor: number;
+  proximaFaturaVencimento: string | null;
 };
 
 export type ContaBancaria = {
@@ -153,6 +221,8 @@ export type ContaBancaria = {
   codigoBanco: string;
   saldoInicial: number;
   isFavorita: boolean;
+  isArquivada: boolean;
+  permiteEditarSaldoInicial: boolean;
   dataCriacao: string;
 };
 
@@ -167,6 +237,21 @@ export type ContaBancariaRequest = {
   nomeCustomizado: string;
   codigoBanco: string;
   saldoInicial: number;
+};
+
+export type AjustarSaldoContaRequest = {
+  saldoInformado: number;
+  dataAjuste: string;
+  observacao?: string | null;
+};
+
+export type TransferenciaContaRequest = {
+  contaOrigemId: string;
+  contaDestinoId: string;
+  valor: number;
+  dataTransferencia: string;
+  descricao?: string | null;
+  confirmarSemSaldo?: boolean;
 };
 
 export type FaturaDetalhe = {

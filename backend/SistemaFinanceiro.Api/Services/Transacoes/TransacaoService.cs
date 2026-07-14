@@ -185,20 +185,25 @@ public sealed class TransacaoService : ITransacaoService
             itensOrdenados = despesasDivididasRaiz;
         }
 
-        var receitasDoMes = itensOrdenados
+        var itensConsumo = itensOrdenados
+            .Where(item => item.OrigemTransacao == OrigemTransacao.Lancamento)
+            .ToList();
+
+        var receitasDoMes = itensConsumo
             .Where(item => item.Tipo == TipoTransacao.Receita)
             .Sum(item => item.Valor);
 
-        var despesasDoMes = itensOrdenados
+        var despesasDoMes = itensConsumo
             .Where(item => item.Tipo == TipoTransacao.Despesa)
             .Sum(item => item.Valor);
-        var investimentosDoMes = itensOrdenados
+        var investimentosDoMes = itensConsumo
             .Where(item => item.Tipo == TipoTransacao.Investimento)
             .Sum(item => item.Valor);
         var saldoAtualGlobal = await CalcularSaldoAtualGlobalAsync(usuarioId, hoje, cancellationToken);
         var transacoesFuturasNaoPagasDoMes = itensOrdenados
             .Where(item =>
                 item.DataOcorrencia > hoje &&
+                item.OrigemTransacao == OrigemTransacao.Lancamento &&
                 item.Tipo != TipoTransacao.Receita &&
                 !item.IsPaga)
             .ToList();
@@ -667,6 +672,7 @@ public sealed class TransacaoService : ITransacaoService
             IsDividida = transacao.IsDividida,
             ValorTotalOriginal = transacao.ValorTotalOriginal,
             PercentualDivisao = transacao.PercentualDivisao,
+            OrigemTransacao = transacao.OrigemTransacao,
             CompraParceladaId = transacao.CompraParceladaId,
             NumeroParcelaQuitada = transacao.NumeroParcelaQuitada,
             Categoria = transacao.Categoria == null
@@ -1079,6 +1085,29 @@ public sealed class TransacaoService : ITransacaoService
         if (transacao is null)
         {
             return null;
+        }
+
+        if (transacao.OrigemTransacao == OrigemTransacao.Transferencia &&
+            transacao.TransferenciaId.HasValue)
+        {
+            var transacoesTransferencia = await _dbContext.Transacoes
+                .Where(item =>
+                    item.UsuarioId == usuarioId &&
+                    item.TransferenciaId == transacao.TransferenciaId.Value)
+                .ToListAsync(cancellationToken);
+
+            foreach (var item in transacoesTransferencia)
+            {
+                item.Descricao = string.IsNullOrWhiteSpace(request.Descricao)
+                    ? item.Descricao
+                    : request.Descricao.Trim();
+                item.Valor = request.Valor;
+                item.DataOcorrencia = request.DataOcorrencia;
+                item.IsPaga = true;
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return transacao.Id;
         }
 
         if (transacao.IsFixa && !replicarFuturas)
@@ -1532,6 +1561,20 @@ public sealed class TransacaoService : ITransacaoService
             return false;
         }
 
+        if (transacao.OrigemTransacao == OrigemTransacao.Transferencia &&
+            transacao.TransferenciaId.HasValue)
+        {
+            var transacoesTransferencia = await _dbContext.Transacoes
+                .Where(item =>
+                    item.UsuarioId == usuarioId &&
+                    item.TransferenciaId == transacao.TransferenciaId.Value)
+                .ToListAsync(cancellationToken);
+
+            _dbContext.Transacoes.RemoveRange(transacoesTransferencia);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+
         if (transacao.IsFixa &&
             dataOcorrencia.HasValue &&
             dataOcorrencia.Value == transacao.DataOcorrencia &&
@@ -1675,7 +1718,8 @@ public sealed class TransacaoService : ITransacaoService
             IsPaga = DeveEntrarComoPaga(dataOcorrencia),
             IsDividida = transacao.IsDividida,
             ValorTotalOriginal = transacao.ValorTotalOriginal,
-            PercentualDivisao = transacao.PercentualDivisao
+            PercentualDivisao = transacao.PercentualDivisao,
+            OrigemTransacao = transacao.OrigemTransacao
         };
     }
 
@@ -1709,6 +1753,7 @@ public sealed class TransacaoService : ITransacaoService
             PercentualDivisao = transacao.PercentualDivisao,
             IsProjetada = false,
             Origem = "Transacao",
+            OrigemTransacao = transacao.OrigemTransacao,
             CompraParceladaId = transacao.CompraParceladaId,
             NumeroParcela = transacao.NumeroParcelaQuitada
         };
@@ -1732,7 +1777,8 @@ public sealed class TransacaoService : ITransacaoService
             IsFixa = false,
             IsPaga = fatura.IsPaga,
             IsProjetada = true,
-            Origem = "FaturaCartao"
+            Origem = "FaturaCartao",
+            OrigemTransacao = OrigemTransacao.Lancamento
         };
     }
 
@@ -1760,6 +1806,7 @@ public sealed class TransacaoService : ITransacaoService
             PercentualDivisao = detalhe.PercentualDivisao,
             IsProjetada = detalhe.Origem != "Transacao",
             Origem = detalhe.Origem,
+            OrigemTransacao = OrigemTransacao.Lancamento,
             CompraParceladaId = detalhe.CompraParceladaId,
             NumeroParcela = detalhe.NumeroParcela,
             QuantidadeParcelas = detalhe.QuantidadeParcelas
@@ -1823,7 +1870,9 @@ public sealed class TransacaoService : ITransacaoService
 
             var cartaoExiste = await _dbContext.CartoesCredito
                 .AnyAsync(
-                    cartao => cartao.Id == request.CartaoCreditoId.Value && cartao.UsuarioId == usuarioId,
+                    cartao => cartao.Id == request.CartaoCreditoId.Value &&
+                        cartao.UsuarioId == usuarioId &&
+                        !cartao.IsArquivado,
                     cancellationToken);
 
             if (!cartaoExiste)
@@ -1849,7 +1898,8 @@ public sealed class TransacaoService : ITransacaoService
             var contaExiste = await _dbContext.ContasBancarias
                 .AnyAsync(
                     conta => conta.Id == request.ContaBancariaId.Value &&
-                        conta.UsuarioId == usuarioId,
+                        conta.UsuarioId == usuarioId &&
+                        !conta.IsArquivada,
                     cancellationToken);
 
             if (!contaExiste)
@@ -1881,7 +1931,8 @@ public sealed class TransacaoService : ITransacaoService
             .AsNoTracking()
             .AnyAsync(
                 conta => conta.Id == contaBancariaId &&
-                    conta.UsuarioId == usuarioId,
+                    conta.UsuarioId == usuarioId &&
+                    !conta.IsArquivada,
                 cancellationToken);
 
         if (!contaExiste)

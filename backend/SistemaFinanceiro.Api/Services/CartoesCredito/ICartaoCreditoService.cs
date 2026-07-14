@@ -8,5 +8,6 @@ public interface ICartaoCreditoService
     Task<CartaoCreditoResponse?> ObterPorIdAsync(Guid id, Guid usuarioId, CancellationToken cancellationToken = default);
     Task<CartaoCreditoResponse> CriarAsync(CartaoCreditoRequest request, Guid usuarioId, CancellationToken cancellationToken = default);
     Task<CartaoCreditoResponse?> AtualizarAsync(Guid id, CartaoCreditoRequest request, Guid usuarioId, CancellationToken cancellationToken = default);
+    Task<CartaoCreditoResponse?> ArquivarAsync(Guid id, Guid usuarioId, CancellationToken cancellationToken = default);
     Task<bool> ExcluirAsync(Guid id, Guid usuarioId, CancellationToken cancellationToken = default);
 }

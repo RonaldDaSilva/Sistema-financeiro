@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SistemaFinanceiro.Api.Dtos.Relatorios;
+using SistemaFinanceiro.Api.Models;
 using SistemaFinanceiro.Api.Services.Relatorios;
 
 namespace SistemaFinanceiro.Api.Controllers;
@@ -24,6 +25,13 @@ public sealed class RelatorioController : ControllerBase
         [FromQuery] DateOnly? dataFinal,
         [FromQuery] int? mes,
         [FromQuery] int? ano,
+        [FromQuery] Guid? contaBancariaId,
+        [FromQuery] Guid? cartaoCreditoId,
+        [FromQuery] Guid[]? categoriaIds,
+        [FromQuery] TipoTransacao? tipoTransacao,
+        [FromQuery] string? status,
+        [FromQuery] bool somenteRecorrentes,
+        [FromQuery] bool somenteParceladas,
         CancellationToken cancellationToken)
     {
         var usuarioId = ObterUsuarioId();
@@ -47,6 +55,13 @@ public sealed class RelatorioController : ControllerBase
                 inicio,
                 fim,
                 usuarioId.Value,
+                contaBancariaId,
+                cartaoCreditoId,
+                categoriaIds,
+                tipoTransacao,
+                status,
+                somenteRecorrentes,
+                somenteParceladas,
                 cancellationToken);
 
             return Ok(relatorio);

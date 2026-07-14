@@ -219,6 +219,11 @@ public sealed class AppDbContext : DbContext
             entity.Property(cartao => cartao.ContaBancariaId)
                 .HasColumnName("id_conta_bancaria");
 
+            entity.Property(cartao => cartao.IsArquivado)
+                .HasColumnName("is_arquivado")
+                .HasDefaultValue(false)
+                .IsRequired();
+
             entity.HasOne(cartao => cartao.Usuario)
                 .WithMany(usuario => usuario.CartoesCredito)
                 .HasForeignKey(cartao => cartao.UsuarioId)
@@ -352,6 +357,11 @@ public sealed class AppDbContext : DbContext
                 .HasDefaultValue(false)
                 .IsRequired();
 
+            entity.Property(conta => conta.IsArquivada)
+                .HasColumnName("is_arquivada")
+                .HasDefaultValue(false)
+                .IsRequired();
+
             entity.Property(conta => conta.DataCriacao)
                 .HasColumnName("data_criacao")
                 .HasDefaultValueSql("now()")
@@ -442,6 +452,28 @@ public sealed class AppDbContext : DbContext
                 .HasColumnName("percentual_divisao")
                 .HasPrecision(5, 2);
 
+            entity.Property(transacao => transacao.OrigemTransacao)
+                .HasColumnName("origem_transacao")
+                .HasConversion<string>()
+                .HasMaxLength(40)
+                .HasDefaultValue(OrigemTransacao.Lancamento)
+                .IsRequired();
+
+            entity.Property(transacao => transacao.TransferenciaId)
+                .HasColumnName("id_transferencia");
+
+            entity.Property(transacao => transacao.SaldoAnteriorAjuste)
+                .HasColumnName("saldo_anterior_ajuste")
+                .HasPrecision(18, 2);
+
+            entity.Property(transacao => transacao.SaldoInformadoAjuste)
+                .HasColumnName("saldo_informado_ajuste")
+                .HasPrecision(18, 2);
+
+            entity.Property(transacao => transacao.Observacao)
+                .HasColumnName("observacao")
+                .HasMaxLength(500);
+
             entity.Property(transacao => transacao.CompraParceladaId)
                 .HasColumnName("id_compra_parcelada");
 
@@ -457,6 +489,8 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CartaoCreditoId, transacao.DataOcorrencia });
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.ContaBancariaId, transacao.DataOcorrencia });
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CompraParceladaId, transacao.NumeroParcelaQuitada });
+            entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.OrigemTransacao, transacao.DataOcorrencia });
+            entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.TransferenciaId });
 
             entity.HasOne(transacao => transacao.Usuario)
                 .WithMany(usuario => usuario.Transacoes)

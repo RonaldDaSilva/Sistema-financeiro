@@ -5,6 +5,7 @@ import {
   CalendarClock,
   Lightbulb,
   WalletCards,
+  ExternalLink,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useDashboardInicio } from "../../hooks/queries/useFinanceQueries";
@@ -18,10 +19,16 @@ type DashboardInicioPanelProps = {
 export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps) {
   const dashboardQuery = useDashboardInicio();
   const dashboard = dashboardQuery.data;
-  const balancoOperacional = (dashboard?.livreParaGastar ?? 0) - (dashboard?.saldoAtual ?? 0);
 
   const insights = dashboard?.insights ?? [];
   const proximosLancamentos = dashboard?.proximosLancamentos ?? [];
+  const lancamentosPorGrupo = {
+    vencidos: proximosLancamentos.filter((item) => item.grupo === "Vencido"),
+    hoje: proximosLancamentos.filter((item) => item.grupo === "Hoje"),
+    proximos: proximosLancamentos.filter(
+      (item) => item.grupo !== "Vencido" && item.grupo !== "Hoje",
+    ),
+  };
 
   if (dashboardQuery.isLoading) {
     return (
@@ -58,7 +65,7 @@ export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps
               {maskCurrency(dashboard.livreParaGastar, hiddenValues)}
             </p>
             <p className="mt-3 max-w-xl text-sm font-medium text-slate-500 dark:text-slate-400">
-              Considera seu saldo real, receitas pendentes do mês e contas ainda em aberto.
+              Saldo atual disponível somado às receitas pendentes do mês, descontando despesas em aberto.
             </p>
           </div>
           <span className="rounded-2xl bg-[var(--app-primary-soft)] p-3 text-[var(--app-primary)] dark:bg-emerald-950/50 dark:text-emerald-300">
@@ -69,23 +76,26 @@ export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <MetricCard
             label="Saldo atual"
+            description="Dinheiro já realizado nas contas, considerando pagamentos e recebimentos efetivos."
             value={dashboard.saldoAtual}
             hiddenValues={hiddenValues}
             tone={dashboard.saldoAtual >= 0 ? "success" : "danger"}
             icon={<WalletCards size={18} />}
           />
           <MetricCard
-            label="Balanço do mês"
-            value={balancoOperacional}
+            label="Balanço realizado do mês"
+            description="Receitas realizadas menos despesas e investimentos já realizados neste mês."
+            value={dashboard.balancoRealizadoNoMes}
             hiddenValues={hiddenValues}
-            tone={balancoOperacional >= 0 ? "success" : "danger"}
-            icon={balancoOperacional >= 0 ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+            tone={dashboard.balancoRealizadoNoMes >= 0 ? "success" : "danger"}
+            icon={dashboard.balancoRealizadoNoMes >= 0 ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
           />
           <MetricCard
-            label="A pagar"
-            value={dashboard.despesasAPagar}
+            label="Previsto fim do mês"
+            description="Saldo atual projetado com receitas, despesas e investimentos pendentes do mês."
+            value={dashboard.saldoPrevistoFimDoMes}
             hiddenValues={hiddenValues}
-            tone="warning"
+            tone={dashboard.saldoPrevistoFimDoMes >= 0 ? "success" : "warning"}
             icon={<CalendarClock size={18} />}
           />
         </div>
@@ -121,19 +131,36 @@ export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps
               Próximos lançamentos
             </h3>
           </div>
-          <div className="space-y-3">
+          <div className="space-y-4">
             {proximosLancamentos.length === 0 ? (
               <p className="rounded-2xl bg-slate-50 p-4 text-sm font-medium text-slate-500 dark:bg-slate-950 dark:text-slate-400">
                 Nenhum lançamento pendente nos próximos dias.
               </p>
             ) : (
-              proximosLancamentos.map((lancamento) => (
-                <TimelineItem
-                  key={lancamento.id}
-                  lancamento={lancamento}
+              <>
+                <TimelineGroup
+                  title="Vencidos"
+                  items={lancamentosPorGrupo.vencidos}
                   hiddenValues={hiddenValues}
                 />
-              ))
+                <TimelineGroup
+                  title="Vencendo hoje"
+                  items={lancamentosPorGrupo.hoje}
+                  hiddenValues={hiddenValues}
+                />
+                <TimelineGroup
+                  title="Próximos"
+                  items={lancamentosPorGrupo.proximos}
+                  hiddenValues={hiddenValues}
+                />
+                <a
+                  className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[var(--app-primary)] outline-none transition hover:bg-[var(--app-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--app-primary)]"
+                  href="#movimentacoes-recentes"
+                >
+                  Ver todos
+                  <ExternalLink size={15} />
+                </a>
+              </>
             )}
           </div>
         </div>
@@ -144,12 +171,14 @@ export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps
 
 function MetricCard({
   label,
+  description,
   value,
   hiddenValues,
   tone,
   icon,
 }: {
   label: string;
+  description: string;
   value: number;
   hiddenValues: boolean;
   tone: "success" | "danger" | "warning";
@@ -171,6 +200,9 @@ function MetricCard({
       </div>
       <p className={`mt-4 text-2xl font-black ${value >= 0 ? "text-slate-950 dark:text-white" : "text-red-500"}`}>
         {maskCurrency(value, hiddenValues)}
+      </p>
+      <p className="mt-2 text-xs font-medium leading-snug text-slate-500 dark:text-slate-400">
+        {description}
       </p>
     </div>
   );
@@ -222,6 +254,35 @@ function TimelineItem({
         {isReceita ? "+" : "-"} {maskCurrency(lancamento.valor, hiddenValues)}
       </p>
     </article>
+  );
+}
+
+function TimelineGroup({
+  title,
+  items,
+  hiddenValues,
+}: {
+  title: string;
+  items: DashboardLancamento[];
+  hiddenValues: boolean;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        {title}
+      </p>
+      {items.map((lancamento) => (
+        <TimelineItem
+          key={`${lancamento.id}-${lancamento.dataOcorrencia}-${lancamento.descricao}`}
+          lancamento={lancamento}
+          hiddenValues={hiddenValues}
+        />
+      ))}
+    </div>
   );
 }
 

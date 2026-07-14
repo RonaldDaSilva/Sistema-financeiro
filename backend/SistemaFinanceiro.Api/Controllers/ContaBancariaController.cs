@@ -99,6 +99,71 @@ public sealed class ContaBancariaController : ControllerBase
         return conta is null ? NotFound() : Ok(conta);
     }
 
+    [HttpPatch("{id:guid}/arquivar")]
+    public async Task<ActionResult<ContaBancariaResponse>> Arquivar(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        var conta = await _service.ArquivarAsync(id, usuarioId.Value, cancellationToken);
+        return conta is null ? NotFound() : Ok(conta);
+    }
+
+    [HttpPost("{id:guid}/ajustar-saldo")]
+    public async Task<ActionResult<ContaBancariaResponse>> AjustarSaldo(
+        Guid id,
+        AjustarSaldoContaRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        var conta = await _service.AjustarSaldoAsync(id, request, usuarioId.Value, cancellationToken);
+        return conta is null ? NotFound() : Ok(conta);
+    }
+
+    [HttpPost("transferir")]
+    public async Task<IActionResult> Transferir(
+        TransferenciaContaRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var transferenciaId = await _service.TransferirAsync(
+                request,
+                usuarioId.Value,
+                cancellationToken);
+
+            return Ok(new { transferenciaId });
+        }
+        catch (InvalidOperationException exception) when (exception.Message == "SALDO_INSUFICIENTE")
+        {
+            return BadRequest(new
+            {
+                erro = "SALDO_INSUFICIENTE",
+                mensagem = "A conta de origem não possui saldo suficiente para esta transferência."
+            });
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Excluir(Guid id, CancellationToken cancellationToken)
     {

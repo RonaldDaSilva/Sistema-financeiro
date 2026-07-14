@@ -12,6 +12,7 @@ public sealed class CartaoCredito : IHasGuidId, IMustHaveTenant
     public int MelhorDiaCompra { get; set; }
     public decimal LimiteTotal { get; set; }
     public Guid? ContaBancariaId { get; set; }
+    public bool IsArquivado { get; set; }
 
     public Usuario Usuario { get; set; } = null!;
     public ContaBancaria? ContaBancaria { get; set; }

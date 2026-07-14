@@ -18,7 +18,7 @@ public sealed class CartaoCreditoRequest
     [Range(1, 31)]
     public int MelhorDiaCompra { get; set; }
 
-    [Range(0, 999999999999.99)]
+    [Range(0.01, 999999999999.99)]
     public decimal LimiteTotal { get; set; }
 
     public Guid? ContaBancariaId { get; set; }

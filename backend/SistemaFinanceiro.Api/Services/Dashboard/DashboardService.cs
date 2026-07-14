@@ -54,8 +54,39 @@ public sealed class DashboardService : IDashboardService
                     item.DataOcorrencia <= limiteProximosSeteDias));
         }
 
+        var itensMes = extratoMesAtual.Itens
+            .Where(item =>
+                item.OrigemTransacao == OrigemTransacao.Lancamento &&
+                item.DataOcorrencia >= inicioMes &&
+                item.DataOcorrencia <= fimMes)
+            .ToList();
+
+        var receitasRealizadasMes = itensMes
+            .Where(item =>
+                item.Tipo == TipoTransacao.Receita &&
+                item.DataOcorrencia <= hoje)
+            .Sum(item => item.Valor);
+
+        var despesasRealizadasMes = itensMes
+            .Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                item.IsPaga)
+            .Sum(item => item.Valor);
+
+        var investimentosRealizadosMes = itensMes
+            .Where(item =>
+                item.Tipo == TipoTransacao.Investimento &&
+                item.IsPaga)
+            .Sum(item => item.Valor);
+
+        var balancoRealizadoMes =
+            receitasRealizadasMes - despesasRealizadasMes - investimentosRealizadosMes;
+
         var pendencias = itensOperacionais
-            .Where(item => !item.IsPaga)
+            .Where(item =>
+                item.OrigemTransacao == OrigemTransacao.Lancamento &&
+                !item.IsPaga &&
+                (item.Tipo != TipoTransacao.Receita || item.DataOcorrencia > hoje))
             .ToList();
 
         var receitasPendentesMes = pendencias
@@ -72,11 +103,19 @@ public sealed class DashboardService : IDashboardService
                 item.DataOcorrencia <= fimMes)
             .Sum(item => item.Valor);
 
+        var investimentosPendentesMes = pendencias
+            .Where(item =>
+                item.Tipo == TipoTransacao.Investimento &&
+                item.DataOcorrencia >= inicioMes &&
+                item.DataOcorrencia <= fimMes)
+            .Sum(item => item.Valor);
+
         var saldoAtual = extratoMesAtual.SaldoAtualGlobal;
+        var saldoPrevistoFimDoMes =
+            saldoAtual + receitasPendentesMes - despesasPendentesMes - investimentosPendentesMes;
         var livreParaGastar = saldoAtual + receitasPendentesMes - despesasPendentesMes;
 
         var proximosLancamentos = pendencias
-            .Where(item => item.DataOcorrencia >= hoje)
             .OrderBy(item => item.DataOcorrencia)
             .ThenBy(item => item.Descricao)
             .Take(5)
@@ -92,6 +131,13 @@ public sealed class DashboardService : IDashboardService
         return new DashboardInicioDto
         {
             SaldoAtual = saldoAtual,
+            ReceitasRealizadasNoMes = receitasRealizadasMes,
+            DespesasRealizadasNoMes = despesasRealizadasMes,
+            InvestimentosRealizadosNoMes = investimentosRealizadosMes,
+            BalancoRealizadoNoMes = balancoRealizadoMes,
+            ReceitasPendentesNoMes = receitasPendentesMes,
+            DespesasPendentesNoMes = despesasPendentesMes,
+            SaldoPrevistoFimDoMes = saldoPrevistoFimDoMes,
             LivreParaGastar = livreParaGastar,
             DespesasAPagar = despesasPendentesMes,
             ProximosLancamentos = proximosLancamentos,
@@ -123,6 +169,7 @@ public sealed class DashboardService : IDashboardService
             .AsNoTracking()
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
+                transacao.OrigemTransacao == OrigemTransacao.Lancamento &&
                 transacao.DataOcorrencia >= inicioMes &&
                 transacao.DataOcorrencia <= fimMes &&
                 (!contaBancariaId.HasValue ||
@@ -252,7 +299,12 @@ public sealed class DashboardService : IDashboardService
             CategoriaNome = string.IsNullOrWhiteSpace(item.CategoriaNome)
                 ? "Sem categoria"
                 : item.CategoriaNome,
-            FormaPagamento = item.FormaPagamento
+            FormaPagamento = item.FormaPagamento,
+            Grupo = item.DataOcorrencia < DateOnly.FromDateTime(DateTime.Today)
+                ? "Vencido"
+                : item.DataOcorrencia == DateOnly.FromDateTime(DateTime.Today)
+                    ? "Hoje"
+                    : "Proximo"
         };
     }
 

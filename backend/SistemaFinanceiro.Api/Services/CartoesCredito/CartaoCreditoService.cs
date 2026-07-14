@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.CartoesCredito;
+using SistemaFinanceiro.Api.Dtos.Transacoes;
 using SistemaFinanceiro.Api.Models;
 using SistemaFinanceiro.Api.Services.Transacoes;
 
@@ -23,13 +24,35 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
     {
         var cartoes = await _dbContext.CartoesCredito
             .AsNoTracking()
-            .Where(cartao => cartao.UsuarioId == usuarioId)
+            .Include(cartao => cartao.ContaBancaria)
+            .Where(cartao => cartao.UsuarioId == usuarioId && !cartao.IsArquivado)
             .OrderBy(cartao => cartao.ApelidoCartao)
             .ToListAsync(cancellationToken);
 
         var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var faturasAtual = (await _transacaoService.GetFaturasDoMesAsync(
+                hoje.Month,
+                hoje.Year,
+                usuarioId,
+                cancellationToken))
+            .ToDictionary(fatura => fatura.CartaoCreditoId);
+        var proximoMes = new DateOnly(hoje.Year, hoje.Month, 1).AddMonths(1);
+        var faturasProximoMes = (await _transacaoService.GetFaturasDoMesAsync(
+                proximoMes.Month,
+                proximoMes.Year,
+                usuarioId,
+                cancellationToken))
+            .ToDictionary(fatura => fatura.CartaoCreditoId);
+        var futuroPorCartao = await CalcularCompromissoFuturoAsync(usuarioId, hoje, cancellationToken);
+
         return cartoes
-            .Select(cartao => Mapear(cartao, usoPorCartao.GetValueOrDefault(cartao.Id)))
+            .Select(cartao => Mapear(
+                cartao,
+                usoPorCartao.GetValueOrDefault(cartao.Id),
+                faturasAtual.GetValueOrDefault(cartao.Id),
+                faturasProximoMes.GetValueOrDefault(cartao.Id),
+                futuroPorCartao.GetValueOrDefault(cartao.Id)))
             .ToList();
     }
 
@@ -42,7 +65,28 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         }
 
         var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
-        return Mapear(cartao, usoPorCartao.GetValueOrDefault(cartao.Id));
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var faturaAtual = (await _transacaoService.GetFaturasDoMesAsync(
+                hoje.Month,
+                hoje.Year,
+                usuarioId,
+                cancellationToken))
+            .FirstOrDefault(fatura => fatura.CartaoCreditoId == cartao.Id);
+        var proximoMes = new DateOnly(hoje.Year, hoje.Month, 1).AddMonths(1);
+        var proximaFatura = (await _transacaoService.GetFaturasDoMesAsync(
+                proximoMes.Month,
+                proximoMes.Year,
+                usuarioId,
+                cancellationToken))
+            .FirstOrDefault(fatura => fatura.CartaoCreditoId == cartao.Id);
+        var futuroPorCartao = await CalcularCompromissoFuturoAsync(usuarioId, hoje, cancellationToken);
+
+        return Mapear(
+            cartao,
+            usoPorCartao.GetValueOrDefault(cartao.Id),
+            faturaAtual,
+            proximaFatura,
+            futuroPorCartao.GetValueOrDefault(cartao.Id));
     }
 
     public async Task<CartaoCreditoResponse> CriarAsync(
@@ -50,6 +94,7 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         Guid usuarioId,
         CancellationToken cancellationToken = default)
     {
+        ValidarRequest(request);
         await ValidarContaBancariaAsync(request.ContaBancariaId, usuarioId, cancellationToken);
 
         var cartao = new CartaoCredito
@@ -66,7 +111,7 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         _dbContext.CartoesCredito.Add(cartao);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return Mapear(cartao, 0m);
+        return Mapear(cartao, 0m, null, null, default);
     }
 
     public async Task<CartaoCreditoResponse?> AtualizarAsync(
@@ -81,6 +126,7 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             return null;
         }
 
+        ValidarRequest(request);
         await ValidarContaBancariaAsync(request.ContaBancariaId, usuarioId, cancellationToken);
 
         cartao.ApelidoCartao = request.ApelidoCartao.Trim();
@@ -92,7 +138,46 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
-        return Mapear(cartao, usoPorCartao.GetValueOrDefault(cartao.Id));
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var faturaAtual = (await _transacaoService.GetFaturasDoMesAsync(
+                hoje.Month,
+                hoje.Year,
+                usuarioId,
+                cancellationToken))
+            .FirstOrDefault(fatura => fatura.CartaoCreditoId == cartao.Id);
+        var proximoMes = new DateOnly(hoje.Year, hoje.Month, 1).AddMonths(1);
+        var proximaFatura = (await _transacaoService.GetFaturasDoMesAsync(
+                proximoMes.Month,
+                proximoMes.Year,
+                usuarioId,
+                cancellationToken))
+            .FirstOrDefault(fatura => fatura.CartaoCreditoId == cartao.Id);
+        var futuroPorCartao = await CalcularCompromissoFuturoAsync(usuarioId, hoje, cancellationToken);
+
+        return Mapear(
+            cartao,
+            usoPorCartao.GetValueOrDefault(cartao.Id),
+            faturaAtual,
+            proximaFatura,
+            futuroPorCartao.GetValueOrDefault(cartao.Id));
+    }
+
+    public async Task<CartaoCreditoResponse?> ArquivarAsync(
+        Guid id,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        var cartao = await BuscarCartao(id, usuarioId, cancellationToken);
+        if (cartao is null)
+        {
+            return null;
+        }
+
+        cartao.IsArquivado = true;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        var usoPorCartao = await CalcularUsoPorCartaoAsync(usuarioId, cancellationToken);
+        return Mapear(cartao, usoPorCartao.GetValueOrDefault(cartao.Id), null, null, default);
     }
 
     public async Task<bool> ExcluirAsync(Guid id, Guid usuarioId, CancellationToken cancellationToken = default)
@@ -103,6 +188,32 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             return false;
         }
 
+        var possuiVinculos = await _dbContext.Transacoes
+            .AsNoTracking()
+            .AnyAsync(
+                transacao => transacao.UsuarioId == usuarioId &&
+                    transacao.CartaoCreditoId == id,
+                cancellationToken) ||
+            await _dbContext.ComprasParceladas
+                .AsNoTracking()
+                .AnyAsync(
+                    compra => compra.UsuarioId == usuarioId &&
+                        compra.CartaoCreditoId == id,
+                    cancellationToken) ||
+            await _dbContext.FaturasCartaoPagamentos
+                .AsNoTracking()
+                .AnyAsync(
+                    fatura => fatura.UsuarioId == usuarioId &&
+                        fatura.CartaoCreditoId == id,
+                    cancellationToken);
+
+        if (possuiVinculos)
+        {
+            cartao.IsArquivado = true;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+
         _dbContext.CartoesCredito.Remove(cartao);
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
@@ -111,6 +222,7 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
     private async Task<CartaoCredito?> BuscarCartao(Guid id, Guid usuarioId, CancellationToken cancellationToken)
     {
         return await _dbContext.CartoesCredito
+            .Include(cartao => cartao.ContaBancaria)
             .SingleOrDefaultAsync(cartao => cartao.Id == id && cartao.UsuarioId == usuarioId, cancellationToken);
     }
 
@@ -286,9 +398,50 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             : valorBase;
     }
 
-    private static CartaoCreditoResponse Mapear(CartaoCredito cartao, decimal valorUtilizado)
+    private async Task<Dictionary<Guid, CompromissoFuturoCartao>> CalcularCompromissoFuturoAsync(
+        Guid usuarioId,
+        DateOnly hoje,
+        CancellationToken cancellationToken)
+    {
+        var compras = await _dbContext.ComprasParceladas
+            .AsNoTracking()
+            .Where(compra =>
+                compra.UsuarioId == usuarioId &&
+                compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito &&
+                compra.CartaoCreditoId.HasValue &&
+                compra.DataCompra > hoje)
+            .Select(compra => new
+            {
+                CartaoId = compra.CartaoCreditoId!.Value,
+                compra.IsDividida,
+                compra.ValorTotalOriginal,
+                compra.ValorTotal
+            })
+            .ToListAsync(cancellationToken);
+
+        return compras
+            .GroupBy(compra => compra.CartaoId)
+            .ToDictionary(
+                grupo => grupo.Key,
+                grupo => new CompromissoFuturoCartao(
+                    grupo.Count(),
+                    grupo.Sum(compra =>
+                        compra.IsDividida && compra.ValorTotalOriginal.HasValue
+                            ? compra.ValorTotalOriginal.Value
+                            : compra.ValorTotal)));
+    }
+
+    private static CartaoCreditoResponse Mapear(
+        CartaoCredito cartao,
+        decimal valorUtilizado,
+        FaturaConsolidadaResponse? faturaAtual,
+        FaturaConsolidadaResponse? proximaFatura,
+        CompromissoFuturoCartao futuro)
     {
         var valorUtilizadoAtual = Math.Max(0m, valorUtilizado);
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var dataVencimento = faturaAtual?.DataVencimento ?? AjustarDiaMes(hoje.Year, hoje.Month, cartao.DiaVencimento);
+        var dataFechamento = faturaAtual?.FimCompetencia ?? AjustarDiaMes(hoje.Year, hoje.Month, cartao.MelhorDiaCompra).AddDays(-1);
 
         return new CartaoCreditoResponse
         {
@@ -300,9 +453,50 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             MelhorDiaCompra = cartao.MelhorDiaCompra,
             LimiteTotal = cartao.LimiteTotal,
             ContaBancariaId = cartao.ContaBancariaId,
+            ContaBancariaNome = cartao.ContaBancaria?.NomeCustomizado,
+            IsArquivado = cartao.IsArquivado,
             ValorUtilizado = valorUtilizadoAtual,
-            LimiteDisponivel = cartao.LimiteTotal - valorUtilizadoAtual
+            LimiteDisponivel = cartao.LimiteTotal - valorUtilizadoAtual,
+            PercentualUtilizado = cartao.LimiteTotal <= 0
+                ? 0
+                : Math.Round((valorUtilizadoAtual / cartao.LimiteTotal) * 100, 2),
+            FaturaAtual = faturaAtual?.ValorTotal ?? 0,
+            StatusFaturaAtual = faturaAtual?.IsPaga == true
+                ? "Paga"
+                : faturaAtual?.Status ?? "Aberta",
+            DataFechamentoAtual = dataFechamento,
+            DataVencimentoAtual = dataVencimento,
+            DiasParaFechamento = dataFechamento.DayNumber - hoje.DayNumber,
+            DiasParaVencimento = dataVencimento.DayNumber - hoje.DayNumber,
+            ComprasParceladasFuturas = futuro.QuantidadeCompras,
+            LimiteComprometidoFuturo = futuro.ValorComprometido,
+            ProximaFaturaValor = proximaFatura?.ValorTotal ?? 0,
+            ProximaFaturaVencimento = proximaFatura?.DataVencimento
         };
+    }
+
+    private static DateOnly AjustarDiaMes(int ano, int mes, int dia)
+    {
+        var diaSeguro = Math.Clamp(dia, 1, DateTime.DaysInMonth(ano, mes));
+        return new DateOnly(ano, mes, diaSeguro);
+    }
+
+    private static void ValidarRequest(CartaoCreditoRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ApelidoCartao))
+        {
+            throw new InvalidOperationException("Nome do cartão é obrigatório.");
+        }
+
+        if (request.LimiteTotal <= 0)
+        {
+            throw new InvalidOperationException("Limite do cartão deve ser maior que zero.");
+        }
+
+        if (request.DiaVencimento is < 1 or > 31 || request.MelhorDiaCompra is < 1 or > 31)
+        {
+            throw new InvalidOperationException("Vencimento e melhor dia devem estar entre 1 e 31.");
+        }
     }
 
     private async Task ValidarContaBancariaAsync(
@@ -319,7 +513,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             .AsNoTracking()
             .AnyAsync(
                 conta => conta.Id == contaBancariaId.Value &&
-                    conta.UsuarioId == usuarioId,
+                    conta.UsuarioId == usuarioId &&
+                    !conta.IsArquivada,
                 cancellationToken);
 
         if (!contaExiste)
@@ -327,4 +522,6 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             throw new InvalidOperationException("Conta bancária não encontrada para este usuário.");
         }
     }
+
+    private readonly record struct CompromissoFuturoCartao(int QuantidadeCompras, decimal ValorComprometido);
 }

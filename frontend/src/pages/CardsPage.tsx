@@ -1,7 +1,8 @@
 import { FormEvent, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Archive, CreditCard, Eye, Pencil, Plus, X } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
+import { useConfirmDialog } from "../components/ConfirmDialog";
 import { useCartoes, useContas } from "../hooks/queries/useFinanceQueries";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import * as financeService from "../services/financeService";
@@ -31,6 +32,7 @@ const emptyForm: CardForm = {
 
 export function CardsPage() {
   const queryClient = useQueryClient();
+  const { confirm, dialog } = useConfirmDialog();
   const cartoesQuery = useCartoes();
   const contasQuery = useContas();
   const cartoes = cartoesQuery.data ?? [];
@@ -120,12 +122,23 @@ export function CardsPage() {
     setErro(null);
   }
 
-  async function excluir(id: string) {
+  async function arquivar(cartao: CartaoCredito) {
+    const confirmed = await confirm({
+      title: "Arquivar cartão",
+      message: `Deseja arquivar "${cartao.apelidoCartao}"? O histórico será preservado e ele não aparecerá em novos lançamentos.`,
+      confirmLabel: "Arquivar",
+      variant: "danger",
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
     try {
-      await financeService.excluirCartaoCredito(id);
+      await financeService.arquivarCartaoCredito(cartao.id);
       await queryClient.invalidateQueries({ queryKey: queryKeys.cartoes });
     } catch {
-      setErro("Não foi possível excluir o cartão.");
+      setErro("Não foi possível arquivar o cartão.");
       setIsModalOpen(false);
     }
   }
@@ -178,15 +191,22 @@ export function CardsPage() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {cartoes.map((cartao) => {
               const disponivel = cartao.limiteDisponivel;
-              const utilizado =
-                cartao.valorUtilizado ?? Math.max(0, cartao.limiteTotal - disponivel);
-              const percentualUtilizado =
-                cartao.limiteTotal > 0
-                  ? Math.min(100, Math.max(0, (utilizado / cartao.limiteTotal) * 100))
-                  : 0;
+              const utilizado = cartao.valorUtilizado ?? Math.max(0, cartao.limiteTotal - disponivel);
+              const percentualUtilizado = Math.min(100, Math.max(0, cartao.percentualUtilizado ?? 0));
               const contaDebito = contas.find(
                 (conta) => conta.id === cartao.contaBancariaId,
               );
+              const alertas = [
+                percentualUtilizado >= 90 ? "Uso acima de 90%" : null,
+                percentualUtilizado >= 70 && percentualUtilizado < 90
+                  ? "Uso acima de 70%"
+                  : null,
+                cartao.statusFaturaAtual === "Vencida" ? "Fatura vencida" : null,
+                cartao.diasParaFechamento >= 0 && cartao.diasParaFechamento <= 3
+                  ? "Fechamento próximo"
+                  : null,
+                !cartao.contaBancariaId ? "Sem conta vinculada" : null,
+              ].filter(Boolean);
 
               return (
                 <article
@@ -212,18 +232,28 @@ export function CardsPage() {
                       <button
                         className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:hover:bg-slate-800"
                         type="button"
+                        title="Ver fatura"
+                        aria-label={`Ver fatura do cartão ${cartao.apelidoCartao}`}
+                      >
+                        <Eye size={18} />
+                      </button>
+                      <button
+                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:hover:bg-slate-800"
+                        type="button"
                         onClick={() => editar(cartao)}
                         title="Editar cartão"
+                        aria-label={`Editar cartão ${cartao.apelidoCartao}`}
                       >
                         <Pencil size={18} />
                       </button>
                       <button
                         className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-700"
                         type="button"
-                        onClick={() => excluir(cartao.id)}
-                        title="Excluir cartão"
+                        onClick={() => arquivar(cartao)}
+                        title="Arquivar cartão"
+                        aria-label={`Arquivar cartão ${cartao.apelidoCartao}`}
                       >
-                        <Trash2 size={18} />
+                        <Archive size={18} />
                       </button>
                     </div>
                   </div>
@@ -279,10 +309,62 @@ export function CardsPage() {
                         Conta para débito automático
                       </dt>
                       <dd className="font-semibold text-slate-900 dark:text-white">
-                        {contaDebito?.nomeCustomizado ?? "Não vinculada"}
+                        {cartao.contaBancariaNome ?? contaDebito?.nomeCustomizado ?? "Não vinculada"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">Fatura atual</dt>
+                      <dd className="font-semibold text-slate-900 dark:text-white">
+                        {formatCurrency(cartao.faturaAtual ?? 0)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">Status</dt>
+                      <dd className="font-semibold text-slate-900 dark:text-white">
+                        {cartao.statusFaturaAtual || "Aberta"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">Fechamento</dt>
+                      <dd className="font-semibold text-slate-900 dark:text-white">
+                        {cartao.dataFechamentoAtual
+                          ? new Date(`${cartao.dataFechamentoAtual}T00:00:00`).toLocaleDateString("pt-BR")
+                          : "-"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">Vencimento</dt>
+                      <dd className="font-semibold text-slate-900 dark:text-white">
+                        {cartao.dataVencimentoAtual
+                          ? new Date(`${cartao.dataVencimentoAtual}T00:00:00`).toLocaleDateString("pt-BR")
+                          : "-"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">Parcelas futuras</dt>
+                      <dd className="font-semibold text-slate-900 dark:text-white">
+                        {cartao.comprasParceladasFuturas ?? 0}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500 dark:text-slate-400">Comprometido futuro</dt>
+                      <dd className="font-semibold text-slate-900 dark:text-white">
+                        {formatCurrency(cartao.limiteComprometidoFuturo ?? 0)}
                       </dd>
                     </div>
                   </dl>
+                  {alertas.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {alertas.map((alerta) => (
+                        <span
+                          key={alerta}
+                          className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                        >
+                          {alerta}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </article>
               );
             })}
@@ -301,6 +383,7 @@ export function CardsPage() {
         onChange={setForm}
         onSubmit={handleSubmit}
       />
+      {dialog}
     </AppLayout>
   );
 }
