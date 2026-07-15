@@ -41,8 +41,6 @@ export const queryKeys = {
   contas: ["contas"] as const,
   distribuicaoContas: ["distribuicao-contas"] as const,
   dashboardInicio: ["dashboard", "inicio"] as const,
-  dashboardRelatorios: (mes: number, ano: number, contaBancariaId?: string | null) =>
-    ["dashboard", "relatorios", mes, ano, contaBancariaId ?? "todas"] as const,
   relatorios: (
     dataInicial: string,
     dataFinal: string,

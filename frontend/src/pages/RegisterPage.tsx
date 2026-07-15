@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Eye, EyeOff, IdCard, LockKeyhole, Mail, Phone, User, WalletCards } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { maskCpf } from '../utils/cpf';
 
 function maskPhone(value: string) {
@@ -192,3 +192,4 @@ export function RegisterPage() {
     </main>
   );
 }
+

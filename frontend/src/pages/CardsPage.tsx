@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
+import { Dialog } from "../components/Dialog";
 import { useCartoes, useContas, useFaturaMes } from "../hooks/queries/useFinanceQueries";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import * as financeService from "../services/financeService";
@@ -650,8 +651,13 @@ function FaturaDetalheModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-4">
-      <div className="relative flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl dark:border-slate-800 dark:bg-slate-950">
+    <Dialog
+      title={`Fatura ${cartao.apelidoCartao}`}
+      description="Detalhes da fatura por competência."
+      onClose={onClose}
+      className="flex max-w-5xl flex-col overflow-hidden"
+      showCloseButton={false}
+    >
         <div className="border-b border-[color:var(--app-card-border)] p-5 pr-14 dark:border-slate-800 sm:p-6">
           <button
             className="absolute right-4 top-4 rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-white"
@@ -806,8 +812,7 @@ function FaturaDetalheModal({
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -846,9 +851,16 @@ function PagamentoFaturaModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+    <Dialog
+      title="Pagamento de fatura"
+      description="Confirme conta, competência e valor da fatura."
+      onClose={onClose}
+      className="max-w-lg p-6"
+      showCloseButton={false}
+      closeOnBackdrop={!isSubmitting}
+    >
       <form
-        className="relative w-full max-w-lg rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950"
+        className="relative"
         onSubmit={handleSubmit}
       >
         <button
@@ -937,7 +949,7 @@ function PagamentoFaturaModal({
           )}
         </div>
       </form>
-    </div>
+    </Dialog>
   );
 }
 
@@ -1038,9 +1050,15 @@ function CartaoModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+    <Dialog
+      title={isEditing ? "Editar cartão" : "Adicionar cartão"}
+      description="Defina limite, vencimento e a conta de débito da fatura."
+      onClose={onClose}
+      className="max-w-xl p-6"
+      showCloseButton={false}
+    >
       <form
-        className="relative max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950"
+        className="relative"
         onSubmit={onSubmit}
       >
         <button
@@ -1139,7 +1157,7 @@ function CartaoModal({
           </button>
         </div>
       </form>
-    </div>
+    </Dialog>
   );
 }
 

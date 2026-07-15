@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { hasUsableStoredAuth } from "../services/authStorage";
 import * as notificationService from "../services/notificationService";
 import * as userService from "../services/userService";
@@ -446,3 +446,4 @@ function parsePercentual(value: string) {
 function formatarPercentualInput(value: number) {
   return String(value).replace(".", ",");
 }
+

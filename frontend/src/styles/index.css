@@ -13,6 +13,10 @@
   --app-card-border: #cbd5e1;
   --app-accent: #0f172a;
   --app-accent-contrast: #ffffff;
+  --app-danger: #dc2626;
+  --app-danger-soft: rgba(220, 38, 38, 0.12);
+  --app-success: #059669;
+  --app-success-soft: rgba(5, 150, 105, 0.12);
   font-family:
     Inter,
     ui-sans-serif,

@@ -167,24 +167,6 @@ export function useDashboardInicio(enabled = true) {
   });
 }
 
-export function useDashboardRelatorios(
-  mes: number,
-  ano: number,
-  contaBancariaId?: string | null,
-  enabled = true,
-) {
-  const canFetch = hasUsableStoredAuth();
-
-  return useQuery({
-    queryKey: queryKeys.dashboardRelatorios(mes, ano, contaBancariaId),
-    queryFn: () =>
-      financeService.getDashboardRelatorios(mes, ano, contaBancariaId),
-    enabled: enabled && canFetch && mes >= 1 && mes <= 12 && ano > 0,
-    placeholderData: keepPreviousData,
-    staleTime: 5 * 60 * 1000,
-  });
-}
-
 export function useFaturasMensais(meses: MesAno[]) {
   const canFetch = hasUsableStoredAuth();
 

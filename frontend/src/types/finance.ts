@@ -165,24 +165,6 @@ export type DashboardInicio = {
   insights: string[];
 };
 
-export type DashboardCategoriaRanking = {
-  nomeCategoria: string;
-  valorTotal: number;
-  percentual: number;
-};
-
-export type DashboardProjecaoDiaria = {
-  data: string;
-  entradas: number;
-  saidas: number;
-  saldoAcumulado: number;
-};
-
-export type DashboardRelatorios = {
-  rankingCategorias: DashboardCategoriaRanking[];
-  projecaoDiaria: DashboardProjecaoDiaria[];
-};
-
 export type AnteciparParcelaRequest = {
   idCompraParcelada: string;
   numeroParcela: number;

@@ -35,36 +35,6 @@ public sealed class DashboardController : ControllerBase
         return Ok(dashboard);
     }
 
-    [HttpGet("relatorios")]
-    public async Task<ActionResult<DashboardRelatoriosDto>> GetRelatorios(
-        [FromQuery] int mes,
-        [FromQuery] int ano,
-        [FromQuery] Guid? contaBancariaId,
-        CancellationToken cancellationToken)
-    {
-        var usuarioId = ObterUsuarioId();
-        if (usuarioId is null)
-        {
-            return Unauthorized(new { message = "Usuário não identificado no token." });
-        }
-
-        try
-        {
-            var dashboard = await _dashboardService.GetRelatoriosAsync(
-                mes,
-                ano,
-                usuarioId.Value,
-                contaBancariaId,
-                cancellationToken);
-
-            return Ok(dashboard);
-        }
-        catch (ArgumentOutOfRangeException exception)
-        {
-            return BadRequest(new { message = exception.Message });
-        }
-    }
-
     private Guid? ObterUsuarioId()
     {
         var id = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");

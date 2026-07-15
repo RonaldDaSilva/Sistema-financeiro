@@ -1,10 +1,12 @@
 import { type ReactNode, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Bar,
   CartesianGrid,
   ComposedChart,
   Legend,
   Line,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -35,23 +37,35 @@ import type {
   RelatorioGraficos,
   TipoTransacaoFiltro,
 } from "../types/finance";
+import {
+  buildReportSearchParams,
+  formatNegativeRanges,
+  getNegativeRanges,
+  normalizarPeriodo,
+  readReportFilters,
+  type ReportFilters,
+  type StatusRelatorio,
+} from "./reportPageHelpers";
 
-type StatusRelatorio = "todos" | "realizado" | "pendente";
 type TabRelatorio = "projecao" | "previsto" | "evolucao" | "compromissos" | "categorias";
 
 const chartTick = { fill: "currentColor", fontSize: 12 };
-const hoje = new Date();
 
 export function ReportsPage() {
-  const [inicioMes, setInicioMes] = useState(`${hoje.getFullYear()}-01`);
-  const [fimMes, setFimMes] = useState(toMonthInput(hoje));
-  const [contaBancariaId, setContaBancariaId] = useState("");
-  const [cartaoCreditoId, setCartaoCreditoId] = useState("");
-  const [categoriaIds, setCategoriaIds] = useState<string[]>([]);
-  const [tipoTransacao, setTipoTransacao] = useState<TipoTransacaoFiltro>("todos");
-  const [status, setStatus] = useState<StatusRelatorio>("todos");
-  const [somenteRecorrentes, setSomenteRecorrentes] = useState(false);
-  const [somenteParceladas, setSomenteParceladas] = useState(false);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filtros = useMemo(() => readReportFilters(searchParams), [searchParams]);
+  const {
+    inicioMes,
+    fimMes,
+    contaBancariaId,
+    cartaoCreditoId,
+    categoriaIds,
+    tipoTransacao,
+    status,
+    somenteRecorrentes,
+    somenteParceladas,
+  } = filtros;
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [tab, setTab] = useState<TabRelatorio>("projecao");
 
@@ -80,32 +94,59 @@ export function ReportsPage() {
     () =>
       (relatorio?.projecaoDiaria ?? []).map((item) => ({
         ...item,
-        dataLabel: formatDate(item.data).slice(0, 5),
+        dataReferencia: item.data,
         saidasNegativas: -Math.abs(item.saidas),
       })),
     [relatorio?.projecaoDiaria],
+  );
+  const periodosNegativos = useMemo(
+    () => getNegativeRanges(chartData),
+    [chartData],
   );
   const totalCategorias = (relatorio?.despesasPorCategoria ?? []).reduce(
     (total, item) => total + item.valor,
     0,
   );
 
+  function updateFilters(partial: Partial<ReportFilters>) {
+    setSearchParams(buildReportSearchParams({ ...filtros, ...partial }));
+  }
+
   function toggleCategoria(id: string) {
-    setCategoriaIds((current) =>
-      current.includes(id)
-        ? current.filter((categoriaId) => categoriaId !== id)
-        : [...current, id],
+    updateFilters(
+      categoriaIds.includes(id)
+        ? { categoriaIds: categoriaIds.filter((categoriaId) => categoriaId !== id) }
+        : { categoriaIds: [...categoriaIds, id] },
     );
   }
 
   function limparFiltros() {
-    setContaBancariaId("");
-    setCartaoCreditoId("");
-    setCategoriaIds([]);
-    setTipoTransacao("todos");
-    setStatus("todos");
-    setSomenteRecorrentes(false);
-    setSomenteParceladas(false);
+    updateFilters({
+      contaBancariaId: "",
+      cartaoCreditoId: "",
+      categoriaIds: [],
+      tipoTransacao: "todos",
+      status: "todos",
+      somenteRecorrentes: false,
+      somenteParceladas: false,
+    });
+  }
+
+  function abrirExtratoDaCategoria(categoriaId: string | null) {
+    if (!categoriaId) {
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set("inicio", periodo.dataInicial);
+    params.set("fim", periodo.dataFinal);
+    params.set("categoria", categoriaId);
+    params.set("categorias", categoriaId);
+    if (contaBancariaId) {
+      params.set("conta", contaBancariaId);
+    }
+
+    navigate(`/?${params.toString()}#movimentacoes-recentes`);
   }
 
   return (
@@ -123,8 +164,16 @@ export function ReportsPage() {
 
           <div className="rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:min-w-[760px]">
             <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-              <MonthField label="De" value={inicioMes} onChange={setInicioMes} />
-              <MonthField label="Até" value={fimMes} onChange={setFimMes} />
+              <MonthField
+                label="De"
+                value={inicioMes}
+                onChange={(value) => updateFilters({ inicioMes: value })}
+              />
+              <MonthField
+                label="Até"
+                value={fimMes}
+                onChange={(value) => updateFilters({ fimMes: value })}
+              />
               <button
                 className="mt-auto inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[color:var(--app-card-border)] px-4 text-sm font-black text-slate-700 transition hover:bg-[var(--app-card-muted)] dark:text-white"
                 type="button"
@@ -145,7 +194,7 @@ export function ReportsPage() {
                   icon={<Landmark size={18} />}
                   label="Conta"
                   value={contaBancariaId}
-                  onChange={setContaBancariaId}
+                  onChange={(value) => updateFilters({ contaBancariaId: value })}
                   options={[
                     { value: "", label: "Todas as contas" },
                     ...(contasQuery.data ?? []).map((conta) => ({
@@ -158,7 +207,7 @@ export function ReportsPage() {
                   icon={<CreditCard size={18} />}
                   label="Cartão"
                   value={cartaoCreditoId}
-                  onChange={setCartaoCreditoId}
+                  onChange={(value) => updateFilters({ cartaoCreditoId: value })}
                   options={[
                     { value: "", label: "Todos os cartões" },
                     ...(cartoesQuery.data ?? []).map((cartao) => ({
@@ -170,7 +219,9 @@ export function ReportsPage() {
                 <SelectField
                   label="Tipo"
                   value={tipoTransacao}
-                  onChange={(value) => setTipoTransacao(value as TipoTransacaoFiltro)}
+                  onChange={(value) =>
+                    updateFilters({ tipoTransacao: value as TipoTransacaoFiltro })
+                  }
                   options={[
                     { value: "todos", label: "Todos" },
                     { value: "receita", label: "Receitas" },
@@ -181,7 +232,9 @@ export function ReportsPage() {
                 <SelectField
                   label="Status"
                   value={status}
-                  onChange={(value) => setStatus(value as StatusRelatorio)}
+                  onChange={(value) =>
+                    updateFilters({ status: value as StatusRelatorio })
+                  }
                   options={[
                     { value: "todos", label: "Todos" },
                     { value: "realizado", label: "Realizado" },
@@ -192,7 +245,9 @@ export function ReportsPage() {
                   <input
                     type="checkbox"
                     checked={somenteRecorrentes}
-                    onChange={(event) => setSomenteRecorrentes(event.target.checked)}
+                    onChange={(event) =>
+                      updateFilters({ somenteRecorrentes: event.target.checked })
+                    }
                   />
                   Somente recorrentes
                 </label>
@@ -200,7 +255,9 @@ export function ReportsPage() {
                   <input
                     type="checkbox"
                     checked={somenteParceladas}
-                    onChange={(event) => setSomenteParceladas(event.target.checked)}
+                    onChange={(event) =>
+                      updateFilters({ somenteParceladas: event.target.checked })
+                    }
                   />
                   Somente parceladas
                 </label>
@@ -282,13 +339,24 @@ export function ReportsPage() {
               title="Projeção diária"
               subtitle="Linha de saldo acumulado e barras de entradas/saídas"
             />
-            <div className="mt-5 h-[380px] md:h-[460px]">
+            {periodosNegativos.length > 0 && (
+              <div className="mt-4 rounded-2xl border border-[color:var(--app-danger)] bg-[var(--app-danger-soft)] p-3 text-sm font-semibold text-[var(--app-danger)] dark:text-red-200">
+                Atenção: saldo projetado negativo em{" "}
+                {formatNegativeRanges(periodosNegativos)}.
+              </div>
+            )}
+            <div className="mt-5 h-[380px] min-h-[320px] min-w-0 overflow-hidden md:h-[460px]">
               {relatoriosQuery.isLoading ? (
                 <Skeleton className="h-full" />
               ) : chartData.length === 0 ? (
                 <EmptyState message="Sem dados para projetar neste período." />
               ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer
+                  width="100%"
+                  height="100%"
+                  minWidth={280}
+                  minHeight={320}
+                >
                   <ComposedChart
                     data={chartData}
                     margin={{ top: 12, right: 12, left: 0, bottom: 0 }}
@@ -300,9 +368,10 @@ export function ReportsPage() {
                     />
                     <XAxis
                       axisLine={false}
-                      dataKey="dataLabel"
+                      dataKey="dataReferencia"
                       minTickGap={18}
                       tick={chartTick}
+                      tickFormatter={(value) => formatDate(String(value)).slice(0, 5)}
                       tickLine={false}
                     />
                     <YAxis
@@ -325,6 +394,16 @@ export function ReportsPage() {
                     />
                     <Legend />
                     <ReferenceLine yAxisId="saldo" y={0} stroke="var(--app-card-border)" />
+                    {periodosNegativos.map((periodo) => (
+                      <ReferenceArea
+                        key={`${periodo.start}-${periodo.end}`}
+                        yAxisId="saldo"
+                        x1={periodo.start}
+                        x2={periodo.end}
+                        fill="var(--app-danger-soft)"
+                        fillOpacity={0.8}
+                      />
+                    ))}
                     <Bar
                       yAxisId="fluxo"
                       dataKey="entradas"
@@ -336,7 +415,7 @@ export function ReportsPage() {
                       yAxisId="fluxo"
                       dataKey="saidasNegativas"
                       name="Saídas"
-                      fill="#ef4444"
+                      fill="var(--app-danger)"
                       radius={[0, 0, 8, 8]}
                     />
                     <Line
@@ -375,7 +454,18 @@ export function ReportsPage() {
                 relatorio!.despesasPorCategoria.map((item, index) => {
                   const percentual = totalCategorias <= 0 ? 0 : (item.valor / totalCategorias) * 100;
                   return (
-                    <div key={`${item.categoriaId ?? item.categoriaNome}-${index}`} className="space-y-2">
+                    <button
+                      key={`${item.categoriaId ?? item.categoriaNome}-${index}`}
+                      className="w-full space-y-2 rounded-2xl p-2 text-left transition hover:bg-[var(--app-card-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-primary)] disabled:cursor-not-allowed disabled:opacity-70"
+                      type="button"
+                      disabled={!item.categoriaId}
+                      onClick={() => abrirExtratoDaCategoria(item.categoriaId)}
+                      aria-label={
+                        item.categoriaId
+                          ? `Filtrar extrato pela categoria ${item.categoriaNome}`
+                          : `Categoria ${item.categoriaNome} sem filtro disponível`
+                      }
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-black text-slate-900 dark:text-white">
@@ -398,7 +488,7 @@ export function ReportsPage() {
                           }}
                         />
                       </div>
-                    </div>
+                    </button>
                   );
                 })
               )}
@@ -667,7 +757,9 @@ function ChartTooltip({
 
   return (
     <div className="rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-950">
-      <p className="mb-2 font-black text-slate-900 dark:text-white">{label}</p>
+      <p className="mb-2 font-black text-slate-900 dark:text-white">
+        {label ? formatDate(label) : ""}
+      </p>
       {payload.map((item) => (
         <p key={`${item.dataKey}-${item.name}`} className="font-semibold text-slate-600 dark:text-slate-300">
           {item.name}: {formatCurrency(Math.abs(Number(item.value ?? 0)))}
@@ -687,39 +779,6 @@ function EmptyState({ message }: { message: string }) {
       {message}
     </div>
   );
-}
-
-function toMonthInput(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function normalizarPeriodo(inicio: string, fim: string) {
-  const [inicioAno, inicioMesNumero] = inicio.split("-").map(Number);
-  const [fimAno, fimMesNumero] = fim.split("-").map(Number);
-  const inicioDate = new Date(inicioAno, inicioMesNumero - 1, 1);
-  const fimDate = new Date(fimAno, fimMesNumero, 0);
-  const meses =
-    (fimDate.getFullYear() - inicioDate.getFullYear()) * 12 +
-    fimDate.getMonth() -
-    inicioDate.getMonth() +
-    1;
-
-  if (meses > 12) {
-    const novoInicio = new Date(fimDate.getFullYear(), fimDate.getMonth() - 11, 1);
-    return {
-      dataInicial: toDateOnly(novoInicio),
-      dataFinal: toDateOnly(fimDate),
-    };
-  }
-
-  return {
-    dataInicial: toDateOnly(inicioDate),
-    dataFinal: toDateOnly(fimDate),
-  };
-}
-
-function toDateOnly(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function formatPercent(value: number) {

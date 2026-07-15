@@ -23,7 +23,7 @@ import { PeriodFilter } from "../components/PeriodFilter";
 import { PaymentConfirmationModal } from "../components/PaymentConfirmationModal";
 import { TransactionList } from "../components/TransactionList";
 import { DashboardInicioPanel } from "../components/dashboard/DashboardInicioPanel";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import {
   useCartoes,
   useCategorias,
@@ -1480,3 +1480,4 @@ function ResumoCard({
     </div>
   );
 }
+

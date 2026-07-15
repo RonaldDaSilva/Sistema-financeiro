@@ -20,7 +20,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { applyPalette, getStoredPaletteId } from "../utils/palette";
 import { NotificationBell } from "./NotificationBell";
 
@@ -418,3 +418,4 @@ function UserFloatingMenu({
     </div>
   );
 }
+

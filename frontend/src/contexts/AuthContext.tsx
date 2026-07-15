@@ -1,7 +1,5 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -18,18 +16,7 @@ import {
   touchSessionActivity,
 } from '../services/authStorage';
 import type { AuthSession, AuthUser, LoginRequest, RegisterRequest } from '../types/auth';
-
-type AuthContextValue = {
-  user: AuthUser | null;
-  session: AuthSession | null;
-  isAuthenticated: boolean;
-  login: (request: LoginRequest) => Promise<void>;
-  register: (request: RegisterRequest) => Promise<void>;
-  updateUser: (user: Partial<AuthUser>) => void;
-  logout: () => void;
-};
-
-const AuthContext = createContext<AuthContextValue | null>(null);
+import { AuthContext, type AuthContextValue } from './authContextCore';
 
 type AuthProviderProps = {
   children: ReactNode;
@@ -184,14 +171,4 @@ export function AuthProvider({ children }: AuthProviderProps) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-
-  if (!context) {
-    throw new Error('useAuth deve ser usado dentro de AuthProvider.');
-  }
-
-  return context;
 }

@@ -2,7 +2,7 @@ import { FormEvent, useState } from "react";
 import axios from "axios";
 import { Eye, EyeOff, LockKeyhole, Mail, WalletCards } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -146,3 +146,4 @@ export function LoginPage() {
     </main>
   );
 }
+

@@ -13,6 +13,7 @@ import {
 import { AppLayout } from "../components/AppLayout";
 import { BankBadge } from "../components/BankBadge";
 import { useConfirmDialog } from "../components/ConfirmDialog";
+import { Dialog } from "../components/Dialog";
 import { principaisBancos } from "../constants/banks";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import { useContas, useDistribuicaoContas } from "../hooks/queries/useFinanceQueries";
@@ -74,8 +75,11 @@ export function AccountsPage() {
   const { confirm, dialog } = useConfirmDialog();
   const contasQuery = useContas();
   const distribuicaoQuery = useDistribuicaoContas();
-  const contas = contasQuery.data ?? [];
-  const distribuicao = distribuicaoQuery.data ?? [];
+  const contas = useMemo(() => contasQuery.data ?? [], [contasQuery.data]);
+  const distribuicao = useMemo(
+    () => distribuicaoQuery.data ?? [],
+    [distribuicaoQuery.data],
+  );
   const [form, setForm] = useState<AccountForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -805,11 +809,15 @@ function ContaSelect({
 
 function ModalShell({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onMouseDown={(event) => event.currentTarget === event.target && onClose()}>
-      <div className="relative max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
-        {children}
-      </div>
-    </div>
+    <Dialog
+      title="Formulário de conta"
+      description="Gerencie dados cadastrais, ajustes de saldo e transferências entre contas."
+      onClose={onClose}
+      className="max-w-xl p-6"
+      showCloseButton={false}
+    >
+      {children}
+    </Dialog>
   );
 }
 

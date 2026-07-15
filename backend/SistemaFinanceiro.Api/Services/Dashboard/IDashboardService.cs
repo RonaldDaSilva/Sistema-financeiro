@@ -7,11 +7,4 @@ public interface IDashboardService
     Task<DashboardInicioDto> GetInicioAsync(
         Guid usuarioId,
         CancellationToken cancellationToken = default);
-
-    Task<DashboardRelatoriosDto> GetRelatoriosAsync(
-        int mes,
-        int ano,
-        Guid usuarioId,
-        Guid? contaBancariaId = null,
-        CancellationToken cancellationToken = default);
 }

@@ -1,7 +1,7 @@
 import { FormEvent, type InputHTMLAttributes, useEffect, useState } from "react";
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../contexts/useAuth";
 import { hasUsableStoredAuth } from "../services/authStorage";
 import * as userService from "../services/userService";
 import { maskCpf } from "../utils/cpf";
@@ -282,3 +282,4 @@ function extractMessage(error: unknown, fallback: string) {
 
   return fallback;
 }
+

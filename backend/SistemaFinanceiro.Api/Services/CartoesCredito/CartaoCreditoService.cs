@@ -292,7 +292,10 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
                 return (DateOnly?)AjustarDiaMes(mesFinal.Year, mesFinal.Month, compra.DataCompra.Day).AddMonths(1);
             });
 
-        var ultimaDataCredito = new DateOnly?[] { ultimaTransacaoCredito, ultimaParcelaCredito, hoje }
+        // Compras avulsas feitas após o fechamento pertencem à próxima competência,
+        // então o horizonte do limite precisa avançar um mês além da data da compra.
+        var ultimaCompetenciaTransacaoCredito = ultimaTransacaoCredito?.AddMonths(1);
+        var ultimaDataCredito = new DateOnly?[] { ultimaCompetenciaTransacaoCredito, ultimaParcelaCredito, hoje }
             .Where(data => data.HasValue)
             .Select(data => data!.Value)
             .Max();
@@ -304,6 +307,9 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         var usoPorCartao = cartoes.ToDictionary(
             cartaoId => cartaoId,
             _ => UsoCartaoDetalhado.Vazio);
+        var chavesPorCartao = cartoes.ToDictionary(
+            cartaoId => cartaoId,
+            _ => new HashSet<CompromissoCartaoKey>());
 
         while (cursor <= ultimoMesReferencia)
         {
@@ -316,10 +322,17 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             foreach (var fatura in faturasDoMes.Where(fatura => !fatura.IsPaga && fatura.Detalhes.Count > 0))
             {
                 var atual = usoPorCartao.GetValueOrDefault(fatura.CartaoCreditoId);
-                var valorLimiteFatura = SomarValorLimite(fatura.Detalhes);
+                var competencia = new DateOnly(cursor.Year, cursor.Month, 1);
+                var chaves = chavesPorCartao[fatura.CartaoCreditoId];
 
                 if (cursor < mesAtual)
                 {
+                    var valorLimiteFatura = SomarValorLimiteComChaveUnica(
+                        fatura.CartaoCreditoId,
+                        fatura.Detalhes,
+                        competencia,
+                        "FaturaFechadaNaoPaga",
+                        chaves);
                     usoPorCartao[fatura.CartaoCreditoId] = atual with
                     {
                         ValorFaturasFechadasNaoPagas = atual.ValorFaturasFechadasNaoPagas + valorLimiteFatura
@@ -329,6 +342,12 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
 
                 if (cursor == mesAtual)
                 {
+                    var valorLimiteFatura = SomarValorLimiteComChaveUnica(
+                        fatura.CartaoCreditoId,
+                        fatura.Detalhes,
+                        competencia,
+                        "FaturaAtual",
+                        chaves);
                     usoPorCartao[fatura.CartaoCreditoId] = atual with
                     {
                         ValorFaturaAtual = atual.ValorFaturaAtual + valorLimiteFatura
@@ -339,8 +358,21 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
                 var parcelasFuturas = fatura.Detalhes
                     .Where(detalhe => detalhe.CompraParceladaId.HasValue)
                     .ToList();
-                var valorParcelasFuturas = SomarValorLimite(parcelasFuturas);
-                var valorProximasFaturas = valorLimiteFatura - valorParcelasFuturas;
+                var outrosDetalhesFuturos = fatura.Detalhes
+                    .Where(detalhe => !detalhe.CompraParceladaId.HasValue)
+                    .ToList();
+                var valorParcelasFuturas = SomarValorLimiteComChaveUnica(
+                    fatura.CartaoCreditoId,
+                    parcelasFuturas,
+                    competencia,
+                    "ParcelaFutura",
+                    chaves);
+                var valorProximasFaturas = SomarValorLimiteComChaveUnica(
+                    fatura.CartaoCreditoId,
+                    outrosDetalhesFuturos,
+                    competencia,
+                    "ProximaFatura",
+                    chaves);
 
                 usoPorCartao[fatura.CartaoCreditoId] = atual with
                 {
@@ -356,12 +388,49 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         return usoPorCartao;
     }
 
-    private static decimal SomarValorLimite(IEnumerable<FaturaDetalheResponse> detalhes)
+    private static decimal SomarValorLimiteComChaveUnica(
+        Guid cartaoCreditoId,
+        IEnumerable<FaturaDetalheResponse> detalhes,
+        DateOnly competencia,
+        string agrupamento,
+        HashSet<CompromissoCartaoKey> chaves)
     {
-        return detalhes.Sum(detalhe =>
-            detalhe.IsDividida && detalhe.ValorTotalOriginal.HasValue
+        var total = 0m;
+
+        foreach (var detalhe in detalhes)
+        {
+            var chave = CriarChaveCompromisso(cartaoCreditoId, detalhe, competencia);
+            if (!chaves.Add(chave))
+            {
+                throw new InvalidOperationException(
+                    $"Compromisso de cartão duplicado na decomposição ({agrupamento}): {chave}.");
+            }
+
+            total += detalhe.IsDividida && detalhe.ValorTotalOriginal.HasValue
                 ? detalhe.ValorTotalOriginal.Value
-                : detalhe.Valor);
+                : detalhe.Valor;
+        }
+
+        return total;
+    }
+
+    private static CompromissoCartaoKey CriarChaveCompromisso(
+        Guid cartaoCreditoId,
+        FaturaDetalheResponse detalhe,
+        DateOnly competencia)
+    {
+        var origemId = detalhe.CompraParceladaId ?? detalhe.TransacaoId;
+        if (!origemId.HasValue)
+        {
+            throw new InvalidOperationException("Detalhe de fatura sem identificador persistido.");
+        }
+
+        return new CompromissoCartaoKey(
+            cartaoCreditoId,
+            origemId.Value,
+            detalhe.NumeroParcela,
+            competencia,
+            detalhe.CompraParceladaId.HasValue ? "CompraParcelada" : "Transacao");
     }
 
     private static void ValidarInvarianciaLimite(decimal limiteTotal, decimal limiteDisponivel, decimal valorUtilizado)
@@ -498,4 +567,11 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             ValorParcelasFuturas +
             ValorOutrosCompromissos;
     }
+
+    private readonly record struct CompromissoCartaoKey(
+        Guid CartaoCreditoId,
+        Guid OrigemId,
+        int? NumeroParcela,
+        DateOnly Competencia,
+        string TipoCompromisso);
 }
