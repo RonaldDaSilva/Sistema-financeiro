@@ -181,7 +181,7 @@ export const TransactionList = memo(function TransactionList({
                       isStatusRevealed ? "translate-x-8" : "translate-x-0"
                     } md:translate-x-0 md:group-hover:translate-x-8`}
                   >
-                    <span className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300">
+                    <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
                       {formatDate(item.dataOcorrencia)}
                     </span>
                     {!isReceita && <StatusBadge status={statusVisual} />}
@@ -262,13 +262,13 @@ export const TransactionList = memo(function TransactionList({
                 </div>
                 <div className="col-start-2 row-start-3 flex min-w-0 items-center justify-end gap-3 md:col-auto md:row-auto">
                   <div className="text-right">
-                    <span className={`block whitespace-nowrap font-semibold ${valueClass}`}>
+                    <span className={`block break-words font-semibold [overflow-wrap:anywhere] ${valueClass}`}>
                       {isReceita ? "+" : "-"} {formatCurrency(item.valor)}
                     </span>
                     {isFatura &&
                     item.valorTotalOriginal != null &&
                     item.valorTotalOriginal !== item.valor ? (
-                      <span className="mt-1 block whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <span className="mt-1 block break-words text-xs font-medium text-slate-500 dark:text-slate-400">
                         <span className="md:hidden">
                           Total: ({formatCurrency(item.valorTotalOriginal)})
                         </span>
@@ -277,7 +277,7 @@ export const TransactionList = memo(function TransactionList({
                         </span>
                       </span>
                     ) : item.isDividida && item.valorTotalOriginal != null ? (
-                      <span className="ml-1 whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <span className="ml-1 break-words text-xs font-medium text-slate-500 dark:text-slate-400">
                         ({formatCurrency(item.valorTotalOriginal)})
                       </span>
                     ) : null}
@@ -377,7 +377,7 @@ export const TransactionList = memo(function TransactionList({
                             </span>
                             {detalhe.isDividida &&
                               detalhe.valorTotalOriginal != null && (
-                                <span className="ml-1 whitespace-nowrap text-xs font-medium text-slate-500 dark:text-slate-400">
+                                <span className="ml-1 break-words text-xs font-medium text-slate-500 dark:text-slate-400">
                                   ({formatCurrency(detalhe.valorTotalOriginal)})
                                 </span>
                               )}

@@ -162,7 +162,7 @@ export function ReportsPage() {
             </h2>
           </div>
 
-          <div className="rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:min-w-[760px]">
+          <div className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:min-w-[760px]">
             <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
               <MonthField
                 label="De"
@@ -269,14 +269,14 @@ export function ReportsPage() {
                     {(categoriasQuery.data ?? []).map((categoria) => (
                       <label
                         key={categoria.id}
-                        className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                        className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 dark:bg-slate-950 dark:text-slate-200"
                       >
                         <input
                           type="checkbox"
                           checked={categoriaIds.includes(categoria.id)}
                           onChange={() => toggleCategoria(categoria.id)}
                         />
-                        {categoria.nome}
+                        <span className="min-w-0 break-words">{categoria.nome}</span>
                       </label>
                     ))}
                   </div>
@@ -309,7 +309,7 @@ export function ReportsPage() {
 
         <KpiGrid relatorio={relatorio} isLoading={relatoriosQuery.isLoading} />
 
-        <div className="flex gap-2 overflow-x-auto rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-2 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex gap-2 overflow-x-auto rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-2 dark:border-slate-800 dark:bg-slate-900" aria-label="Abas de relatórios">
           {[
             ["projecao", "Projeção"],
             ["previsto", "Previsto x realizado"],
@@ -345,7 +345,7 @@ export function ReportsPage() {
                 {formatNegativeRanges(periodosNegativos)}.
               </div>
             )}
-            <div className="mt-5 h-[380px] min-h-[320px] min-w-0 overflow-hidden md:h-[460px]">
+            <div className="mt-5 h-[340px] min-h-[300px] min-w-0 overflow-hidden md:h-[460px]">
               {relatoriosQuery.isLoading ? (
                 <Skeleton className="h-full" />
               ) : chartData.length === 0 ? (
@@ -354,8 +354,8 @@ export function ReportsPage() {
                 <ResponsiveContainer
                   width="100%"
                   height="100%"
-                  minWidth={280}
-                  minHeight={320}
+                  minWidth={240}
+                  minHeight={300}
                 >
                   <ComposedChart
                     data={chartData}
@@ -579,17 +579,17 @@ function KpiCard({
 }) {
   const isPercent = title === "Taxa de economia";
   return (
-    <article className="rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+    <article className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
           <p className="text-sm font-bold text-slate-500 dark:text-slate-400">{title}</p>
-          <p className={`mt-3 text-3xl font-black ${colorClass}`}>
+          <p className={`mt-3 break-words text-2xl font-black leading-tight [overflow-wrap:anywhere] sm:text-3xl ${colorClass}`}>
             {isPercent
               ? formatPercent(value?.valorAtual ?? 0)
               : formatCurrency(value?.valorAtual ?? 0)}
           </p>
         </div>
-        <span className="rounded-2xl bg-[var(--app-card-muted)] p-3 text-[var(--app-primary)]">
+        <span className="shrink-0 rounded-2xl bg-[var(--app-card-muted)] p-3 text-[var(--app-primary)]">
           <TrendingUp size={20} />
         </span>
       </div>
@@ -620,10 +620,10 @@ function MonthField({
   return (
     <label className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
       {label}
-      <div className="mt-1 flex h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+      <div className="mt-1 flex h-12 min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
         <CalendarDays size={18} className="shrink-0 text-slate-500" />
         <input
-          className="w-full bg-transparent text-sm font-bold outline-none"
+          className="min-w-0 w-full bg-transparent text-sm font-bold outline-none"
           type="month"
           value={value}
           onChange={(event) => onChange(event.target.value)}
@@ -649,10 +649,10 @@ function SelectField({
   return (
     <label className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
       {label}
-      <div className="mt-1 flex h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
-        {icon}
+      <div className="mt-1 flex h-12 min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
+        {icon && <span className="shrink-0">{icon}</span>}
         <select
-          className="w-full bg-transparent text-sm font-bold outline-none"
+          className="min-w-0 w-full bg-transparent text-sm font-bold outline-none"
           value={value}
           onChange={(event) => onChange(event.target.value)}
         >
@@ -679,14 +679,14 @@ function SectionTitle({
   badge?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3">
-        <span className="rounded-2xl bg-[var(--app-primary-soft)] p-3 text-[var(--app-primary)] dark:bg-emerald-950/50 dark:text-emerald-300">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="shrink-0 rounded-2xl bg-[var(--app-primary-soft)] p-3 text-[var(--app-primary)] dark:bg-emerald-950/50 dark:text-emerald-300">
           {icon}
         </span>
-        <div>
+        <div className="min-w-0">
           <h3 className="text-lg font-black text-slate-900 dark:text-white">{title}</h3>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{subtitle}</p>
+          <p className="break-words text-sm font-medium text-slate-500 dark:text-slate-400">{subtitle}</p>
         </div>
       </div>
       {badge && (
@@ -756,7 +756,7 @@ function ChartTooltip({
   }
 
   return (
-    <div className="rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-950">
+    <div className="max-w-[calc(100vw-2rem)] rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-950">
       <p className="mb-2 font-black text-slate-900 dark:text-white">
         {label ? formatDate(label) : ""}
       </p>

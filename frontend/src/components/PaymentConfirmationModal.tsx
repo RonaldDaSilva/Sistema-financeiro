@@ -57,9 +57,9 @@ export function PaymentConfirmationModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/50 px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/50 p-3 backdrop-blur-sm sm:p-4">
       <form
-        className="relative w-full max-w-md rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+        className="relative max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-md overflow-y-auto rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:w-full sm:p-6"
         onSubmit={handleSubmit}
       >
         <button
@@ -86,12 +86,12 @@ export function PaymentConfirmationModal({
         </div>
 
         <div className="mt-5 rounded-2xl bg-[var(--app-card-muted)] p-4 dark:bg-slate-950">
-          <p className="truncate font-bold text-slate-900 dark:text-white">
+          <p className="break-words font-bold text-slate-900 dark:text-white">
             {item.descricao}
           </p>
-          <div className="mt-2 flex items-center justify-between gap-4 text-sm text-slate-500 dark:text-slate-400">
+          <div className="mt-2 flex flex-col gap-1 text-sm text-slate-500 dark:text-slate-400 min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between">
             <span>{formatDate(item.dataOcorrencia)}</span>
-            <strong className="text-red-600 dark:text-red-300">
+            <strong className="break-words text-red-600 [overflow-wrap:anywhere] dark:text-red-300">
               {formatCurrency(item.valor)}
             </strong>
           </div>
@@ -123,7 +123,7 @@ export function PaymentConfirmationModal({
           </div>
         )}
 
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
             className="rounded-2xl px-5 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
             type="button"

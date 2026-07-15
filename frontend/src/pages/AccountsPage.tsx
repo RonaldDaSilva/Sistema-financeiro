@@ -276,7 +276,7 @@ export function AccountsPage() {
 
   return (
     <AppLayout>
-      <section className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1400px] px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
@@ -311,7 +311,7 @@ export function AccountsPage() {
           <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
             Saldo total das contas
           </p>
-          <p className="mt-1 text-3xl font-black text-slate-900 dark:text-white">
+          <p className="mt-1 break-words text-3xl font-black leading-tight text-slate-900 [overflow-wrap:anywhere] dark:text-white">
             {formatCurrency(saldoTotal)}
           </p>
         </div>
@@ -355,12 +355,12 @@ export function AccountsPage() {
                   }`}
                   key={conta.id}
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex min-w-0 flex-col gap-4 min-[380px]:flex-row min-[380px]:items-start min-[380px]:justify-between">
                     <div className="flex min-w-0 items-center gap-3">
                       <BankBadge codigoBanco={conta.codigoBanco} />
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h3 className="truncate font-bold text-slate-900 dark:text-white">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <h3 className="min-w-0 break-words font-bold text-slate-900 dark:text-white">
                             {conta.nomeCustomizado}
                           </h3>
                           {conta.isFavorita && (
@@ -389,7 +389,7 @@ export function AccountsPage() {
 
                   <div className="mt-5 border-t border-[color:var(--app-card-border)] pt-4">
                     <p className="text-sm text-slate-500">Valor em conta</p>
-                    <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">
+                    <p className="mt-1 break-words text-2xl font-black leading-tight text-slate-900 [overflow-wrap:anywhere] dark:text-white">
                       {formatCurrency(saldo)}
                     </p>
                     <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
@@ -403,7 +403,7 @@ export function AccountsPage() {
                     </p>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-2">
+                  <div className="mt-4 grid grid-cols-1 gap-2 min-[420px]:grid-cols-3">
                     <ActionButton label="Editar" icon={<Pencil size={16} />} onClick={() => editar(conta)} />
                     <ActionButton
                       label="Ajustar"
@@ -474,7 +474,7 @@ function ActionButton({
 }) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+      className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
         danger
           ? "border-red-100 text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-950/30"
           : "border-[color:var(--app-card-border)] text-slate-600 hover:bg-[var(--app-card-muted)] dark:text-slate-200"
@@ -813,7 +813,7 @@ function ModalShell({ children, onClose }: { children: ReactNode; onClose: () =>
       title="Formulário de conta"
       description="Gerencie dados cadastrais, ajustes de saldo e transferências entre contas."
       onClose={onClose}
-      className="max-w-xl p-6"
+      className="max-w-xl p-4 sm:p-6"
       showCloseButton={false}
     >
       {children}
@@ -842,11 +842,11 @@ function ModalHeader({
       >
         <X size={20} />
       </button>
-      <div className="flex items-center gap-3 pr-10">
-        <span className="rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
+      <div className="flex min-w-0 items-start gap-3 pr-10">
+        <span className="shrink-0 rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
           {icon}
         </span>
-        <div>
+        <div className="min-w-0">
           <h2 className="text-xl font-semibold text-slate-900 dark:text-white">{title}</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">{description}</p>
         </div>

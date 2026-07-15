@@ -116,7 +116,7 @@ export function Dialog({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-4"
       onMouseDown={handleBackdropMouseDown}
     >
       <div
@@ -127,7 +127,7 @@ export function Dialog({
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         onKeyDown={trapFocus}
-        className={`relative max-h-[92vh] w-full overflow-y-auto rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl outline-none dark:border-slate-800 dark:bg-slate-950 ${className}`}
+        className={`relative max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-full overflow-y-auto rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl outline-none dark:border-slate-800 dark:bg-slate-950 sm:max-h-[calc(100dvh-2rem)] sm:w-full ${className}`}
       >
         <div className="sr-only">
           <h2 id={titleId}>{title}</h2>

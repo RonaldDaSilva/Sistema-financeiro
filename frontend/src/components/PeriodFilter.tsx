@@ -362,7 +362,7 @@ export function PeriodFilter({
                   isOpen={openSections.periodo}
                   onToggle={() => toggleSection("periodo")}
                 >
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-3">
                     {[7, 15, 30].map((dias) => (
                       <button
                         key={dias}
@@ -765,7 +765,7 @@ function DateRangeCalendar({
   }).format(calendarMonth);
 
   return (
-    <div className="absolute left-0 right-0 z-[90] mt-2 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-2xl dark:border-slate-700 dark:bg-slate-900 md:right-auto md:w-[360px]">
+    <div className="absolute left-0 right-0 z-[90] mt-2 max-w-[calc(100vw-2rem)] rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-3 shadow-2xl dark:border-slate-700 dark:bg-slate-900 sm:p-4 md:right-auto md:w-[360px]">
       <div className="flex items-center justify-between">
         <button
           className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"

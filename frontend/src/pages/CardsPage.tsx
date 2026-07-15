@@ -283,7 +283,7 @@ export function CardsPage() {
 
   return (
     <AppLayout>
-      <section className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1400px] px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Cartões</p>
@@ -292,7 +292,7 @@ export function CardsPage() {
             </h2>
           </div>
           <button
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-[var(--app-accent)] px-6 py-4 text-base font-bold text-[var(--app-accent-contrast)] shadow-sm transition hover:opacity-90 dark:bg-emerald-500 dark:text-slate-950"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--app-accent)] px-6 py-4 text-base font-bold text-[var(--app-accent-contrast)] shadow-sm transition hover:opacity-90 dark:bg-emerald-500 dark:text-slate-950 sm:w-auto"
             type="button"
             onClick={abrirNovoCartao}
           >
@@ -357,17 +357,17 @@ export function CardsPage() {
 
               return (
                 <article
-                  className="relative overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900"
+                  className="relative min-w-0 overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900 sm:p-6"
                   key={cartao.id}
                 >
                   <div className="absolute left-0 top-0 h-full w-1.5 bg-[var(--app-accent)]" />
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
+                  <div className="flex min-w-0 flex-col gap-3 min-[380px]:flex-row min-[380px]:items-start min-[380px]:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="shrink-0 rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
                         <CreditCard size={20} />
                       </div>
-                      <div>
-                        <h3 className="font-semibold text-slate-900 dark:text-white">
+                      <div className="min-w-0">
+                        <h3 className="break-words font-semibold text-slate-900 dark:text-white">
                           {cartao.apelidoCartao}
                         </h3>
                         {cartao.banco && cartao.banco !== cartao.apelidoCartao && (
@@ -377,7 +377,7 @@ export function CardsPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex shrink-0 gap-2 self-end min-[380px]:self-start">
                       <button
                         className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:hover:bg-slate-800"
                         type="button"
@@ -409,11 +409,11 @@ export function CardsPage() {
                   </div>
 
                   <section className="mt-5" aria-label="Limite do cartão">
-                    <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-3 text-sm">
                       <span className="font-medium text-slate-500 dark:text-slate-400">
                         Utilizado
                       </span>
-                      <span className="font-bold text-slate-900 dark:text-white">
+                      <span className="break-words font-bold text-slate-900 [overflow-wrap:anywhere] dark:text-white">
                         {formatCurrency(utilizado)}
                       </span>
                     </div>
@@ -423,7 +423,7 @@ export function CardsPage() {
                         style={{ width: `${percentualUtilizado}%` }}
                       />
                     </div>
-                    <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <dl className="mt-4 grid grid-cols-1 gap-3 text-sm min-[380px]:grid-cols-2">
                       <MetricItem label="Limite total" value={formatCurrency(cartao.limiteTotal)} />
                       <MetricItem
                         label="Disponível"
@@ -437,8 +437,8 @@ export function CardsPage() {
                     className="mt-4 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950/70"
                     aria-label="Fatura atual"
                   >
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div>
+                    <div className="mb-3 flex flex-col gap-3 min-[380px]:flex-row min-[380px]:items-start min-[380px]:justify-between">
+                      <div className="min-w-0">
                         <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                           Fatura atual
                         </p>
@@ -452,7 +452,7 @@ export function CardsPage() {
                         {getFaturaStatusLabel(cartao.statusFaturaAtual)}
                       </span>
                     </div>
-                    <dl className="grid grid-cols-2 gap-3 text-sm">
+                    <dl className="grid grid-cols-1 gap-3 text-sm min-[380px]:grid-cols-2">
                       <MetricItem label="Valor" value={formatCurrency(cartao.faturaAtual)} />
                       <MetricItem
                         label="Fechamento"
@@ -494,7 +494,7 @@ export function CardsPage() {
                   </section>
 
                   <section className="mt-4" aria-label="Informações complementares">
-                    <dl className="grid grid-cols-2 gap-3 text-sm">
+                    <dl className="grid grid-cols-1 gap-3 text-sm min-[380px]:grid-cols-2">
                       <MetricItem label="Melhor dia de compra" value={`Dia ${cartao.melhorDiaCompra}`} />
                       <MetricItem
                         label="Conta de pagamento"
@@ -515,17 +515,17 @@ export function CardsPage() {
                               )}`
                             : "Nenhuma próxima fatura"
                         }
-                        className="col-span-2"
+                        className="min-[380px]:col-span-2"
                       />
                     </dl>
                   </section>
 
                   <div className="mt-4 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950/70">
-                    <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="mb-3 flex flex-col gap-2 min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between">
                       <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
                         Composição do limite
                       </p>
-                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      <span className="break-words text-xs font-semibold text-slate-500 [overflow-wrap:anywhere] dark:text-slate-400">
                         Total: {formatCurrency(cartao.valorUtilizado)}
                       </span>
                     </div>
@@ -674,7 +674,7 @@ function FaturaDetalheModal({
             {cartao.apelidoCartao}
           </h2>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 className="rounded-xl border border-[color:var(--app-card-border)] p-3 text-slate-600 transition hover:bg-[var(--app-card-muted)] dark:border-slate-700 dark:text-slate-200"
                 type="button"
@@ -683,10 +683,10 @@ function FaturaDetalheModal({
               >
                 <ChevronLeft size={18} />
               </button>
-              <label className="flex h-12 items-center gap-3 rounded-xl border border-[color:var(--app-card-border)] px-3 text-sm font-bold text-slate-800 dark:border-slate-700 dark:text-white">
+              <label className="flex h-12 min-w-0 flex-1 items-center gap-3 rounded-xl border border-[color:var(--app-card-border)] px-3 text-sm font-bold text-slate-800 dark:border-slate-700 dark:text-white min-[420px]:flex-none">
                 <CalendarDays size={18} className="text-slate-500" />
                 <input
-                  className="bg-transparent outline-none"
+                  className="min-w-0 bg-transparent outline-none"
                   type="month"
                   value={competenciaValue}
                   onChange={(event) => selecionarCompetencia(event.target.value)}
@@ -790,9 +790,9 @@ function FaturaDetalheModal({
                         key={detalheKey(detalhe, index)}
                         className="rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-900"
                       >
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 flex-col gap-3 min-[380px]:flex-row min-[380px]:items-start min-[380px]:justify-between">
                           <DetalheDescricao detalhe={detalhe} />
-                          <strong className="shrink-0 text-red-600">
+                          <strong className="break-words text-red-600 [overflow-wrap:anywhere] min-[380px]:shrink-0">
                             - {formatCurrency(detalhe.valor)}
                           </strong>
                         </div>
@@ -855,7 +855,7 @@ function PagamentoFaturaModal({
       title="Pagamento de fatura"
       description="Confirme conta, competência e valor da fatura."
       onClose={onClose}
-      className="max-w-lg p-6"
+      className="max-w-lg p-4 sm:p-6"
       showCloseButton={false}
       closeOnBackdrop={!isSubmitting}
     >
@@ -956,7 +956,7 @@ function PagamentoFaturaModal({
 function DetalheDescricao({ detalhe }: { detalhe: FaturaDetalhe }) {
   return (
     <div className="min-w-0">
-      <p className="truncate font-bold text-slate-900 dark:text-white">
+      <p className="break-words font-bold text-slate-900 dark:text-white">
         {detalhe.descricao}
       </p>
       <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -1054,7 +1054,7 @@ function CartaoModal({
       title={isEditing ? "Editar cartão" : "Adicionar cartão"}
       description="Defina limite, vencimento e a conta de débito da fatura."
       onClose={onClose}
-      className="max-w-xl p-6"
+      className="max-w-xl p-4 sm:p-6"
       showCloseButton={false}
     >
       <form
@@ -1070,11 +1070,11 @@ function CartaoModal({
           <X size={20} />
         </button>
 
-        <div className="flex items-center gap-3 pr-10">
-          <div className="rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
+        <div className="flex min-w-0 items-start gap-3 pr-10">
+          <div className="shrink-0 rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
             {isEditing ? <Pencil size={20} /> : <Plus size={20} />}
           </div>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
               {isEditing ? "Editar cartão" : "Adicionar cartão"}
             </h2>
@@ -1163,9 +1163,9 @@ function CartaoModal({
 
 function BreakdownRow({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="truncate">{label}</dt>
-      <dd className="shrink-0 font-semibold text-slate-800 dark:text-slate-100">
+    <div className="flex min-w-0 flex-col gap-1 min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between min-[380px]:gap-3">
+      <dt className="min-w-0 break-words">{label}</dt>
+      <dd className="break-words font-semibold text-slate-800 [overflow-wrap:anywhere] dark:text-slate-100 min-[380px]:shrink-0">
         {formatCurrency(value)}
       </dd>
     </div>
@@ -1184,9 +1184,9 @@ function MetricItem({
   valueClassName?: string;
 }) {
   return (
-    <div className={className}>
-      <dt className="text-slate-500 dark:text-slate-400">{label}</dt>
-      <dd className={`font-semibold ${valueClassName}`}>{value}</dd>
+    <div className={`min-w-0 ${className}`}>
+      <dt className="break-words text-slate-500 dark:text-slate-400">{label}</dt>
+      <dd className={`break-words font-semibold [overflow-wrap:anywhere] ${valueClassName}`}>{value}</dd>
     </div>
   );
 }

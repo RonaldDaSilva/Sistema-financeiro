@@ -39,8 +39,8 @@ export function useConfirmDialog() {
   );
 
   const dialog: ReactNode = state ? (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-md overflow-hidden rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm sm:p-4">
+      <div className="max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-md overflow-hidden rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:w-full">
         <div className="relative border-b border-[color:var(--app-card-border)] bg-slate-50/60 px-6 py-5 pr-16 dark:border-slate-800 dark:bg-slate-950/50">
           <button
             className="absolute right-4 top-4 rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--app-primary)] dark:hover:bg-slate-800 dark:hover:text-white"

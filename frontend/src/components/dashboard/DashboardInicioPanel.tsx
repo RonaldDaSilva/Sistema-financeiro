@@ -48,15 +48,15 @@ export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps
   }
 
   return (
-    <section className="grid gap-4 lg:grid-cols-[1.25fr_1fr]">
-      <div className="rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+    <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+      <div className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
+        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
             <p className="text-sm font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Livre para gastar
             </p>
             <p
-              className={`mt-4 text-4xl font-black tracking-tight sm:text-5xl ${
+              className={`mt-4 max-w-full break-words text-3xl font-black leading-tight tracking-normal [overflow-wrap:anywhere] sm:text-4xl lg:text-5xl ${
                 dashboard.livreParaGastar >= 0
                   ? "text-[var(--app-primary)]"
                   : "text-red-500"
@@ -64,16 +64,16 @@ export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps
             >
               {maskCurrency(dashboard.livreParaGastar, hiddenValues)}
             </p>
-            <p className="mt-3 max-w-xl text-sm font-medium text-slate-500 dark:text-slate-400">
+            <p className="mt-3 max-w-xl break-words text-sm font-medium leading-6 text-slate-500 dark:text-slate-400">
               Saldo atual disponível somado às receitas pendentes do mês, descontando despesas em aberto.
             </p>
           </div>
-          <span className="rounded-2xl bg-[var(--app-primary-soft)] p-3 text-[var(--app-primary)] dark:bg-emerald-950/50 dark:text-emerald-300">
+          <span className="self-start rounded-2xl bg-[var(--app-primary-soft)] p-3 text-[var(--app-primary)] dark:bg-emerald-950/50 dark:text-emerald-300 sm:shrink-0">
             <WalletCards size={26} />
           </span>
         </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <div className="mt-6 grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <MetricCard
             label="Saldo atual"
             description="Dinheiro já realizado nas contas, considerando pagamentos e recebimentos efetivos."
@@ -101,8 +101,8 @@ export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps
         </div>
       </div>
 
-      <div className="grid gap-4">
-        <div className="rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="grid min-w-0 gap-4">
+        <div className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5">
           <div className="mb-4 flex items-center gap-2">
             <span className="rounded-xl bg-blue-50 p-2 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
               <Lightbulb size={18} />
@@ -122,7 +122,7 @@ export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps
           </div>
         </div>
 
-        <div className="rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5">
           <div className="mb-4 flex items-center gap-2">
             <span className="rounded-xl bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300">
               <CalendarClock size={18} />
@@ -191,14 +191,14 @@ function MetricCard({
   }[tone];
 
   return (
-    <div className="rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-bold text-slate-500 dark:text-slate-400">
+    <div className="min-w-0 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <span className="min-w-0 break-words text-sm font-bold text-slate-500 dark:text-slate-400">
           {label}
         </span>
-        <span className={`rounded-xl p-2 ${toneClass}`}>{icon}</span>
+        <span className={`shrink-0 rounded-xl p-2 ${toneClass}`}>{icon}</span>
       </div>
-      <p className={`mt-4 text-2xl font-black ${value >= 0 ? "text-slate-950 dark:text-white" : "text-red-500"}`}>
+      <p className={`mt-4 max-w-full break-words text-2xl font-black leading-tight [overflow-wrap:anywhere] ${value >= 0 ? "text-slate-950 dark:text-white" : "text-red-500"}`}>
         {maskCurrency(value, hiddenValues)}
       </p>
       <p className="mt-2 text-xs font-medium leading-snug text-slate-500 dark:text-slate-400">
@@ -228,7 +228,7 @@ function TimelineItem({
 
   return (
     <a
-      className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3 outline-none transition hover:bg-[var(--app-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--app-primary)] dark:bg-slate-950 dark:hover:bg-slate-900"
+      className="flex min-w-0 flex-col gap-3 rounded-2xl bg-slate-50 p-3 outline-none transition hover:bg-[var(--app-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--app-primary)] dark:bg-slate-950 dark:hover:bg-slate-900 min-[380px]:flex-row min-[380px]:items-center"
       href={buildLancamentoHref(lancamento)}
       aria-label={`Abrir ${lancamento.descricao} no extrato`}
     >
@@ -242,20 +242,20 @@ function TimelineItem({
         {isReceita ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="truncate font-black text-slate-900 dark:text-white">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="min-w-0 break-words font-black text-slate-900 dark:text-white">
             {lancamento.descricao}
           </p>
           <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-slate-500 ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700">
             {relativeDate(lancamento.dataOcorrencia)}
           </span>
         </div>
-        <p className="truncate text-sm font-medium text-slate-500 dark:text-slate-400">
+        <p className="break-words text-sm font-medium text-slate-500 dark:text-slate-400">
           {formatDate(lancamento.dataOcorrencia)} · {lancamento.categoriaNome || lancamento.formaPagamento}
         </p>
       </div>
-      <div className="shrink-0 text-right">
-        <p className={`text-sm font-black ${isReceita ? "text-emerald-600" : "text-red-500"}`}>
+      <div className="min-w-0 text-left min-[380px]:shrink-0 min-[380px]:text-right">
+        <p className={`break-words text-sm font-black [overflow-wrap:anywhere] ${isReceita ? "text-emerald-600" : "text-red-500"}`}>
           {isReceita ? "+" : "-"} {maskCurrency(lancamento.valor, hiddenValues)}
         </p>
         {lancamento.podeLiquidar && (
