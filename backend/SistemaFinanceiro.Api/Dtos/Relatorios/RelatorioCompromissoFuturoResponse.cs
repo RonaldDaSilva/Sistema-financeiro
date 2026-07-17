@@ -6,7 +6,12 @@ public sealed class RelatorioCompromissoFuturoResponse
     public int Ano { get; set; }
     public decimal Faturas { get; set; }
     public decimal Parcelas { get; set; }
+    public decimal ParcelasForaDeFatura { get; set; }
     public decimal DespesasFixas { get; set; }
+    public decimal OutrasDespesas { get; set; }
     public decimal ReceitasRecorrentes { get; set; }
+    public decimal ReceitasPrevistas { get; set; }
+    public decimal ObrigacoesFuturas { get; set; }
+    public decimal ImpactoLiquido { get; set; }
     public decimal Total { get; set; }
 }

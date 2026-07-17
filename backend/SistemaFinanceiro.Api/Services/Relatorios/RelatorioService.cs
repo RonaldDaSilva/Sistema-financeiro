@@ -2,16 +2,19 @@ using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Relatorios;
 using SistemaFinanceiro.Api.Models;
+using SistemaFinanceiro.Api.Services.ContasBancarias;
 
 namespace SistemaFinanceiro.Api.Services.Relatorios;
 
 public sealed class RelatorioService : IRelatorioService
 {
     private readonly AppDbContext _dbContext;
+    private readonly IContaBancariaService _contaBancariaService;
 
-    public RelatorioService(AppDbContext dbContext)
+    public RelatorioService(AppDbContext dbContext, IContaBancariaService contaBancariaService)
     {
         _dbContext = dbContext;
+        _contaBancariaService = contaBancariaService;
     }
 
     public async Task<RelatorioGraficosResponse> GetGraficosAsync(
@@ -88,7 +91,32 @@ public sealed class RelatorioService : IRelatorioService
         var totaisMensais = CalcularTotaisMensais(transacoesPeriodo, inicioPeriodo, fimPeriodo);
         var projecaoDiaria = CalcularProjecaoDiaria(transacoesPeriodo, dataInicial, dataFinal);
         var previstoRealizado = CalcularPrevistoRealizado(transacoesPeriodo, hoje);
-        var compromissosFuturos = CalcularCompromissosFuturos(transacoesPeriodo, dataInicial, dataFinal);
+        var inicioCompromissos = new DateOnly(hoje.Year, hoje.Month, 1);
+        var horizonteMeses = Math.Clamp(quantidadeMeses, 6, 12);
+        var fimCompromissos = inicioCompromissos.AddMonths(horizonteMeses).AddDays(-1);
+        var transacoesCompromissos = await ObterTransacoesRelatorioAsync(
+            usuarioId,
+            inicioCompromissos,
+            fimCompromissos,
+            contaBancariaId,
+            cartaoCreditoId,
+            categoriaIds,
+            tipoTransacao,
+            status,
+            somenteRecorrentes,
+            somenteParceladas,
+            cancellationToken);
+        var compromissosFuturos = CalcularCompromissosFuturos(
+            transacoesCompromissos,
+            inicioCompromissos,
+            fimCompromissos);
+        var disponivelAposCompromissos = await CalcularDisponivelAposCompromissosAsync(
+            transacoesPeriodo,
+            dataFinal,
+            usuarioId,
+            contaBancariaId,
+            categoriaIds,
+            cancellationToken);
 
         return new RelatorioGraficosResponse
         {
@@ -112,6 +140,7 @@ public sealed class RelatorioService : IRelatorioService
             ProjecaoDiaria = projecaoDiaria,
             PrevistoVersusRealizado = previstoRealizado,
             EvolucaoMensal = totaisMensais,
+            DisponivelAposCompromissos = disponivelAposCompromissos,
             CompromissosFuturos = compromissosFuturos
         };
     }
@@ -370,16 +399,32 @@ public sealed class RelatorioService : IRelatorioService
                     Mes = grupo.Key.Month,
                     Ano = grupo.Key.Year,
                     Faturas = grupo
-                        .Where(item => item.IsCartao)
+                        .Where(item =>
+                            item.Tipo == TipoTransacao.Despesa &&
+                            item.IsCartao)
                         .Sum(item => item.Valor),
-                    Parcelas = grupo
-                        .Where(item => item.IsParcelada)
+                    ParcelasForaDeFatura = grupo
+                        .Where(item =>
+                            item.Tipo == TipoTransacao.Despesa &&
+                            item.IsParcelada &&
+                            !item.IsCartao)
                         .Sum(item => item.Valor),
                     DespesasFixas = grupo
-                        .Where(item => item.IsFixa && item.Tipo == TipoTransacao.Despesa)
+                        .Where(item =>
+                            item.Tipo == TipoTransacao.Despesa &&
+                            item.IsFixa &&
+                            !item.IsCartao &&
+                            !item.IsParcelada)
                         .Sum(item => item.Valor),
-                    ReceitasRecorrentes = grupo
-                        .Where(item => item.IsFixa && item.Tipo == TipoTransacao.Receita)
+                    OutrasDespesas = grupo
+                        .Where(item =>
+                            item.Tipo == TipoTransacao.Despesa &&
+                            !item.IsCartao &&
+                            !item.IsParcelada &&
+                            !item.IsFixa)
+                        .Sum(item => item.Valor),
+                    ReceitasPrevistas = grupo
+                        .Where(item => item.Tipo == TipoTransacao.Receita)
                         .Sum(item => item.Valor)
                 });
 
@@ -392,14 +437,71 @@ public sealed class RelatorioService : IRelatorioService
                         Mes = referencia.Month,
                         Ano = referencia.Year
                     };
-                compromisso.Total =
+                compromisso.Parcelas = compromisso.ParcelasForaDeFatura;
+                compromisso.ReceitasRecorrentes = compromisso.ReceitasPrevistas;
+                compromisso.ObrigacoesFuturas =
                     compromisso.Faturas +
-                    compromisso.Parcelas +
-                    compromisso.DespesasFixas -
-                    compromisso.ReceitasRecorrentes;
+                    compromisso.ParcelasForaDeFatura +
+                    compromisso.DespesasFixas +
+                    compromisso.OutrasDespesas;
+                compromisso.ImpactoLiquido =
+                    compromisso.ReceitasPrevistas -
+                    compromisso.ObrigacoesFuturas;
+                compromisso.Total = compromisso.ObrigacoesFuturas;
                 return compromisso;
             })
             .ToList();
+    }
+
+    private async Task<RelatorioDisponivelAposCompromissosResponse> CalcularDisponivelAposCompromissosAsync(
+        IReadOnlyList<TransacaoRelatorio> transacoesPeriodo,
+        DateOnly dataLimite,
+        Guid usuarioId,
+        Guid? contaBancariaId,
+        IReadOnlyCollection<Guid>? categoriaIds,
+        CancellationToken cancellationToken)
+    {
+        var saldosContas = await _contaBancariaService.ObterDistribuicaoAsync(usuarioId, cancellationToken);
+        var saldoAtual = contaBancariaId.HasValue
+            ? saldosContas
+                .Where(conta => conta.Id == contaBancariaId.Value)
+                .Sum(conta => conta.SaldoAtual)
+            : saldosContas.Sum(conta => conta.SaldoAtual);
+        var pendentesAteLimite = transacoesPeriodo
+            .Where(transacao =>
+                !transacao.IsPaga &&
+                transacao.DataOcorrencia <= dataLimite)
+            .ToList();
+        var obrigacoesPendentes = pendentesAteLimite
+            .Where(transacao => transacao.Tipo == TipoTransacao.Despesa)
+            .Sum(transacao => transacao.Valor);
+        var investimentosPendentes = pendentesAteLimite
+            .Where(transacao => transacao.Tipo == TipoTransacao.Investimento)
+            .Sum(transacao => transacao.Valor);
+        var receitasPrevistas = pendentesAteLimite
+            .Where(transacao => transacao.Tipo == TipoTransacao.Receita)
+            .Sum(transacao => transacao.Valor);
+        const decimal reservaMinimaConfigurada = 0m;
+        var disponivel =
+            saldoAtual -
+            obrigacoesPendentes -
+            investimentosPendentes -
+            reservaMinimaConfigurada;
+
+        return new RelatorioDisponivelAposCompromissosResponse
+        {
+            SaldoAtual = saldoAtual,
+            ObrigacoesPendentesAteDataLimite = obrigacoesPendentes,
+            InvestimentosPendentesAteDataLimite = investimentosPendentes,
+            ReservaMinimaConfigurada = reservaMinimaConfigurada,
+            DisponivelAposCompromissos = disponivel,
+            ReceitasPrevistas = receitasPrevistas,
+            DisponivelConsiderandoReceitasPrevistas = disponivel + receitasPrevistas,
+            DataLimite = dataLimite,
+            Observacao = categoriaIds?.Any(id => id != Guid.Empty) == true
+                ? "Disponível calculado sobre o saldo global ou da conta selecionada; categorias filtram apenas os compromissos e receitas exibidos."
+                : null
+        };
     }
 
     private static ResumoPeriodo CalcularResumo(IReadOnlyList<TransacaoRelatorio> transacoes)

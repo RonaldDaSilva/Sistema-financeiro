@@ -82,6 +82,18 @@ export type RelatorioKpis = {
   taxaEconomia: RelatorioComparativoValor;
 };
 
+export type RelatorioDisponivelAposCompromissos = {
+  saldoAtual: number;
+  obrigacoesPendentesAteDataLimite: number;
+  investimentosPendentesAteDataLimite: number;
+  reservaMinimaConfigurada: number;
+  disponivelAposCompromissos: number;
+  receitasPrevistas: number;
+  disponivelConsiderandoReceitasPrevistas: number;
+  dataLimite: string;
+  observacao: string | null;
+};
+
 export type RelatorioMensal = {
   mes: number;
   ano: number;
@@ -109,8 +121,13 @@ export type RelatorioCompromissoFuturo = {
   ano: number;
   faturas: number;
   parcelas: number;
+  parcelasForaDeFatura: number;
   despesasFixas: number;
+  outrasDespesas: number;
   receitasRecorrentes: number;
+  receitasPrevistas: number;
+  obrigacoesFuturas: number;
+  impactoLiquido: number;
   total: number;
 };
 
@@ -124,6 +141,7 @@ export type RelatorioGraficos = {
   projecaoDiaria: RelatorioProjecaoDiaria[];
   previstoVersusRealizado: RelatorioPrevistoRealizado[];
   evolucaoMensal: RelatorioMensal[];
+  disponivelAposCompromissos: RelatorioDisponivelAposCompromissos;
   compromissosFuturos: RelatorioCompromissoFuturo[];
 };
 

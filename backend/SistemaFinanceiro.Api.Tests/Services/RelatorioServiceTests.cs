@@ -1,5 +1,8 @@
+using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
+using SistemaFinanceiro.Api.Dtos.ContasBancarias;
 using SistemaFinanceiro.Api.Models;
+using SistemaFinanceiro.Api.Services.ContasBancarias;
 using SistemaFinanceiro.Api.Services.Relatorios;
 using SistemaFinanceiro.Api.Tests.Infrastructure;
 using Xunit;
@@ -33,7 +36,7 @@ public sealed class RelatorioServiceTests
             CriarTransacao(usuarioId, TipoTransacao.Despesa, 999m, new DateOnly(2026, 7, 1), categoriaCasa, conta, cartao, isPaga: false, isFixa: true, compraParcelada.Id));
         await database.Context.SaveChangesAsync();
 
-        var service = new RelatorioService(database.Context);
+        var service = CriarService(database.Context);
 
         var response = await service.GetGraficosAsync(
             new DateOnly(2026, 6, 1),
@@ -61,7 +64,7 @@ public sealed class RelatorioServiceTests
         using var database = new SqliteTestDatabase(usuarioId);
         await SeedUsuarioAsync(database.Context, usuarioId);
 
-        var service = new RelatorioService(database.Context);
+        var service = CriarService(database.Context);
 
         var response = await service.GetGraficosAsync(
             new DateOnly(2026, 4, 1),
@@ -93,7 +96,7 @@ public sealed class RelatorioServiceTests
             CriarTransacao(usuarioId, TipoTransacao.Despesa, 150m, new DateOnly(2024, 2, 29), categoria, null, null, isPaga: false));
         await database.Context.SaveChangesAsync();
 
-        var service = new RelatorioService(database.Context);
+        var service = CriarService(database.Context);
 
         var response = await service.GetGraficosAsync(
             new DateOnly(2024, 2, 1),
@@ -121,7 +124,7 @@ public sealed class RelatorioServiceTests
             CriarTransacao(outroUsuarioId, TipoTransacao.Receita, 999m, new DateOnly(2026, 12, 31), categoria, null, null, isPaga: true));
         await database.Context.SaveChangesAsync();
 
-        var service = new RelatorioService(database.Context);
+        var service = CriarService(database.Context);
 
         var response = await service.GetGraficosAsync(
             new DateOnly(2026, 12, 1),
@@ -130,6 +133,96 @@ public sealed class RelatorioServiceTests
 
         Assert.Equal(10m, response.Kpis.Receitas.ValorAtual);
         Assert.Equal(10m, response.ProjecaoDiaria.Sum(item => item.Entradas));
+    }
+
+    [Fact]
+    public async Task GetGraficosAsync_DisponivelAposCompromissos_NaoSomaReceitasPrevistasNoPrincipal()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var conta = CriarConta(usuarioId, "Conta principal");
+        conta.SaldoInicial = 1000m;
+        var categoria = CriarCategoria(usuarioId, "Geral");
+        database.Context.AddRange(conta, categoria);
+        database.Context.Transacoes.AddRange(
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 100m, new DateOnly(2026, 7, 1), categoria, conta, null, isPaga: true),
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 200m, new DateOnly(2026, 7, 20), categoria, conta, null, isPaga: false),
+            CriarTransacao(usuarioId, TipoTransacao.Investimento, 50m, new DateOnly(2026, 7, 21), categoria, conta, null, isPaga: false),
+            CriarTransacao(usuarioId, TipoTransacao.Receita, 300m, new DateOnly(2026, 7, 25), categoria, conta, null, isPaga: false));
+        await database.Context.SaveChangesAsync();
+
+        var service = CriarService(database.Context);
+
+        var response = await service.GetGraficosAsync(
+            new DateOnly(2026, 7, 1),
+            new DateOnly(2026, 7, 31),
+            usuarioId,
+            conta.Id);
+
+        Assert.Equal(900m, response.DisponivelAposCompromissos.SaldoAtual);
+        Assert.Equal(200m, response.DisponivelAposCompromissos.ObrigacoesPendentesAteDataLimite);
+        Assert.Equal(50m, response.DisponivelAposCompromissos.InvestimentosPendentesAteDataLimite);
+        Assert.Equal(650m, response.DisponivelAposCompromissos.DisponivelAposCompromissos);
+        Assert.Equal(300m, response.DisponivelAposCompromissos.ReceitasPrevistas);
+        Assert.Equal(950m, response.DisponivelAposCompromissos.DisponivelConsiderandoReceitasPrevistas);
+    }
+
+    [Fact]
+    public async Task GetGraficosAsync_CompromissosFuturos_IniciaNoMesAtualECalculaInvariantes()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var inicioMesAtual = new DateOnly(hoje.Year, hoje.Month, 1);
+        var mesAnterior = inicioMesAtual.AddMonths(-1);
+        var proximoMes = inicioMesAtual.AddMonths(1);
+        var conta = CriarConta(usuarioId, "Conta principal");
+        var cartao = CriarCartao(usuarioId);
+        var categoria = CriarCategoria(usuarioId, "Geral");
+        var compraCarne = CriarCompraParceladaSemCartao(usuarioId, categoria, inicioMesAtual);
+        database.Context.AddRange(conta, cartao, categoria, compraCarne);
+        database.Context.Transacoes.AddRange(
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 777m, mesAnterior.AddDays(4), categoria, conta, null, isPaga: false),
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 100m, inicioMesAtual.AddDays(5), categoria, conta, cartao, isPaga: false),
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 50m, inicioMesAtual.AddDays(6), categoria, conta, null, isPaga: false, compraParceladaId: compraCarne.Id),
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 200m, inicioMesAtual.AddDays(7), categoria, conta, null, isPaga: false, isFixa: true),
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 25m, inicioMesAtual.AddDays(8), categoria, conta, null, isPaga: false),
+            CriarTransacao(usuarioId, TipoTransacao.Receita, 400m, inicioMesAtual.AddDays(9), categoria, conta, null, isPaga: false),
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 999m, proximoMes.AddDays(1), categoria, conta, null, isPaga: true));
+        await database.Context.SaveChangesAsync();
+
+        var service = CriarService(database.Context);
+
+        var response = await service.GetGraficosAsync(
+            mesAnterior,
+            inicioMesAtual.AddMonths(5).AddDays(-1),
+            usuarioId);
+
+        Assert.DoesNotContain(response.CompromissosFuturos, item =>
+            item.Ano == mesAnterior.Year && item.Mes == mesAnterior.Month);
+
+        var compromissoAtual = Assert.Single(
+            response.CompromissosFuturos,
+            item => item.Ano == inicioMesAtual.Year && item.Mes == inicioMesAtual.Month);
+        Assert.Equal(100m, compromissoAtual.Faturas);
+        Assert.Equal(50m, compromissoAtual.ParcelasForaDeFatura);
+        Assert.Equal(200m, compromissoAtual.DespesasFixas);
+        Assert.Equal(25m, compromissoAtual.OutrasDespesas);
+        Assert.Equal(400m, compromissoAtual.ReceitasPrevistas);
+        Assert.Equal(
+            compromissoAtual.Faturas +
+            compromissoAtual.ParcelasForaDeFatura +
+            compromissoAtual.DespesasFixas +
+            compromissoAtual.OutrasDespesas,
+            compromissoAtual.ObrigacoesFuturas);
+        Assert.Equal(
+            compromissoAtual.ReceitasPrevistas - compromissoAtual.ObrigacoesFuturas,
+            compromissoAtual.ImpactoLiquido);
+        Assert.Equal(compromissoAtual.ObrigacoesFuturas, compromissoAtual.Total);
     }
 
     private static async Task SeedUsuarioAsync(AppDbContext context, Guid usuarioId)
@@ -195,6 +288,141 @@ public sealed class RelatorioServiceTests
             DataCompra = new DateOnly(2026, 6, 1),
             FormaPagamento = FormaPagamentoCompraParcelada.CartaoCredito
         };
+    }
+
+    private static CompraParcelada CriarCompraParceladaSemCartao(
+        Guid usuarioId,
+        Categoria categoria,
+        DateOnly dataCompra)
+    {
+        return new CompraParcelada
+        {
+            UsuarioId = usuarioId,
+            Categoria = categoria,
+            Descricao = "Carne parcelado teste",
+            QuantidadeParcelas = 3,
+            ValorTotal = 150m,
+            DataCompra = dataCompra,
+            FormaPagamento = FormaPagamentoCompraParcelada.Carne
+        };
+    }
+
+    private static RelatorioService CriarService(AppDbContext context)
+    {
+        return new RelatorioService(context, new ContaBancariaServiceParaTeste(context));
+    }
+
+    private sealed class ContaBancariaServiceParaTeste : IContaBancariaService
+    {
+        private readonly AppDbContext _context;
+
+        public ContaBancariaServiceParaTeste(AppDbContext context)
+        {
+            _context = context;
+        }
+
+        public Task<IReadOnlyList<ContaBancariaResponse>> ListarAsync(
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ContaBancariaResponse?> ObterPorIdAsync(
+            Guid id,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ContaBancariaResponse> CriarAsync(
+            ContaBancariaRequest request,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ContaBancariaResponse?> AtualizarAsync(
+            Guid id,
+            ContaBancariaRequest request,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ContaBancariaResponse?> FavoritarAsync(
+            Guid id,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ContaBancariaResponse?> ArquivarAsync(
+            Guid id,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ContaBancariaResponse?> AjustarSaldoAsync(
+            Guid id,
+            AjustarSaldoContaRequest request,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<Guid> TransferirAsync(
+            TransferenciaContaRequest request,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<bool> ExcluirAsync(
+            Guid id,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public async Task<IReadOnlyList<ContaDistribuicaoResponse>> ObterDistribuicaoAsync(
+            Guid usuarioId,
+            CancellationToken cancellationToken = default)
+        {
+            var contas = await _context.ContasBancarias
+                .AsNoTracking()
+                .Where(conta => conta.UsuarioId == usuarioId && !conta.IsArquivada)
+                .Select(conta => new
+                {
+                    conta.Id,
+                    conta.CodigoBanco,
+                    conta.NomeCustomizado,
+                    conta.SaldoInicial
+                })
+                .ToListAsync(cancellationToken);
+            var movimentos = await _context.Transacoes
+                .AsNoTracking()
+                .Where(transacao =>
+                    transacao.UsuarioId == usuarioId &&
+                    transacao.ContaBancariaId.HasValue &&
+                    transacao.IsPaga)
+                .Select(transacao => new
+                {
+                    ContaBancariaId = transacao.ContaBancariaId!.Value,
+                    transacao.Tipo,
+                    transacao.Valor
+                })
+                .ToListAsync(cancellationToken);
+
+            return contas
+                .Select(conta => new ContaDistribuicaoResponse
+                {
+                    Id = conta.Id,
+                    CodigoBanco = conta.CodigoBanco,
+                    NomeCustomizado = conta.NomeCustomizado,
+                    SaldoAtual = conta.SaldoInicial + movimentos
+                        .Where(movimento => movimento.ContaBancariaId == conta.Id)
+                        .Sum(movimento =>
+                            movimento.Tipo == TipoTransacao.Receita
+                                ? movimento.Valor
+                                : movimento.Tipo == TipoTransacao.Despesa ||
+                                  movimento.Tipo == TipoTransacao.Investimento
+                                    ? -movimento.Valor
+                                    : 0m)
+                })
+                .ToList();
+        }
     }
 
     private static Transacao CriarTransacao(

@@ -522,14 +522,8 @@ export function ReportsPage() {
         )}
 
         {tab === "compromissos" && (
-          <SimpleListSection
-            title="Compromissos futuros"
-            subtitle="Faturas, parcelas, despesas fixas e receitas recorrentes"
-            rows={(relatorio?.compromissosFuturos ?? []).map((item) => ({
-              label: `${String(item.mes).padStart(2, "0")}/${item.ano}`,
-              value: formatCurrency(item.total),
-              detail: `Faturas ${formatCurrency(item.faturas)} · Parcelas ${formatCurrency(item.parcelas)} · Fixas ${formatCurrency(item.despesasFixas)}`,
-            }))}
+          <CompromissosFuturosSection
+            compromissos={relatorio?.compromissosFuturos ?? []}
             loading={relatoriosQuery.isLoading}
           />
         )}
@@ -564,6 +558,151 @@ function KpiGrid({
           <KpiCard key={title} title={title} value={value} colorClass={color} />
         ),
       )}
+      {isLoading ? (
+        <Skeleton className="h-40 md:col-span-2 xl:col-span-3" />
+      ) : (
+        <DisponivelCompromissosCard
+          disponivel={relatorio?.disponivelAposCompromissos}
+        />
+      )}
+    </div>
+  );
+}
+
+function DisponivelCompromissosCard({
+  disponivel,
+}: {
+  disponivel?: RelatorioGraficos["disponivelAposCompromissos"];
+}) {
+  return (
+    <article className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5 md:col-span-2 xl:col-span-3">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-slate-500 dark:text-slate-400">
+            Disponível após compromissos
+          </p>
+          <p className="mt-3 break-words text-3xl font-black leading-tight text-[var(--app-primary)] [overflow-wrap:anywhere] sm:text-4xl">
+            {formatCurrency(disponivel?.disponivelAposCompromissos ?? 0)}
+          </p>
+          <p className="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+            Saldo atual menos obrigações, investimentos pendentes e reserva mínima até{" "}
+            {disponivel?.dataLimite ? formatDate(disponivel.dataLimite) : "o fim do período"}.
+          </p>
+          {disponivel?.observacao && (
+            <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-200">
+              {disponivel.observacao}
+            </p>
+          )}
+        </div>
+        <dl className="grid min-w-0 gap-3 sm:grid-cols-2 lg:min-w-[420px]">
+          <MetricDetail
+            label="Receitas previstas"
+            value={formatCurrency(disponivel?.receitasPrevistas ?? 0)}
+          />
+          <MetricDetail
+            label="Cenário com receitas previstas"
+            value={formatCurrency(disponivel?.disponivelConsiderandoReceitasPrevistas ?? 0)}
+          />
+        </dl>
+      </div>
+    </article>
+  );
+}
+
+function MetricDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-2xl bg-[var(--app-card-muted)] p-3">
+      <dt className="text-xs font-bold text-slate-500 dark:text-slate-400">{label}</dt>
+      <dd className="mt-1 break-words text-base font-black text-slate-900 [overflow-wrap:anywhere] dark:text-white">
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function CompromissosFuturosSection({
+  compromissos,
+  loading,
+}: {
+  compromissos: NonNullable<RelatorioGraficos["compromissosFuturos"]>;
+  loading: boolean;
+}) {
+  return (
+    <section className="rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
+      <SectionTitle
+        icon={<ListOrdered size={20} />}
+        title="Compromissos futuros"
+        subtitle="Obrigações futuras, receitas previstas e impacto líquido"
+      />
+      <div className="mt-5 grid gap-3 lg:grid-cols-2">
+        {loading ? (
+          Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={index} className="h-44" />
+          ))
+        ) : compromissos.length === 0 ? (
+          <div className="lg:col-span-2">
+            <EmptyState message="Nenhum compromisso futuro encontrado." />
+          </div>
+        ) : (
+          compromissos.map((item) => (
+            <article
+              key={`${item.mes}-${item.ano}`}
+              className="min-w-0 rounded-2xl border border-[color:var(--app-card-border)] p-4"
+            >
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-black text-slate-900 dark:text-white">
+                    {String(item.mes).padStart(2, "0")}/{item.ano}
+                  </p>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    Obrigações futuras
+                  </p>
+                </div>
+                <p className="break-words text-xl font-black text-red-600 [overflow-wrap:anywhere]">
+                  {formatCurrency(item.obrigacoesFuturas)}
+                </p>
+              </div>
+              <dl className="mt-4 grid gap-2 text-sm">
+                <CommitmentRow label="Faturas" value={item.faturas} />
+                <CommitmentRow label="Parcelas fora de fatura" value={item.parcelasForaDeFatura} />
+                <CommitmentRow label="Despesas fixas" value={item.despesasFixas} />
+                <CommitmentRow label="Outras despesas" value={item.outrasDespesas} />
+                <CommitmentRow label="Receitas previstas" value={item.receitasPrevistas} />
+                <CommitmentRow
+                  label="Impacto líquido"
+                  value={item.impactoLiquido}
+                  signed
+                  strong
+                />
+              </dl>
+            </article>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function CommitmentRow({
+  label,
+  value,
+  signed = false,
+  strong = false,
+}: {
+  label: string;
+  value: number;
+  signed?: boolean;
+  strong?: boolean;
+}) {
+  const valueText = signed ? formatSignedCurrency(value) : formatCurrency(value);
+  return (
+    <div className={`flex min-w-0 items-center justify-between gap-3 ${strong ? "border-t border-[color:var(--app-card-border)] pt-2" : ""}`}>
+      <dt className="min-w-0 break-words font-semibold text-slate-500 dark:text-slate-400">
+        {label}
+      </dt>
+      <dd className={`shrink-0 text-right font-black ${strong ? "text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-200"}`}>
+        {valueText}
+      </dd>
     </div>
   );
 }
@@ -786,6 +925,11 @@ function formatPercent(value: number) {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })}%`;
+}
+
+function formatSignedCurrency(value: number) {
+  const prefix = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${prefix}${formatCurrency(Math.abs(value))}`;
 }
 
 function formatMoneyShort(value: number) {
