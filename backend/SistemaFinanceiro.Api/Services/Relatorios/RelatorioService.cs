@@ -8,6 +8,8 @@ namespace SistemaFinanceiro.Api.Services.Relatorios;
 
 public sealed class RelatorioService : IRelatorioService
 {
+    private const string FormaPagamentoFaturaCartao = "Pagamento de fatura";
+
     private readonly AppDbContext _dbContext;
     private readonly IContaBancariaService _contaBancariaService;
 
@@ -70,6 +72,7 @@ public sealed class RelatorioService : IRelatorioService
             status,
             somenteRecorrentes,
             somenteParceladas,
+            VisaoRelatorio.Consumo,
             cancellationToken);
 
         var transacoesPeriodoAnterior = await ObterTransacoesRelatorioAsync(
@@ -83,13 +86,29 @@ public sealed class RelatorioService : IRelatorioService
             status,
             somenteRecorrentes,
             somenteParceladas,
+            VisaoRelatorio.Consumo,
+            cancellationToken);
+
+        var transacoesCaixaPeriodo = await ObterTransacoesRelatorioAsync(
+            usuarioId,
+            dataInicial,
+            dataFinal,
+            contaBancariaId,
+            cartaoCreditoId,
+            categoriaIds,
+            tipoTransacao,
+            status,
+            somenteRecorrentes,
+            somenteParceladas,
+            VisaoRelatorio.Caixa,
             cancellationToken);
 
         var resumoAtual = CalcularResumo(transacoesPeriodo);
         var resumoAnterior = CalcularResumo(transacoesPeriodoAnterior);
         var despesasPorCategoria = CalcularDespesasPorCategoria(transacoesPeriodo);
         var totaisMensais = CalcularTotaisMensais(transacoesPeriodo, inicioPeriodo, fimPeriodo);
-        var projecaoDiaria = CalcularProjecaoDiaria(transacoesPeriodo, dataInicial, dataFinal);
+        var totaisMensaisCaixa = CalcularTotaisMensais(transacoesCaixaPeriodo, inicioPeriodo, fimPeriodo);
+        var projecaoDiaria = CalcularProjecaoDiaria(transacoesCaixaPeriodo, dataInicial, dataFinal);
         var previstoRealizado = CalcularPrevistoRealizado(transacoesPeriodo, hoje);
         var inicioCompromissos = new DateOnly(hoje.Year, hoje.Month, 1);
         var horizonteMeses = Math.Clamp(quantidadeMeses, 6, 12);
@@ -105,6 +124,7 @@ public sealed class RelatorioService : IRelatorioService
             status,
             somenteRecorrentes,
             somenteParceladas,
+            VisaoRelatorio.Consumo,
             cancellationToken);
         var compromissosFuturos = CalcularCompromissosFuturos(
             transacoesCompromissos,
@@ -124,7 +144,7 @@ public sealed class RelatorioService : IRelatorioService
             Ano = fimPeriodo.Year,
             DespesasPorCategoria = despesasPorCategoria,
             SaldoAnual = totaisMensais,
-            SerieFluxo = totaisMensais,
+            SerieFluxo = totaisMensaisCaixa,
             Kpis = new RelatorioKpisResponse
             {
                 Receitas = CriarComparativo(resumoAtual.Receitas, resumoAnterior.Receitas, "receita"),
@@ -156,6 +176,7 @@ public sealed class RelatorioService : IRelatorioService
         string? status,
         bool somenteRecorrentes,
         bool somenteParceladas,
+        VisaoRelatorio visao,
         CancellationToken cancellationToken)
     {
         var categorias = categoriaIds?
@@ -169,9 +190,18 @@ public sealed class RelatorioService : IRelatorioService
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.OrigemTransacao == OrigemTransacao.Lancamento &&
-                transacao.FormaPagamento != "Pagamento de fatura" &&
                 transacao.DataOcorrencia >= dataInicial &&
                 transacao.DataOcorrencia <= dataFinal);
+
+        query = visao switch
+        {
+            VisaoRelatorio.Consumo => query.Where(transacao =>
+                transacao.FormaPagamento != FormaPagamentoFaturaCartao),
+            VisaoRelatorio.Caixa => query.Where(transacao =>
+                !transacao.CartaoCreditoId.HasValue ||
+                transacao.FormaPagamento == FormaPagamentoFaturaCartao),
+            _ => query
+        };
 
         if (contaBancariaId.HasValue)
         {
@@ -225,7 +255,28 @@ public sealed class RelatorioService : IRelatorioService
                 transacao.Categoria == null ? "#64748B" : transacao.Categoria.CorHexa,
                 transacao.IsFixa,
                 transacao.CompraParceladaId.HasValue,
-                transacao.CartaoCreditoId.HasValue))
+                transacao.CartaoCreditoId.HasValue,
+                transacao.FormaPagamento,
+                transacao.Id,
+                transacao.CartaoCreditoId,
+                transacao.ContaBancariaId,
+                transacao.CompraParceladaId,
+                transacao.NumeroParcelaQuitada,
+                transacao.DataOcorrencia,
+                transacao.FormaPagamento == FormaPagamentoFaturaCartao
+                    ? "PagamentoFatura"
+                    : transacao.CartaoCreditoId.HasValue
+                        ? "CompraCartao"
+                        : transacao.CompraParceladaId.HasValue
+                            ? "Parcela"
+                            : transacao.IsFixa
+                                ? "Recorrencia"
+                                : "Lancamento",
+                transacao.FormaPagamento != FormaPagamentoFaturaCartao,
+                !transacao.CartaoCreditoId.HasValue ||
+                    transacao.FormaPagamento == FormaPagamentoFaturaCartao,
+                !transacao.IsPaga &&
+                    transacao.FormaPagamento != FormaPagamentoFaturaCartao))
             .ToListAsync(cancellationToken);
     }
 
@@ -361,19 +412,19 @@ public sealed class RelatorioService : IRelatorioService
         [
             new RelatorioPrevistoRealizadoResponse
             {
-                Nome = "Receitas",
+                Nome = "Receitas (competência)",
                 Previsto = receitasPrevistas,
                 Realizado = receitasRealizadas
             },
             new RelatorioPrevistoRealizadoResponse
             {
-                Nome = "Despesas",
+                Nome = "Despesas (competência)",
                 Previsto = despesasPrevistas,
                 Realizado = despesasRealizadas
             },
             new RelatorioPrevistoRealizadoResponse
             {
-                Nome = "Saldo",
+                Nome = "Saldo (competência)",
                 Previsto = receitasPrevistas - despesasPrevistas - investimentosPrevistos,
                 Realizado = receitasRealizadas - despesasRealizadas - investimentosRealizados
             }
@@ -598,10 +649,34 @@ public sealed class RelatorioService : IRelatorioService
         string CategoriaCorHexa,
         bool IsFixa,
         bool IsParcelada,
-        bool IsCartao);
+        bool IsCartao,
+        string FormaPagamento,
+        Guid OrigemId,
+        Guid? CartaoCreditoId,
+        Guid? ContaBancariaId,
+        Guid? CompraParceladaId,
+        int? NumeroParcela,
+        DateOnly DataCaixa,
+        string Origem,
+        bool ImpactaConsumo,
+        bool ImpactaSaldo,
+        bool ImpactaCompromissos)
+    {
+        public DateOnly DataCompetencia => DataOcorrencia;
+        public bool Realizada => IsPaga;
+        public bool Pendente => !IsPaga;
+        public bool Projetada => !IsPaga && DataOcorrencia > DateOnly.FromDateTime(DateTime.Today);
+        public string Competencia => $"{DataCompetencia.Year:D4}-{DataCompetencia.Month:D2}";
+    }
 
     private sealed record ResumoPeriodo(decimal Receitas, decimal Despesas, decimal Investimentos)
     {
         public decimal ResultadoLiquido => Receitas - Despesas - Investimentos;
+    }
+
+    private enum VisaoRelatorio
+    {
+        Consumo,
+        Caixa
     }
 }

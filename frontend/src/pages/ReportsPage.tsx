@@ -499,7 +499,7 @@ export function ReportsPage() {
         {tab === "previsto" && (
           <SimpleListSection
             title="Previsto versus realizado"
-            subtitle="Receitas, despesas e saldo filtrados"
+            subtitle="Visão de consumo por competência; pagamento de fatura impacta apenas caixa"
             rows={(relatorio?.previstoVersusRealizado ?? []).map((item) => ({
               label: item.nome,
               value: `${formatCurrency(item.realizado)} / ${formatCurrency(item.previsto)}`,
@@ -511,7 +511,7 @@ export function ReportsPage() {
         {tab === "evolucao" && (
           <SimpleListSection
             title="Evolução mensal"
-            subtitle="Receitas, despesas, investimentos e resultado líquido"
+            subtitle="Consumo por competência, sem duplicar pagamento de fatura"
             rows={(relatorio?.evolucaoMensal ?? []).map((item) => ({
               label: `${String(item.mes).padStart(2, "0")}/${item.ano}`,
               value: `Resultado ${formatCurrency(item.saldo)}`,

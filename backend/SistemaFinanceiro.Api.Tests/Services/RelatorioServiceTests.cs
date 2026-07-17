@@ -53,8 +53,8 @@ public sealed class RelatorioServiceTests
         Assert.Equal(120m, response.Kpis.Despesas.ValorAtual);
         Assert.Equal(0m, response.Kpis.Receitas.ValorAtual);
         Assert.Equal(2, response.DespesasPorCategoria.Count);
-        Assert.Equal(120m, response.ProjecaoDiaria.Sum(item => item.Saidas));
-        Assert.Equal(-120m, response.ProjecaoDiaria.Last().SaldoAcumulado);
+        Assert.Equal(0m, response.ProjecaoDiaria.Sum(item => item.Saidas));
+        Assert.Equal(0m, response.ProjecaoDiaria.Last().SaldoAcumulado);
     }
 
     [Fact]
@@ -223,6 +223,63 @@ public sealed class RelatorioServiceTests
             compromissoAtual.ReceitasPrevistas - compromissoAtual.ObrigacoesFuturas,
             compromissoAtual.ImpactoLiquido);
         Assert.Equal(compromissoAtual.ObrigacoesFuturas, compromissoAtual.Total);
+    }
+
+    [Fact]
+    public async Task GetGraficosAsync_CartaoEmRelatorios_ConsumoEFluxoNaoDuplicamPagamentoFatura()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var conta = CriarConta(usuarioId, "Conta principal");
+        var cartao = CriarCartao(usuarioId);
+        var categoria = CriarCategoria(usuarioId, "Alimentacao");
+        database.Context.AddRange(conta, cartao, categoria);
+        database.Context.Transacoes.AddRange(
+            CriarTransacao(
+                usuarioId,
+                TipoTransacao.Despesa,
+                100m,
+                new DateOnly(2026, 7, 5),
+                categoria,
+                conta,
+                cartao,
+                isPaga: true,
+                formaPagamento: "Cartão de crédito"),
+            CriarTransacao(
+                usuarioId,
+                TipoTransacao.Despesa,
+                100m,
+                new DateOnly(2026, 7, 20),
+                categoria,
+                conta,
+                cartao,
+                isPaga: true,
+                formaPagamento: "Pagamento de fatura"));
+        await database.Context.SaveChangesAsync();
+
+        var service = CriarService(database.Context);
+
+        var response = await service.GetGraficosAsync(
+            new DateOnly(2026, 7, 1),
+            new DateOnly(2026, 7, 31),
+            usuarioId);
+
+        Assert.Equal(100m, response.Kpis.Despesas.ValorAtual);
+        Assert.Equal(100m, response.DespesasPorCategoria.Single().Valor);
+        Assert.Equal(100m, response.EvolucaoMensal.Single().Despesas);
+        Assert.Equal(100m, response.PrevistoVersusRealizado
+            .Single(item => item.Nome == "Despesas (competência)")
+            .Realizado);
+        Assert.Equal(100m, response.ProjecaoDiaria.Sum(item => item.Saidas));
+        Assert.Equal(0m, response.ProjecaoDiaria
+            .Where(item => item.Data < new DateOnly(2026, 7, 20))
+            .Sum(item => item.Saidas));
+        Assert.Equal(100m, response.ProjecaoDiaria
+            .Single(item => item.Data == new DateOnly(2026, 7, 20))
+            .Saidas);
+        Assert.Equal(100m, response.SerieFluxo.Single().Despesas);
     }
 
     private static async Task SeedUsuarioAsync(AppDbContext context, Guid usuarioId)
@@ -435,7 +492,8 @@ public sealed class RelatorioServiceTests
         CartaoCredito? cartao,
         bool isPaga,
         bool isFixa = false,
-        Guid? compraParceladaId = null)
+        Guid? compraParceladaId = null,
+        string? formaPagamento = null)
     {
         return new Transacao
         {
@@ -448,7 +506,7 @@ public sealed class RelatorioServiceTests
             Categoria = categoria,
             ContaBancaria = conta,
             CartaoCredito = cartao,
-            FormaPagamento = cartao is null ? "Pix" : "Cartão de crédito",
+            FormaPagamento = formaPagamento ?? (cartao is null ? "Pix" : "Cartão de crédito"),
             IsPaga = isPaga,
             IsFixa = isFixa,
             CompraParceladaId = compraParceladaId
