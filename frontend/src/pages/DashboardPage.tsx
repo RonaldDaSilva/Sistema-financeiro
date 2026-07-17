@@ -114,6 +114,22 @@ export function DashboardPage() {
     () => getMonthsBetween(rangePeriodo.inicio, rangePeriodo.fim),
     [rangePeriodo],
   );
+  const dashboardInicioFilters = useMemo(
+    () => ({
+      dataInicial: toDateInputValue(rangePeriodo.inicio),
+      dataFinal: toDateInputValue(rangePeriodo.fim),
+      tipoTransacao: periodo.tipoTransacao ?? "todos",
+      categoriaIds: categoriaIdsFiltro,
+      statuses: statusesFiltro,
+    }),
+    [
+      categoriaIdsFiltro,
+      periodo.tipoTransacao,
+      rangePeriodo.fim,
+      rangePeriodo.inicio,
+      statusesFiltro,
+    ],
+  );
   const categoriasQuery = useCategorias();
   const cartoesQuery = useCartoes(isModalOpen);
   const contasQuery = useContas(isModalOpen || Boolean(payingTransaction));
@@ -933,7 +949,10 @@ export function DashboardPage() {
             />
           </div>
         ) : (
-          <DashboardInicioPanel hiddenValues={valoresOcultos} />
+          <DashboardInicioPanel
+            hiddenValues={valoresOcultos}
+            filters={dashboardInicioFilters}
+          />
         )}
 
         <div id="movimentacoes-recentes" className="space-y-3 scroll-mt-24">

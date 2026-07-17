@@ -20,6 +20,7 @@ public sealed class DashboardController : ControllerBase
 
     [HttpGet("inicio")]
     public async Task<ActionResult<DashboardInicioDto>> GetInicio(
+        [FromQuery] DashboardInicioRequest request,
         CancellationToken cancellationToken)
     {
         var usuarioId = ObterUsuarioId();
@@ -30,6 +31,7 @@ public sealed class DashboardController : ControllerBase
 
         var dashboard = await _dashboardService.GetInicioAsync(
             usuarioId.Value,
+            request,
             cancellationToken);
 
         return Ok(dashboard);

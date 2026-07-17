@@ -109,7 +109,7 @@ export function AccountsPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
       queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboardInicio }),
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
       queryClient.invalidateQueries({ queryKey: ["dashboard", "relatorios"] }),
       queryClient.invalidateQueries({ queryKey: ["extrato"] }),
       queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),

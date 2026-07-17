@@ -6,5 +6,6 @@ public interface IDashboardService
 {
     Task<DashboardInicioDto> GetInicioAsync(
         Guid usuarioId,
+        DashboardInicioRequest request,
         CancellationToken cancellationToken = default);
 }

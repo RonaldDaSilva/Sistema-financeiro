@@ -40,7 +40,22 @@ export const queryKeys = {
   cartoes: ["cartoes"] as const,
   contas: ["contas"] as const,
   distribuicaoContas: ["distribuicao-contas"] as const,
-  dashboardInicio: ["dashboard", "inicio"] as const,
+  dashboardInicio: (
+    dataInicial = "",
+    dataFinal = "",
+    tipoTransacao = "todos",
+    categoriaIds: string[] = [],
+    statuses: string[] = [],
+  ) =>
+    [
+      "dashboard",
+      "inicio",
+      dataInicial,
+      dataFinal,
+      tipoTransacao,
+      normalizeKeyList(categoriaIds),
+      normalizeKeyList(statuses),
+    ] as const,
   relatorios: (
     dataInicial: string,
     dataFinal: string,

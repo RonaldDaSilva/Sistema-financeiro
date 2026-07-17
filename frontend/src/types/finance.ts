@@ -152,15 +152,17 @@ export type DashboardLancamento = {
 
 export type DashboardInicio = {
   saldoAtual: number;
-  receitasRealizadasNoMes: number;
-  despesasRealizadasNoMes: number;
-  investimentosRealizadosNoMes: number;
-  balancoRealizadoNoMes: number;
-  receitasPendentesNoMes: number;
-  despesasPendentesNoMes: number;
-  saldoPrevistoFimDoMes: number;
-  livreParaGastar: number;
-  despesasAPagar: number;
+  receitasRealizadasNoPeriodo: number;
+  despesasRealizadasNoPeriodo: number;
+  investimentosRealizadosNoPeriodo: number;
+  balancoRealizadoNoPeriodo: number;
+  receitasPendentesNoPeriodo: number;
+  despesasPendentesNoPeriodo: number;
+  investimentosPendentesNoPeriodo: number;
+  saldoPrevistoFimDoPeriodo: number;
+  despesasEmAberto: number;
+  temFiltroAnalitico: boolean;
+  contextoPeriodo: 'Atual' | 'Passado' | 'Futuro' | string;
   proximosLancamentos: DashboardLancamento[];
   insights: string[];
 };

@@ -10,14 +10,16 @@ import {
 import type { ReactNode } from "react";
 import { useDashboardInicio } from "../../hooks/queries/useFinanceQueries";
 import type { DashboardLancamento } from "../../types/finance";
+import type { DashboardInicioParams } from "../../services/financeService";
 import { formatCurrency, formatDate, parseLocalDate, startOfDay } from "../../utils/date";
 
 type DashboardInicioPanelProps = {
   hiddenValues: boolean;
+  filters: DashboardInicioParams;
 };
 
-export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps) {
-  const dashboardQuery = useDashboardInicio();
+export function DashboardInicioPanel({ hiddenValues, filters }: DashboardInicioPanelProps) {
+  const dashboardQuery = useDashboardInicio(filters);
   const dashboard = dashboardQuery.data;
 
   const insights = dashboard?.insights ?? [];
@@ -53,19 +55,25 @@ export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps
         <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Livre para gastar
+              {dashboard.contextoPeriodo === "Passado"
+                ? "Saldo do fechamento"
+                : dashboard.contextoPeriodo === "Futuro"
+                  ? "Saldo atual de partida"
+                  : "Saldo atual"}
             </p>
             <p
               className={`mt-4 max-w-full break-words text-3xl font-black leading-tight tracking-normal [overflow-wrap:anywhere] sm:text-4xl lg:text-5xl ${
-                dashboard.livreParaGastar >= 0
+                dashboard.saldoAtual >= 0
                   ? "text-[var(--app-primary)]"
                   : "text-red-500"
               }`}
             >
-              {maskCurrency(dashboard.livreParaGastar, hiddenValues)}
+              {maskCurrency(dashboard.saldoAtual, hiddenValues)}
             </p>
             <p className="mt-3 max-w-xl break-words text-sm font-medium leading-6 text-slate-500 dark:text-slate-400">
-              Saldo atual disponível somado às receitas pendentes do mês, descontando despesas em aberto.
+              {dashboard.contextoPeriodo === "Passado"
+                ? "Snapshot do saldo ao encerrar o período, sem recalcular silenciosamente meses já fechados."
+                : "Dinheiro já efetivado nas contas. Receitas futuras e despesas ainda não pagas não entram neste valor."}
             </p>
           </div>
           <span className="self-start rounded-2xl bg-[var(--app-primary-soft)] p-3 text-[var(--app-primary)] dark:bg-emerald-950/50 dark:text-emerald-300 sm:shrink-0">
@@ -75,27 +83,27 @@ export function DashboardInicioPanel({ hiddenValues }: DashboardInicioPanelProps
 
         <div className="mt-6 grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <MetricCard
-            label="Saldo atual"
-            description="Dinheiro já realizado nas contas, considerando pagamentos e recebimentos efetivos."
-            value={dashboard.saldoAtual}
+            label="Despesas em aberto"
+            description="Despesas e investimentos pendentes no período filtrado. Receitas futuras não reduzem este compromisso."
+            value={dashboard.despesasEmAberto}
             hiddenValues={hiddenValues}
-            tone={dashboard.saldoAtual >= 0 ? "success" : "danger"}
-            icon={<WalletCards size={18} />}
+            tone={dashboard.despesasEmAberto > 0 ? "warning" : "success"}
+            icon={<ArrowDownRight size={18} />}
           />
           <MetricCard
-            label="Balanço realizado do mês"
-            description="Receitas realizadas menos despesas e investimentos já realizados neste mês."
-            value={dashboard.balancoRealizadoNoMes}
+            label="Balanço realizado"
+            description="Receitas efetivadas menos despesas e investimentos já efetivados no período."
+            value={dashboard.balancoRealizadoNoPeriodo}
             hiddenValues={hiddenValues}
-            tone={dashboard.balancoRealizadoNoMes >= 0 ? "success" : "danger"}
-            icon={dashboard.balancoRealizadoNoMes >= 0 ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+            tone={dashboard.balancoRealizadoNoPeriodo >= 0 ? "success" : "danger"}
+            icon={dashboard.balancoRealizadoNoPeriodo >= 0 ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
           />
           <MetricCard
-            label="Previsto fim do mês"
-            description="Saldo atual projetado com receitas, despesas e investimentos pendentes do mês."
-            value={dashboard.saldoPrevistoFimDoMes}
+            label="Saldo previsto"
+            description="Saldo atual menos despesas e investimentos em aberto do período. Não soma receitas futuras."
+            value={dashboard.saldoPrevistoFimDoPeriodo}
             hiddenValues={hiddenValues}
-            tone={dashboard.saldoPrevistoFimDoMes >= 0 ? "success" : "warning"}
+            tone={dashboard.saldoPrevistoFimDoPeriodo >= 0 ? "success" : "warning"}
             icon={<CalendarClock size={18} />}
           />
         </div>

@@ -43,6 +43,14 @@ export type RelatorioGraficosParams = {
   somenteParceladas?: boolean;
 };
 
+export type DashboardInicioParams = {
+  dataInicial?: string;
+  dataFinal?: string;
+  categoriaIds?: string[];
+  tipoTransacao?: TipoTransacaoFiltro;
+  statuses?: StatusFiltro[];
+};
+
 export async function getExtratoMensal(
   mes: number,
   ano: number,
@@ -211,8 +219,29 @@ export async function getRelatorioGraficos(params: RelatorioGraficosParams) {
   return data;
 }
 
-export async function getDashboardInicio() {
-  const { data } = await api.get<DashboardInicio>('/api/dashboard/inicio');
+export async function getDashboardInicio(params: DashboardInicioParams = {}) {
+  const tipo = params.tipoTransacao === "receita"
+    ? 1
+    : params.tipoTransacao === "despesa"
+      ? 2
+      : params.tipoTransacao === "investimento"
+        ? 3
+        : undefined;
+  const requestParams = new URLSearchParams();
+
+  if (params.dataInicial) requestParams.set("dataInicial", params.dataInicial);
+  if (params.dataFinal) requestParams.set("dataFinal", params.dataFinal);
+  if (tipo) requestParams.set("tipo", String(tipo));
+  normalizarLista(params.categoriaIds ?? []).forEach((categoriaId) =>
+    requestParams.append("categoriaIds", categoriaId),
+  );
+  normalizarStatusLista(params.statuses ?? []).forEach((status) =>
+    requestParams.append("statuses", status),
+  );
+
+  const { data } = await api.get<DashboardInicio>('/api/dashboard/inicio', {
+    params: requestParams,
+  });
   return data;
 }
 

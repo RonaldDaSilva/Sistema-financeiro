@@ -28,6 +28,8 @@ public sealed class AppDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Notificacao> Notificacoes => Set<Notificacao>();
     public DbSet<ConfiguracoesUsuario> ConfiguracoesUsuarios => Set<ConfiguracoesUsuario>();
+    public DbSet<FechamentoMensalSaldo> FechamentosMensaisSaldo => Set<FechamentoMensalSaldo>();
+    public DbSet<FechamentoMensalConta> FechamentosMensaisConta => Set<FechamentoMensalConta>();
 
     public Guid? TenantId => _tenantProvider.UsuarioId;
 
@@ -47,6 +49,8 @@ public sealed class AppDbContext : DbContext
         ConfigureRefreshToken(modelBuilder);
         ConfigureNotificacao(modelBuilder);
         ConfigureConfiguracoesUsuario(modelBuilder);
+        ConfigureFechamentoMensalSaldo(modelBuilder);
+        ConfigureFechamentoMensalConta(modelBuilder);
         ConfigureTenantFilters(modelBuilder);
     }
 
@@ -802,6 +806,113 @@ public sealed class AppDbContext : DbContext
                 .WithOne(usuario => usuario.Configuracoes)
                 .HasForeignKey<ConfiguracoesUsuario>(configuracao => configuracao.UsuarioId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureFechamentoMensalSaldo(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<FechamentoMensalSaldo>(entity =>
+        {
+            entity.ToTable("fechamentos_mensais_saldo");
+
+            entity.HasKey(fechamento => fechamento.Id);
+
+            entity.Property(fechamento => fechamento.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(fechamento => fechamento.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.Ano)
+                .HasColumnName("ano")
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.Mes)
+                .HasColumnName("mes")
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.DataFechamento)
+                .HasColumnName("data_fechamento")
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.SaldoGlobal)
+                .HasColumnName("saldo_global")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.DataCriacao)
+                .HasColumnName("data_criacao")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.DataAtualizacao)
+                .HasColumnName("data_atualizacao")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.VersaoRegra)
+                .HasColumnName("versao_regra")
+                .HasMaxLength(40)
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.Status)
+                .HasColumnName("status")
+                .HasMaxLength(30)
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.Observacao)
+                .HasColumnName("observacao")
+                .HasMaxLength(500);
+
+            entity.HasOne(fechamento => fechamento.Usuario)
+                .WithMany()
+                .HasForeignKey(fechamento => fechamento.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(fechamento => new { fechamento.UsuarioId, fechamento.Ano, fechamento.Mes })
+                .IsUnique();
+        });
+    }
+
+    private static void ConfigureFechamentoMensalConta(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<FechamentoMensalConta>(entity =>
+        {
+            entity.ToTable("fechamentos_mensais_conta");
+
+            entity.HasKey(fechamento => fechamento.Id);
+
+            entity.Property(fechamento => fechamento.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(fechamento => fechamento.FechamentoMensalSaldoId)
+                .HasColumnName("id_fechamento_mensal_saldo")
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.ContaBancariaId)
+                .HasColumnName("id_conta_bancaria")
+                .IsRequired();
+
+            entity.Property(fechamento => fechamento.Saldo)
+                .HasColumnName("saldo")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.HasOne(fechamento => fechamento.FechamentoMensalSaldo)
+                .WithMany(fechamento => fechamento.Contas)
+                .HasForeignKey(fechamento => fechamento.FechamentoMensalSaldoId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(fechamento => fechamento.ContaBancaria)
+                .WithMany()
+                .HasForeignKey(fechamento => fechamento.ContaBancariaId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(fechamento => new { fechamento.FechamentoMensalSaldoId, fechamento.ContaBancariaId })
+                .IsUnique();
         });
     }
 

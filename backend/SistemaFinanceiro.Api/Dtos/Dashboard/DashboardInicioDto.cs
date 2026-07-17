@@ -4,16 +4,20 @@ namespace SistemaFinanceiro.Api.Dtos.Dashboard;
 
 public sealed class DashboardInicioDto
 {
+    /// <summary>Saldo real das contas no dia atual, ou saldo de fechamento quando o período consultado já terminou.</summary>
     public decimal SaldoAtual { get; set; }
-    public decimal ReceitasRealizadasNoMes { get; set; }
-    public decimal DespesasRealizadasNoMes { get; set; }
-    public decimal InvestimentosRealizadosNoMes { get; set; }
-    public decimal BalancoRealizadoNoMes { get; set; }
-    public decimal ReceitasPendentesNoMes { get; set; }
-    public decimal DespesasPendentesNoMes { get; set; }
-    public decimal SaldoPrevistoFimDoMes { get; set; }
-    public decimal LivreParaGastar { get; set; }
-    public decimal DespesasAPagar { get; set; }
+    public decimal ReceitasRealizadasNoPeriodo { get; set; }
+    public decimal DespesasRealizadasNoPeriodo { get; set; }
+    public decimal InvestimentosRealizadosNoPeriodo { get; set; }
+    public decimal BalancoRealizadoNoPeriodo { get; set; }
+    public decimal ReceitasPendentesNoPeriodo { get; set; }
+    public decimal DespesasPendentesNoPeriodo { get; set; }
+    public decimal InvestimentosPendentesNoPeriodo { get; set; }
+    /// <summary>Saldo atual menos despesas e investimentos pendentes aplicáveis. Receitas futuras não são somadas.</summary>
+    public decimal SaldoPrevistoFimDoPeriodo { get; set; }
+    public decimal DespesasEmAberto { get; set; }
+    public bool TemFiltroAnalitico { get; set; }
+    public string ContextoPeriodo { get; set; } = "Atual";
     public IReadOnlyList<DashboardLancamentoDto> ProximosLancamentos { get; set; } = [];
     public IReadOnlyList<string> Insights { get; set; } = [];
 }

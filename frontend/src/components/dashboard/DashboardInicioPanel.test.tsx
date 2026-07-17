@@ -5,15 +5,17 @@ import { DashboardInicioPanel } from "./DashboardInicioPanel";
 const mocks = vi.hoisted(() => ({
   dashboard: {
     saldoAtual: 123456789.98,
-    livreParaGastar: 987654321.12,
-    despesasAPagar: 0,
-    receitasRealizadasNoMes: 1000,
-    despesasRealizadasNoMes: 200,
-    investimentosRealizadosNoMes: 50,
-    balancoRealizadoNoMes: 750,
-    receitasPendentesNoMes: 300,
-    despesasPendentesNoMes: 100,
-    saldoPrevistoFimDoMes: 987654521.12,
+    receitasRealizadasNoPeriodo: 1000,
+    despesasRealizadasNoPeriodo: 200,
+    investimentosRealizadosNoPeriodo: 50,
+    balancoRealizadoNoPeriodo: 750,
+    receitasPendentesNoPeriodo: 300,
+    despesasPendentesNoPeriodo: 100,
+    investimentosPendentesNoPeriodo: 25,
+    despesasEmAberto: 125,
+    saldoPrevistoFimDoPeriodo: 123456664.98,
+    temFiltroAnalitico: false,
+    contextoPeriodo: "Atual",
     proximosLancamentos: [
       {
         id: null,
@@ -51,20 +53,20 @@ vi.mock("../../hooks/queries/useFinanceQueries", () => ({
 
 describe("DashboardInicioPanel", () => {
   it("renderiza valores grandes sem ocultar informações essenciais", () => {
-    render(<DashboardInicioPanel hiddenValues={false} />);
+    render(<DashboardInicioPanel hiddenValues={false} filters={{}} />);
 
-    expect(screen.getByText("Livre para gastar")).toBeInTheDocument();
-    expect(screen.getByText("R$ 987.654.321,12")).toBeInTheDocument();
     expect(screen.getByText("Saldo atual")).toBeInTheDocument();
     expect(screen.getByText("R$ 123.456.789,98")).toBeInTheDocument();
-    expect(screen.getByText("Balanço realizado do mês")).toBeInTheDocument();
-    expect(screen.getByText("Previsto fim do mês")).toBeInTheDocument();
+    expect(screen.getByText("Despesas em aberto")).toBeInTheDocument();
+    expect(screen.getByText("R$ 125,00")).toBeInTheDocument();
+    expect(screen.getByText("Balanço realizado")).toBeInTheDocument();
+    expect(screen.getByText("Saldo previsto")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /abrir despesa futura/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /ver todos/i })).toBeInTheDocument();
   });
 
   it("mantém valores ocultos legíveis quando o usuário escolhe ocultar", () => {
-    render(<DashboardInicioPanel hiddenValues />);
+    render(<DashboardInicioPanel hiddenValues filters={{}} />);
 
     expect(screen.getAllByText("R$ •••••").length).toBeGreaterThan(0);
     expect(screen.getByText("Atenção: teste de insight responsivo.")).toBeInTheDocument();

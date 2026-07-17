@@ -8,7 +8,10 @@ import type {
   StatusFiltro,
   TipoTransacaoFiltro,
 } from "../../types/finance";
-import type { RelatorioGraficosParams } from "../../services/financeService";
+import type {
+  DashboardInicioParams,
+  RelatorioGraficosParams,
+} from "../../services/financeService";
 
 type MesAno = {
   mes: number;
@@ -155,12 +158,20 @@ export function useRelatorioGraficos(
   });
 }
 
-export function useDashboardInicio(enabled = true) {
+export function useDashboardInicio(params: DashboardInicioParams = {}, enabled = true) {
   const canFetch = hasUsableStoredAuth();
+  const categoriaIds = params.categoriaIds ?? [];
+  const statuses = params.statuses ?? [];
 
   return useQuery({
-    queryKey: queryKeys.dashboardInicio,
-    queryFn: financeService.getDashboardInicio,
+    queryKey: queryKeys.dashboardInicio(
+      params.dataInicial ?? "",
+      params.dataFinal ?? "",
+      params.tipoTransacao ?? "todos",
+      categoriaIds,
+      statuses,
+    ),
+    queryFn: () => financeService.getDashboardInicio(params),
     enabled: enabled && canFetch,
     placeholderData: keepPreviousData,
     staleTime: 2 * 60 * 1000,
