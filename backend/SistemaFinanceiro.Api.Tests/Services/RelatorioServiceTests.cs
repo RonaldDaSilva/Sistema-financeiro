@@ -453,7 +453,9 @@ public sealed class RelatorioServiceTests
                 .Where(transacao =>
                     transacao.UsuarioId == usuarioId &&
                     transacao.ContaBancariaId.HasValue &&
-                    transacao.IsPaga)
+                    transacao.IsPaga &&
+                    (!transacao.CartaoCreditoId.HasValue ||
+                        transacao.FormaPagamento == "Pagamento de fatura"))
                 .Select(transacao => new
                 {
                     ContaBancariaId = transacao.ContaBancariaId!.Value,

@@ -7,6 +7,8 @@ namespace SistemaFinanceiro.Api.Services.ContasBancarias;
 
 public sealed class ContaBancariaService : IContaBancariaService
 {
+    private const string FormaPagamentoFaturaCartao = "Pagamento de fatura";
+
     private readonly AppDbContext _dbContext;
 
     public ContaBancariaService(AppDbContext dbContext)
@@ -320,42 +322,43 @@ public sealed class ContaBancariaService : IContaBancariaService
         Guid usuarioId,
         CancellationToken cancellationToken = default)
     {
-        var movimentosPorConta = _dbContext.Transacoes
+        var movimentos = await _dbContext.Transacoes
             .AsNoTracking()
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.ContaBancariaId.HasValue &&
-                transacao.IsPaga)
-            .GroupBy(transacao => transacao.ContaBancariaId!.Value)
-            .Select(grupo => new
+                transacao.IsPaga &&
+                (!transacao.CartaoCreditoId.HasValue ||
+                    transacao.FormaPagamento == FormaPagamentoFaturaCartao))
+            .Select(transacao => new
             {
-                ContaBancariaId = grupo.Key,
-                Movimento = grupo.Sum(transacao =>
-                    transacao.Tipo == TipoTransacao.Receita
-                        ? transacao.Valor
-                        : transacao.Tipo == TipoTransacao.Despesa ||
-                          transacao.Tipo == TipoTransacao.Investimento
-                            ? -transacao.Valor
-                            : 0m)
-            });
+                ContaBancariaId = transacao.ContaBancariaId!.Value,
+                transacao.Tipo,
+                transacao.Valor
+            })
+            .ToListAsync(cancellationToken);
+        var movimentosPorConta = movimentos
+            .GroupBy(transacao => transacao.ContaBancariaId)
+            .ToDictionary(
+                grupo => grupo.Key,
+                grupo => grupo.Sum(transacao => CalcularImpactoSaldo(transacao.Tipo, transacao.Valor)));
 
-        return await _dbContext.ContasBancarias
+        var contas = await _dbContext.ContasBancarias
             .AsNoTracking()
             .Where(conta => conta.UsuarioId == usuarioId && !conta.IsArquivada)
-            .GroupJoin(
-                movimentosPorConta,
-                conta => conta.Id,
-                movimento => movimento.ContaBancariaId,
-                (conta, movimentos) => new ContaDistribuicaoResponse
-                {
-                    Id = conta.Id,
-                    CodigoBanco = conta.CodigoBanco,
-                    NomeCustomizado = conta.NomeCustomizado,
-                    SaldoAtual = conta.SaldoInicial +
-                        (movimentos.Select(item => (decimal?)item.Movimento).Sum() ?? 0m)
-                })
-            .OrderByDescending(conta => conta.SaldoAtual)
             .ToListAsync(cancellationToken);
+
+        return contas
+            .Select(conta => new ContaDistribuicaoResponse
+            {
+                Id = conta.Id,
+                CodigoBanco = conta.CodigoBanco,
+                NomeCustomizado = conta.NomeCustomizado,
+                SaldoAtual = conta.SaldoInicial +
+                    movimentosPorConta.GetValueOrDefault(conta.Id)
+            })
+            .OrderByDescending(conta => conta.SaldoAtual)
+            .ToList();
     }
 
     private static ContaBancariaResponse Mapear(
@@ -391,17 +394,28 @@ public sealed class ContaBancariaService : IContaBancariaService
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.ContaBancariaId == contaId &&
-                transacao.IsPaga)
-            .Select(transacao =>
-                transacao.Tipo == TipoTransacao.Receita
-                    ? transacao.Valor
-                    : transacao.Tipo == TipoTransacao.Despesa ||
-                      transacao.Tipo == TipoTransacao.Investimento
-                        ? -transacao.Valor
-                        : 0m)
-            .SumAsync(cancellationToken);
+                transacao.IsPaga &&
+                (!transacao.CartaoCreditoId.HasValue ||
+                    transacao.FormaPagamento == FormaPagamentoFaturaCartao))
+            .Select(transacao => new
+            {
+                transacao.Tipo,
+                transacao.Valor
+            })
+            .ToListAsync(cancellationToken);
 
-        return conta.SaldoInicial + movimentos;
+        return conta.SaldoInicial +
+            movimentos.Sum(transacao => CalcularImpactoSaldo(transacao.Tipo, transacao.Valor));
+    }
+
+    private static decimal CalcularImpactoSaldo(TipoTransacao tipo, decimal valor)
+    {
+        return tipo == TipoTransacao.Receita
+            ? valor
+            : tipo == TipoTransacao.Despesa ||
+              tipo == TipoTransacao.Investimento
+                ? -valor
+                : 0m;
     }
 
     private async Task<int> ObterProximoCodigoExibicaoAsync(
