@@ -632,7 +632,7 @@ function CompromissosFuturosSection({
       <SectionTitle
         icon={<ListOrdered size={20} />}
         title="Compromissos futuros"
-        subtitle="Obrigações futuras, receitas previstas e impacto líquido"
+        subtitle="Valores projetados com base em faturas, parcelas, despesas e receitas recorrentes cadastradas."
       />
       <div className="mt-5 grid gap-3 lg:grid-cols-2">
         {loading ? (

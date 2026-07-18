@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Relatorios;
+using SistemaFinanceiro.Api.Dtos.Transacoes;
 using SistemaFinanceiro.Api.Models;
 using SistemaFinanceiro.Api.Services.ContasBancarias;
+using SistemaFinanceiro.Api.Services.Transacoes;
 
 namespace SistemaFinanceiro.Api.Services.Relatorios;
 
@@ -12,11 +14,21 @@ public sealed class RelatorioService : IRelatorioService
 
     private readonly AppDbContext _dbContext;
     private readonly IContaBancariaService _contaBancariaService;
+    private readonly ITransacaoService? _transacaoService;
 
     public RelatorioService(AppDbContext dbContext, IContaBancariaService contaBancariaService)
+        : this(dbContext, contaBancariaService, null)
+    {
+    }
+
+    public RelatorioService(
+        AppDbContext dbContext,
+        IContaBancariaService contaBancariaService,
+        ITransacaoService? transacaoService)
     {
         _dbContext = dbContext;
         _contaBancariaService = contaBancariaService;
+        _transacaoService = transacaoService;
     }
 
     public async Task<RelatorioGraficosResponse> GetGraficosAsync(
@@ -113,10 +125,26 @@ public sealed class RelatorioService : IRelatorioService
         var inicioCompromissos = new DateOnly(hoje.Year, hoje.Month, 1);
         var horizonteMeses = Math.Clamp(quantidadeMeses, 6, 12);
         var fimCompromissos = inicioCompromissos.AddMonths(horizonteMeses).AddDays(-1);
-        var transacoesCompromissos = await ObterTransacoesRelatorioAsync(
-            usuarioId,
+        var transacoesCompromissos = _transacaoService is null
+            ? await ObterTransacoesRelatorioAsync(
+                usuarioId,
+                inicioCompromissos,
+                fimCompromissos,
+                contaBancariaId,
+                cartaoCreditoId,
+                categoriaIds,
+                tipoTransacao,
+                status,
+                somenteRecorrentes,
+                somenteParceladas,
+                VisaoRelatorio.Consumo,
+                cancellationToken)
+            : [];
+        var compromissosFuturos = await CalcularCompromissosFuturosAsync(
+            transacoesCompromissos,
             inicioCompromissos,
             fimCompromissos,
+            usuarioId,
             contaBancariaId,
             cartaoCreditoId,
             categoriaIds,
@@ -124,12 +152,7 @@ public sealed class RelatorioService : IRelatorioService
             status,
             somenteRecorrentes,
             somenteParceladas,
-            VisaoRelatorio.Consumo,
             cancellationToken);
-        var compromissosFuturos = CalcularCompromissosFuturos(
-            transacoesCompromissos,
-            inicioCompromissos,
-            fimCompromissos);
         var disponivelAposCompromissos = await CalcularDisponivelAposCompromissosAsync(
             transacoesPeriodo,
             dataFinal,
@@ -431,7 +454,120 @@ public sealed class RelatorioService : IRelatorioService
         ];
     }
 
-    private static IReadOnlyList<RelatorioCompromissoFuturoResponse> CalcularCompromissosFuturos(
+    private async Task<IReadOnlyList<RelatorioCompromissoFuturoResponse>> CalcularCompromissosFuturosAsync(
+        IReadOnlyList<TransacaoRelatorio> transacoes,
+        DateOnly dataInicial,
+        DateOnly dataFinal,
+        Guid usuarioId,
+        Guid? contaBancariaId,
+        Guid? cartaoCreditoId,
+        IReadOnlyCollection<Guid>? categoriaIds,
+        TipoTransacao? tipoTransacao,
+        string? status,
+        bool somenteRecorrentes,
+        bool somenteParceladas,
+        CancellationToken cancellationToken)
+    {
+        if (_transacaoService is null)
+        {
+            return CalcularCompromissosFuturosLegado(transacoes, dataInicial, dataFinal);
+        }
+
+        var statusNormalizado = status?.Trim().ToLowerInvariant();
+        if (statusNormalizado is "realizado" or "pagas" or "paga")
+        {
+            return MontarMesesSemCompromissos(dataInicial, dataFinal);
+        }
+
+        var categorias = categoriaIds?
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToHashSet() ?? [];
+        var contasPorCartao = await _dbContext.CartoesCredito
+            .AsNoTracking()
+            .Where(cartao => cartao.UsuarioId == usuarioId)
+            .Select(cartao => new
+            {
+                cartao.Id,
+                cartao.ContaBancariaId
+            })
+            .ToDictionaryAsync(cartao => cartao.Id, cartao => cartao.ContaBancariaId, cancellationToken);
+        var compromissos = new Dictionary<CompromissoChave, CompromissoFinanceiroProjetado>();
+
+        foreach (var referencia in EnumerarMeses(dataInicial, dataFinal))
+        {
+            var extrato = await _transacaoService.GetExtratoMensalAsync(
+                referencia.Month,
+                referencia.Year,
+                usuarioId,
+                cancellationToken: cancellationToken);
+            var faturas = await _transacaoService.GetFaturasDoMesAsync(
+                referencia.Month,
+                referencia.Year,
+                usuarioId,
+                cancellationToken);
+
+            foreach (var fatura in faturas.Where(fatura => !fatura.IsPaga && fatura.ValorTotal > 0))
+            {
+                if (cartaoCreditoId.HasValue && fatura.CartaoCreditoId != cartaoCreditoId.Value)
+                {
+                    continue;
+                }
+
+                contasPorCartao.TryGetValue(fatura.CartaoCreditoId, out var contaPagamentoId);
+                if (contaBancariaId.HasValue && contaPagamentoId != contaBancariaId.Value)
+                {
+                    continue;
+                }
+
+                var detalhesFiltrados = fatura.Detalhes
+                    .Where(detalhe => FaturaDetalheAtendeFiltros(
+                        detalhe,
+                        categorias,
+                        tipoTransacao,
+                        somenteRecorrentes,
+                        somenteParceladas))
+                    .ToList();
+                var valor = detalhesFiltrados.Sum(detalhe => detalhe.Valor);
+                if (valor <= 0)
+                {
+                    continue;
+                }
+
+                var chave = new CompromissoChave(
+                    fatura.CartaoCreditoId,
+                    null,
+                    $"{fatura.DataVencimento.Year:D4}-{fatura.DataVencimento.Month:D2}",
+                    TipoCompromissoProjetado.FaturaCartao);
+                AdicionarCompromisso(compromissos, new CompromissoFinanceiroProjetado(
+                    chave,
+                    fatura.DataVencimento,
+                    TipoCompromissoProjetado.FaturaCartao,
+                    TipoTransacao.Despesa,
+                    valor));
+            }
+
+            foreach (var item in extrato.Itens.Where(item => item.Origem != "FaturaCartao" && !item.IsPaga))
+            {
+                var compromisso = MapearItemExtratoParaCompromisso(
+                    item,
+                    categorias,
+                    contaBancariaId,
+                    cartaoCreditoId,
+                    tipoTransacao,
+                    somenteRecorrentes,
+                    somenteParceladas);
+                if (compromisso is not null)
+                {
+                    AdicionarCompromisso(compromissos, compromisso);
+                }
+            }
+        }
+
+        return AgregarCompromissos(compromissos.Values.ToList(), dataInicial, dataFinal);
+    }
+
+    private static IReadOnlyList<RelatorioCompromissoFuturoResponse> CalcularCompromissosFuturosLegado(
         IReadOnlyList<TransacaoRelatorio> transacoes,
         DateOnly dataInicial,
         DateOnly dataFinal)
@@ -500,6 +636,234 @@ public sealed class RelatorioService : IRelatorioService
                     compromisso.ObrigacoesFuturas;
                 compromisso.Total = compromisso.ObrigacoesFuturas;
                 return compromisso;
+            })
+            .ToList();
+    }
+
+    private static bool FaturaDetalheAtendeFiltros(
+        FaturaDetalheResponse detalhe,
+        IReadOnlySet<Guid> categoriaIds,
+        TipoTransacao? tipoTransacao,
+        bool somenteRecorrentes,
+        bool somenteParceladas)
+    {
+        if (tipoTransacao.HasValue && tipoTransacao.Value != TipoTransacao.Despesa)
+        {
+            return false;
+        }
+
+        if (categoriaIds.Count > 0 &&
+            (!detalhe.CategoriaId.HasValue || !categoriaIds.Contains(detalhe.CategoriaId.Value)))
+        {
+            return false;
+        }
+
+        if (somenteRecorrentes && detalhe.Origem != "DespesaFixa")
+        {
+            return false;
+        }
+
+        if (somenteParceladas && !detalhe.CompraParceladaId.HasValue)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static CompromissoFinanceiroProjetado? MapearItemExtratoParaCompromisso(
+        ExtratoMensalItemResponse item,
+        IReadOnlySet<Guid> categoriaIds,
+        Guid? contaBancariaId,
+        Guid? cartaoCreditoId,
+        TipoTransacao? tipoTransacao,
+        bool somenteRecorrentes,
+        bool somenteParceladas)
+    {
+        if (item.OrigemTransacao != OrigemTransacao.Lancamento ||
+            item.Origem is "FaturaCartao" ||
+            item.FormaPagamento == FormaPagamentoFaturaCartao ||
+            item.OrigemTransacao is OrigemTransacao.AjusteSaldo or OrigemTransacao.Transferencia)
+        {
+            return null;
+        }
+
+        if (contaBancariaId.HasValue && item.ContaBancariaId != contaBancariaId.Value)
+        {
+            return null;
+        }
+
+        if (cartaoCreditoId.HasValue && item.CartaoCreditoId != cartaoCreditoId.Value)
+        {
+            return null;
+        }
+
+        if (categoriaIds.Count > 0 &&
+            (!item.CategoriaId.HasValue || !categoriaIds.Contains(item.CategoriaId.Value)))
+        {
+            return null;
+        }
+
+        if (tipoTransacao.HasValue && item.Tipo != tipoTransacao.Value)
+        {
+            return null;
+        }
+
+        var tipoCompromisso = ClassificarCompromisso(item);
+        if (tipoCompromisso is null)
+        {
+            return null;
+        }
+
+        if (somenteRecorrentes && !item.IsFixa)
+        {
+            return null;
+        }
+
+        if (somenteParceladas && !item.CompraParceladaId.HasValue)
+        {
+            return null;
+        }
+
+        var origemId = item.CompraParceladaId ?? item.Id;
+        if (!origemId.HasValue)
+        {
+            return null;
+        }
+
+        var chave = new CompromissoChave(
+            origemId.Value,
+            item.NumeroParcela,
+            $"{item.DataOcorrencia.Year:D4}-{item.DataOcorrencia.Month:D2}",
+            tipoCompromisso.Value);
+        return new CompromissoFinanceiroProjetado(
+            chave,
+            item.DataOcorrencia,
+            tipoCompromisso.Value,
+            item.Tipo,
+            item.Valor);
+    }
+
+    private static TipoCompromissoProjetado? ClassificarCompromisso(ExtratoMensalItemResponse item)
+    {
+        if (item.Tipo == TipoTransacao.Receita)
+        {
+            return TipoCompromissoProjetado.ReceitaPrevista;
+        }
+
+        if (item.Tipo != TipoTransacao.Despesa)
+        {
+            return null;
+        }
+
+        if (item.CompraParceladaId.HasValue && item.CartaoCreditoId is null)
+        {
+            return TipoCompromissoProjetado.ParcelaForaDeFatura;
+        }
+
+        if (item.IsFixa && item.CartaoCreditoId is null && !item.CompraParceladaId.HasValue)
+        {
+            return TipoCompromissoProjetado.DespesaFixa;
+        }
+
+        if (item.CartaoCreditoId is null && !item.CompraParceladaId.HasValue)
+        {
+            return TipoCompromissoProjetado.OutraDespesa;
+        }
+
+        return null;
+    }
+
+    private static void AdicionarCompromisso(
+        IDictionary<CompromissoChave, CompromissoFinanceiroProjetado> compromissos,
+        CompromissoFinanceiroProjetado compromisso)
+    {
+        if (compromissos.TryGetValue(compromisso.Chave, out var existente))
+        {
+            if (existente.TipoCompromisso != compromisso.TipoCompromisso)
+            {
+                throw new InvalidOperationException(
+                    "Compromisso futuro duplicado em grupos diferentes.");
+            }
+
+            compromissos[compromisso.Chave] = compromisso with
+            {
+                Valor = existente.Valor + compromisso.Valor
+            };
+            return;
+        }
+
+        compromissos.Add(compromisso.Chave, compromisso);
+    }
+
+    private static IReadOnlyList<RelatorioCompromissoFuturoResponse> AgregarCompromissos(
+        IReadOnlyList<CompromissoFinanceiroProjetado> compromissos,
+        DateOnly dataInicial,
+        DateOnly dataFinal)
+    {
+        var futuras = compromissos
+            .GroupBy(compromisso => new
+            {
+                compromisso.DataOcorrencia.Year,
+                compromisso.DataOcorrencia.Month
+            })
+            .ToDictionary(
+                grupo => (grupo.Key.Year, grupo.Key.Month),
+                grupo => new RelatorioCompromissoFuturoResponse
+                {
+                    Mes = grupo.Key.Month,
+                    Ano = grupo.Key.Year,
+                    Faturas = grupo
+                        .Where(item => item.TipoCompromisso == TipoCompromissoProjetado.FaturaCartao)
+                        .Sum(item => item.Valor),
+                    ParcelasForaDeFatura = grupo
+                        .Where(item => item.TipoCompromisso == TipoCompromissoProjetado.ParcelaForaDeFatura)
+                        .Sum(item => item.Valor),
+                    DespesasFixas = grupo
+                        .Where(item => item.TipoCompromisso == TipoCompromissoProjetado.DespesaFixa)
+                        .Sum(item => item.Valor),
+                    OutrasDespesas = grupo
+                        .Where(item => item.TipoCompromisso == TipoCompromissoProjetado.OutraDespesa)
+                        .Sum(item => item.Valor),
+                    ReceitasPrevistas = grupo
+                        .Where(item => item.TipoCompromisso == TipoCompromissoProjetado.ReceitaPrevista)
+                        .Sum(item => item.Valor)
+                });
+
+        return EnumerarMeses(dataInicial, dataFinal)
+            .Select(referencia =>
+            {
+                var compromisso = futuras.GetValueOrDefault((referencia.Year, referencia.Month)) ??
+                    new RelatorioCompromissoFuturoResponse
+                    {
+                        Mes = referencia.Month,
+                        Ano = referencia.Year
+                    };
+                compromisso.Parcelas = compromisso.ParcelasForaDeFatura;
+                compromisso.ReceitasRecorrentes = compromisso.ReceitasPrevistas;
+                compromisso.ObrigacoesFuturas =
+                    compromisso.Faturas +
+                    compromisso.ParcelasForaDeFatura +
+                    compromisso.DespesasFixas +
+                    compromisso.OutrasDespesas;
+                compromisso.ImpactoLiquido =
+                    compromisso.ReceitasPrevistas -
+                    compromisso.ObrigacoesFuturas;
+                compromisso.Total = compromisso.ObrigacoesFuturas;
+                return compromisso;
+            })
+            .ToList();
+    }
+
+    private static IReadOnlyList<RelatorioCompromissoFuturoResponse> MontarMesesSemCompromissos(
+        DateOnly dataInicial,
+        DateOnly dataFinal)
+    {
+        return EnumerarMeses(dataInicial, dataFinal)
+            .Select(referencia => new RelatorioCompromissoFuturoResponse
+            {
+                Mes = referencia.Month,
+                Ano = referencia.Year
             })
             .ToList();
     }
@@ -669,6 +1033,19 @@ public sealed class RelatorioService : IRelatorioService
         public string Competencia => $"{DataCompetencia.Year:D4}-{DataCompetencia.Month:D2}";
     }
 
+    private sealed record CompromissoChave(
+        Guid OrigemId,
+        int? NumeroParcela,
+        string Competencia,
+        TipoCompromissoProjetado TipoCompromisso);
+
+    private sealed record CompromissoFinanceiroProjetado(
+        CompromissoChave Chave,
+        DateOnly DataOcorrencia,
+        TipoCompromissoProjetado TipoCompromisso,
+        TipoTransacao TipoTransacao,
+        decimal Valor);
+
     private sealed record ResumoPeriodo(decimal Receitas, decimal Despesas, decimal Investimentos)
     {
         public decimal ResultadoLiquido => Receitas - Despesas - Investimentos;
@@ -678,5 +1055,14 @@ public sealed class RelatorioService : IRelatorioService
     {
         Consumo,
         Caixa
+    }
+
+    private enum TipoCompromissoProjetado
+    {
+        FaturaCartao,
+        ParcelaForaDeFatura,
+        DespesaFixa,
+        OutraDespesa,
+        ReceitaPrevista
     }
 }

@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.ContasBancarias;
+using SistemaFinanceiro.Api.Dtos;
+using SistemaFinanceiro.Api.Dtos.Transacoes;
 using SistemaFinanceiro.Api.Models;
 using SistemaFinanceiro.Api.Services.ContasBancarias;
 using SistemaFinanceiro.Api.Services.Relatorios;
+using SistemaFinanceiro.Api.Services.Transacoes;
 using SistemaFinanceiro.Api.Tests.Infrastructure;
 using Xunit;
 
@@ -226,6 +229,90 @@ public sealed class RelatorioServiceTests
     }
 
     [Fact]
+    public async Task GetGraficosAsync_CompromissosFuturos_UsaExtratoConsolidadoComParcelasERecorrenciasProjetadas()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var inicioMesAtual = new DateOnly(hoje.Year, hoje.Month, 1);
+        var proximoMes = inicioMesAtual.AddMonths(1);
+        var categoria = CriarCategoria(usuarioId, "Geral");
+        database.Context.Categorias.Add(categoria);
+        await database.Context.SaveChangesAsync();
+
+        var transacaoService = new TransacaoServiceCompromissosFake(
+            new Dictionary<(int Ano, int Mes), ExtratoMensalResponse>
+            {
+                [(inicioMesAtual.Year, inicioMesAtual.Month)] = new()
+                {
+                    Itens =
+                    [
+                        CriarItemExtrato(TipoTransacao.Despesa, 120m, inicioMesAtual.AddDays(10), categoria, isFixa: true),
+                        CriarItemExtrato(TipoTransacao.Receita, 500m, inicioMesAtual.AddDays(12), categoria, isFixa: true)
+                    ]
+                },
+                [(proximoMes.Year, proximoMes.Month)] = new()
+                {
+                    Itens =
+                    [
+                        CriarItemExtrato(TipoTransacao.Despesa, 50m, proximoMes.AddDays(9), categoria, compraParceladaId: Guid.NewGuid()),
+                        CriarItemExtrato(TipoTransacao.Despesa, 120m, proximoMes.AddDays(10), categoria, isFixa: true),
+                        CriarItemExtrato(TipoTransacao.Receita, 500m, proximoMes.AddDays(12), categoria, isFixa: true)
+                    ]
+                }
+            },
+            new Dictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>>
+            {
+                [(inicioMesAtual.Year, inicioMesAtual.Month)] =
+                [
+                    CriarFaturaConsolidada(Guid.NewGuid(), inicioMesAtual.AddDays(27), categoria, 100m)
+                ],
+                [(proximoMes.Year, proximoMes.Month)] =
+                [
+                    CriarFaturaConsolidada(Guid.NewGuid(), proximoMes.AddDays(27), categoria, 100m, Guid.NewGuid(), 4, 6)
+                ]
+            });
+        var service = new RelatorioService(
+            database.Context,
+            new ContaBancariaServiceParaTeste(database.Context),
+            transacaoService);
+
+        var response = await service.GetGraficosAsync(
+            inicioMesAtual.AddMonths(-3),
+            inicioMesAtual.AddMonths(2).AddDays(-1),
+            usuarioId);
+
+        Assert.DoesNotContain(response.CompromissosFuturos, item =>
+            item.Ano == inicioMesAtual.AddMonths(-1).Year &&
+            item.Mes == inicioMesAtual.AddMonths(-1).Month);
+        var compromissoAtual = Assert.Single(
+            response.CompromissosFuturos,
+            item => item.Ano == inicioMesAtual.Year && item.Mes == inicioMesAtual.Month);
+        var compromissoProximo = Assert.Single(
+            response.CompromissosFuturos,
+            item => item.Ano == proximoMes.Year && item.Mes == proximoMes.Month);
+
+        Assert.Equal(100m, compromissoAtual.Faturas);
+        Assert.Equal(120m, compromissoAtual.DespesasFixas);
+        Assert.Equal(500m, compromissoAtual.ReceitasPrevistas);
+        Assert.Equal(100m, compromissoProximo.Faturas);
+        Assert.Equal(50m, compromissoProximo.ParcelasForaDeFatura);
+        Assert.Equal(120m, compromissoProximo.DespesasFixas);
+        Assert.Equal(500m, compromissoProximo.ReceitasPrevistas);
+        Assert.Equal(
+            compromissoProximo.Faturas +
+            compromissoProximo.ParcelasForaDeFatura +
+            compromissoProximo.DespesasFixas +
+            compromissoProximo.OutrasDespesas,
+            compromissoProximo.ObrigacoesFuturas);
+        Assert.Equal(
+            compromissoProximo.ReceitasPrevistas - compromissoProximo.ObrigacoesFuturas,
+            compromissoProximo.ImpactoLiquido);
+    }
+
+    [Fact]
     public async Task GetGraficosAsync_CartaoEmRelatorios_ConsumoEFluxoNaoDuplicamPagamentoFatura()
     {
         var usuarioId = Guid.NewGuid();
@@ -360,13 +447,180 @@ public sealed class RelatorioServiceTests
             QuantidadeParcelas = 3,
             ValorTotal = 150m,
             DataCompra = dataCompra,
+            DataPrimeiroVencimento = dataCompra,
             FormaPagamento = FormaPagamentoCompraParcelada.Carne
+        };
+    }
+
+    private static ExtratoMensalItemResponse CriarItemExtrato(
+        TipoTransacao tipo,
+        decimal valor,
+        DateOnly data,
+        Categoria categoria,
+        bool isFixa = false,
+        Guid? compraParceladaId = null)
+    {
+        return new ExtratoMensalItemResponse
+        {
+            Id = Guid.NewGuid(),
+            Tipo = tipo,
+            Valor = valor,
+            DataOcorrencia = data,
+            Descricao = $"{tipo} {valor}",
+            CategoriaId = categoria.Id,
+            CategoriaNome = categoria.Nome,
+            CategoriaCorHexa = categoria.CorHexa,
+            FormaPagamento = compraParceladaId.HasValue ? "Carnê/Crediário" : "Pix",
+            IsFixa = isFixa,
+            IsPaga = false,
+            Origem = tipo switch
+            {
+                TipoTransacao.Receita => "ReceitaFixa",
+                _ when isFixa => "DespesaFixa",
+                _ when compraParceladaId.HasValue => "Carne",
+                _ => "Transacao"
+            },
+            OrigemTransacao = OrigemTransacao.Lancamento,
+            CompraParceladaId = compraParceladaId,
+            NumeroParcela = compraParceladaId.HasValue ? 2 : null,
+            QuantidadeParcelas = compraParceladaId.HasValue ? 3 : null,
+            IsProjetada = isFixa || compraParceladaId.HasValue
+        };
+    }
+
+    private static FaturaConsolidadaResponse CriarFaturaConsolidada(
+        Guid cartaoId,
+        DateOnly vencimento,
+        Categoria categoria,
+        decimal valor,
+        Guid? compraParceladaId = null,
+        int? numeroParcela = null,
+        int? quantidadeParcelas = null)
+    {
+        return new FaturaConsolidadaResponse
+        {
+            CartaoCreditoId = cartaoId,
+            NomeCartao = "Cartao teste",
+            ValorTotal = valor,
+            ValorTotalOriginal = valor,
+            DataVencimento = vencimento,
+            InicioCompetencia = new DateOnly(vencimento.Year, vencimento.Month, 1),
+            FimCompetencia = new DateOnly(vencimento.Year, vencimento.Month, 1).AddMonths(1).AddDays(-1),
+            Status = "Aberta",
+            IsPaga = false,
+            Detalhes =
+            [
+                new FaturaDetalheResponse
+                {
+                    TransacaoId = compraParceladaId.HasValue ? null : Guid.NewGuid(),
+                    CompraParceladaId = compraParceladaId,
+                    NumeroParcela = numeroParcela,
+                    QuantidadeParcelas = quantidadeParcelas,
+                    DataOcorrencia = vencimento.AddDays(-10),
+                    Descricao = "Compra de cartão",
+                    Valor = valor,
+                    CategoriaId = categoria.Id,
+                    CategoriaNome = categoria.Nome,
+                    CategoriaCorHexa = categoria.CorHexa,
+                    Origem = compraParceladaId.HasValue ? "CompraParcelada" : "Transacao"
+                }
+            ]
         };
     }
 
     private static RelatorioService CriarService(AppDbContext context)
     {
         return new RelatorioService(context, new ContaBancariaServiceParaTeste(context));
+    }
+
+    private sealed class TransacaoServiceCompromissosFake : ITransacaoService
+    {
+        private readonly IReadOnlyDictionary<(int Ano, int Mes), ExtratoMensalResponse> _extratos;
+        private readonly IReadOnlyDictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>> _faturas;
+
+        public TransacaoServiceCompromissosFake(
+            IReadOnlyDictionary<(int Ano, int Mes), ExtratoMensalResponse> extratos,
+            IReadOnlyDictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>> faturas)
+        {
+            _extratos = extratos;
+            _faturas = faturas;
+        }
+
+        public Task<ExtratoMensalResponse> GetExtratoMensalAsync(
+            int mes,
+            int ano,
+            Guid usuarioId,
+            bool? apenasDivididas = null,
+            StatusFiltro? status = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                _extratos.GetValueOrDefault((ano, mes)) ??
+                new ExtratoMensalResponse
+                {
+                    Mes = mes,
+                    Ano = ano
+                });
+        }
+
+        public Task<PagedResponse<ExtratoMensalItemResponse>> GetExtratoMensalPaginadoAsync(
+            ExtratoPaginadoRequest request,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<IReadOnlyList<FaturaConsolidadaResponse>> GetFaturasDoMesAsync(
+            int mes,
+            int ano,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_faturas.GetValueOrDefault((ano, mes)) ?? []);
+        }
+
+        public Task<Guid> CriarAsync(
+            CriarTransacaoRequest request,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<Guid?> AtualizarAsync(
+            Guid id,
+            CriarTransacaoRequest request,
+            Guid usuarioId,
+            bool replicarFuturas = true,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<IReadOnlyList<TransacaoResponse>> AnteciparParcelaAsync(
+            AnteciparParcelaRequest request,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<bool> ExcluirAsync(
+            Guid id,
+            Guid usuarioId,
+            DateOnly? dataOcorrencia = null,
+            bool replicarFuturas = true,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<bool?> AlternarStatusPagamentoAsync(
+            Guid id,
+            Guid usuarioId,
+            DateOnly? dataOcorrencia = null,
+            AlterarStatusPagamentoRequest? request = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<bool?> AlternarStatusFaturaAsync(
+            Guid cartaoCreditoId,
+            DateOnly dataVencimento,
+            Guid usuarioId,
+            PagarFaturaRequest? request = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
     }
 
     private sealed class ContaBancariaServiceParaTeste : IContaBancariaService
