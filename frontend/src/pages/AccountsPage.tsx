@@ -317,7 +317,7 @@ export function AccountsPage() {
         </div>
 
         {erro && !isModalOpen && !adjustingAccount && !transferOpen && (
-          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
             {erro}
           </div>
         )}
@@ -327,7 +327,7 @@ export function AccountsPage() {
             Carregando contas...
           </div>
         ) : contasQuery.isError || distribuicaoQuery.isError ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
             Não foi possível carregar as contas.
           </div>
         ) : contas.length === 0 ? (
@@ -375,8 +375,8 @@ export function AccountsPage() {
                     <button
                       className={`rounded-xl p-2 transition ${
                         conta.isFavorita
-                          ? "text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                          : "text-slate-400 hover:bg-amber-50 hover:text-amber-500 dark:hover:bg-slate-800"
+                          ? "text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 dark:hover:text-amber-300"
+                          : "text-slate-400 hover:bg-amber-50 hover:text-amber-500 dark:hover:bg-slate-800 dark:hover:text-amber-300"
                       } disabled:cursor-not-allowed disabled:opacity-60`}
                       type="button"
                       aria-label={conta.isFavorita ? "Conta favorita" : "Definir como favorita"}
@@ -476,8 +476,8 @@ function ActionButton({
     <button
       className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
         danger
-          ? "border-red-100 text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-950/30"
-          : "border-[color:var(--app-card-border)] text-slate-600 hover:bg-[var(--app-card-muted)] dark:text-slate-200"
+          ? "border-red-100 text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/30"
+          : "border-[color:var(--app-card-border)] text-slate-600 hover:bg-[var(--app-card-muted)] dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
       }`}
       type="button"
       onClick={onClick}
@@ -843,7 +843,7 @@ function ModalHeader({
         <X size={20} />
       </button>
       <div className="flex min-w-0 items-start gap-3 pr-10">
-        <span className="shrink-0 rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
+        <span className="shrink-0 rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)] dark:bg-slate-950 dark:text-blue-300">
           {icon}
         </span>
         <div className="min-w-0">

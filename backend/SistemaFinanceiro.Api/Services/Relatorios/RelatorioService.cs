@@ -119,7 +119,11 @@ public sealed class RelatorioService : IRelatorioService
         var resumoAnterior = CalcularResumo(transacoesPeriodoAnterior);
         var despesasPorCategoria = CalcularDespesasPorCategoria(transacoesPeriodo);
         var totaisMensais = CalcularTotaisMensais(transacoesPeriodo, inicioPeriodo, fimPeriodo);
-        var totaisMensaisCaixa = CalcularTotaisMensais(transacoesCaixaPeriodo, inicioPeriodo, fimPeriodo);
+        var totaisMensaisCaixa = CalcularTotaisMensais(
+            transacoesCaixaPeriodo,
+            inicioPeriodo,
+            fimPeriodo,
+            fluxoCaixa: true);
         var projecaoDiaria = CalcularProjecaoDiaria(transacoesCaixaPeriodo, dataInicial, dataFinal);
         var previstoRealizado = CalcularPrevistoRealizado(transacoesPeriodo, hoje);
         var inicioCompromissos = new DateOnly(hoje.Year, hoje.Month, 1);
@@ -155,11 +159,18 @@ public sealed class RelatorioService : IRelatorioService
             cancellationToken);
         var disponivelAposCompromissos = await CalcularDisponivelAposCompromissosAsync(
             transacoesPeriodo,
+            transacoesCaixaPeriodo,
             dataFinal,
             usuarioId,
             contaBancariaId,
             categoriaIds,
             cancellationToken);
+        var resumoAuditavel = CalcularResumoAuditavel(
+            transacoesPeriodo,
+            transacoesCaixaPeriodo,
+            disponivelAposCompromissos,
+            dataFinal,
+            hoje);
 
         return new RelatorioGraficosResponse
         {
@@ -174,7 +185,10 @@ public sealed class RelatorioService : IRelatorioService
                 Despesas = CriarComparativo(resumoAtual.Despesas, resumoAnterior.Despesas, "despesa"),
                 Investimentos = CriarComparativo(resumoAtual.Investimentos, resumoAnterior.Investimentos, "investimento"),
                 ResultadoLiquido = CriarComparativo(resumoAtual.ResultadoLiquido, resumoAnterior.ResultadoLiquido, "resultado"),
-                SaldoPrevistoFimPeriodo = CriarComparativo(resumoAtual.ResultadoLiquido, resumoAnterior.ResultadoLiquido, "resultado"),
+                SaldoPrevistoFimPeriodo = CriarComparativo(
+                    disponivelAposCompromissos.DisponivelAposCompromissos,
+                    0m,
+                    "resultado"),
                 TaxaEconomia = CriarComparativo(
                     CalcularTaxaEconomia(resumoAtual.Receitas, resumoAtual.Despesas),
                     CalcularTaxaEconomia(resumoAnterior.Receitas, resumoAnterior.Despesas),
@@ -183,6 +197,7 @@ public sealed class RelatorioService : IRelatorioService
             ProjecaoDiaria = projecaoDiaria,
             PrevistoVersusRealizado = previstoRealizado,
             EvolucaoMensal = totaisMensais,
+            ResumoAuditavel = resumoAuditavel,
             DisponivelAposCompromissos = disponivelAposCompromissos,
             CompromissosFuturos = compromissosFuturos
         };
@@ -202,6 +217,23 @@ public sealed class RelatorioService : IRelatorioService
         VisaoRelatorio visao,
         CancellationToken cancellationToken)
     {
+        if (_transacaoService is not null)
+        {
+            return await ObterTransacoesRelatorioConsolidadasAsync(
+                usuarioId,
+                dataInicial,
+                dataFinal,
+                contaBancariaId,
+                cartaoCreditoId,
+                categoriaIds,
+                tipoTransacao,
+                status,
+                somenteRecorrentes,
+                somenteParceladas,
+                visao,
+                cancellationToken);
+        }
+
         var categorias = categoriaIds?
             .Where(id => id != Guid.Empty)
             .Distinct()
@@ -303,11 +335,354 @@ public sealed class RelatorioService : IRelatorioService
             .ToListAsync(cancellationToken);
     }
 
+    private async Task<IReadOnlyList<TransacaoRelatorio>> ObterTransacoesRelatorioConsolidadasAsync(
+        Guid usuarioId,
+        DateOnly dataInicial,
+        DateOnly dataFinal,
+        Guid? contaBancariaId,
+        Guid? cartaoCreditoId,
+        IReadOnlyCollection<Guid>? categoriaIds,
+        TipoTransacao? tipoTransacao,
+        string? status,
+        bool somenteRecorrentes,
+        bool somenteParceladas,
+        VisaoRelatorio visao,
+        CancellationToken cancellationToken)
+    {
+        var categorias = categoriaIds?
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToHashSet() ?? [];
+        var statusNormalizado = status?.Trim().ToLowerInvariant();
+        var contasPorCartao = await _dbContext.CartoesCredito
+            .AsNoTracking()
+            .Where(cartao => cartao.UsuarioId == usuarioId)
+            .Select(cartao => new
+            {
+                cartao.Id,
+                cartao.ContaBancariaId
+            })
+            .ToDictionaryAsync(cartao => cartao.Id, cartao => cartao.ContaBancariaId, cancellationToken);
+        var ocorrencias = new List<TransacaoRelatorio>();
+
+        foreach (var referencia in EnumerarMeses(dataInicial, dataFinal))
+        {
+            var extrato = await _transacaoService!.GetExtratoMensalAsync(
+                referencia.Month,
+                referencia.Year,
+                usuarioId,
+                cancellationToken: cancellationToken);
+            var faturas = await _transacaoService.GetFaturasDoMesAsync(
+                referencia.Month,
+                referencia.Year,
+                usuarioId,
+                cancellationToken);
+
+            foreach (var item in extrato.Itens)
+            {
+                if (!ItemExtratoAtendeFiltros(
+                    item,
+                    dataInicial,
+                    dataFinal,
+                    contaBancariaId,
+                    cartaoCreditoId,
+                    categorias,
+                    tipoTransacao,
+                    statusNormalizado,
+                    somenteRecorrentes,
+                    somenteParceladas,
+                    visao,
+                    contasPorCartao))
+                {
+                    continue;
+                }
+
+                ocorrencias.Add(MapearItemExtratoRelatorio(item, contasPorCartao));
+            }
+
+            if (visao != VisaoRelatorio.Consumo)
+            {
+                continue;
+            }
+
+            foreach (var fatura in faturas.Where(fatura => fatura.ValorTotal > 0))
+            {
+                if (cartaoCreditoId.HasValue && fatura.CartaoCreditoId != cartaoCreditoId.Value)
+                {
+                    continue;
+                }
+
+                contasPorCartao.TryGetValue(fatura.CartaoCreditoId, out var contaPagamentoId);
+                if (contaBancariaId.HasValue && contaPagamentoId != contaBancariaId.Value)
+                {
+                    continue;
+                }
+
+                foreach (var detalhe in fatura.Detalhes)
+                {
+                    var ocorrencia = MapearDetalheFaturaRelatorio(fatura, detalhe, contaPagamentoId);
+                    if (!TransacaoAtendeFiltros(
+                        ocorrencia,
+                        dataInicial,
+                        dataFinal,
+                        categorias,
+                        tipoTransacao,
+                        statusNormalizado,
+                        somenteRecorrentes,
+                        somenteParceladas))
+                    {
+                        continue;
+                    }
+
+                    ocorrencias.Add(ocorrencia);
+                }
+            }
+        }
+
+        return RemoverDuplicidades(ocorrencias);
+    }
+
+    private static bool ItemExtratoAtendeFiltros(
+        ExtratoMensalItemResponse item,
+        DateOnly dataInicial,
+        DateOnly dataFinal,
+        Guid? contaBancariaId,
+        Guid? cartaoCreditoId,
+        IReadOnlySet<Guid> categoriaIds,
+        TipoTransacao? tipoTransacao,
+        string? status,
+        bool somenteRecorrentes,
+        bool somenteParceladas,
+        VisaoRelatorio visao,
+        IReadOnlyDictionary<Guid, Guid?> contasPorCartao)
+    {
+        if (item.OrigemTransacao is OrigemTransacao.AjusteSaldo or OrigemTransacao.Transferencia)
+        {
+            return false;
+        }
+
+        var isFatura = item.Origem == "FaturaCartao";
+        var isPagamentoFatura = item.FormaPagamento == FormaPagamentoFaturaCartao;
+        var isCompraCartao = item.FormaPagamento == "Cartão de crédito" && !isPagamentoFatura;
+
+        if (visao == VisaoRelatorio.Consumo && (isFatura || isPagamentoFatura || isCompraCartao))
+        {
+            return false;
+        }
+
+        if (visao == VisaoRelatorio.Caixa && isCompraCartao)
+        {
+            return false;
+        }
+
+        if (item.DataOcorrencia < dataInicial || item.DataOcorrencia > dataFinal)
+        {
+            return false;
+        }
+
+        if (contaBancariaId.HasValue)
+        {
+            var contaItem = item.ContaBancariaId;
+            if (isFatura && item.CartaoCreditoId.HasValue)
+            {
+                contasPorCartao.TryGetValue(item.CartaoCreditoId.Value, out contaItem);
+            }
+
+            if (contaItem != contaBancariaId.Value)
+            {
+                return false;
+            }
+        }
+
+        if (cartaoCreditoId.HasValue && item.CartaoCreditoId != cartaoCreditoId.Value)
+        {
+            return false;
+        }
+
+        if (categoriaIds.Count > 0 &&
+            (!item.CategoriaId.HasValue || !categoriaIds.Contains(item.CategoriaId.Value)))
+        {
+            return false;
+        }
+
+        if (tipoTransacao.HasValue && item.Tipo != tipoTransacao.Value)
+        {
+            return false;
+        }
+
+        if (!StatusAtendeFiltro(item.IsPaga, status))
+        {
+            return false;
+        }
+
+        if (somenteRecorrentes && !item.IsFixa)
+        {
+            return false;
+        }
+
+        if (somenteParceladas && !item.CompraParceladaId.HasValue)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TransacaoAtendeFiltros(
+        TransacaoRelatorio transacao,
+        DateOnly dataInicial,
+        DateOnly dataFinal,
+        IReadOnlySet<Guid> categoriaIds,
+        TipoTransacao? tipoTransacao,
+        string? status,
+        bool somenteRecorrentes,
+        bool somenteParceladas)
+    {
+        if (transacao.DataCompetencia < dataInicial || transacao.DataCompetencia > dataFinal)
+        {
+            return false;
+        }
+
+        if (categoriaIds.Count > 0 &&
+            (!transacao.CategoriaId.HasValue || !categoriaIds.Contains(transacao.CategoriaId.Value)))
+        {
+            return false;
+        }
+
+        if (tipoTransacao.HasValue && transacao.Tipo != tipoTransacao.Value)
+        {
+            return false;
+        }
+
+        if (!StatusAtendeFiltro(transacao.IsPaga, status))
+        {
+            return false;
+        }
+
+        if (somenteRecorrentes && !transacao.IsFixa)
+        {
+            return false;
+        }
+
+        if (somenteParceladas && !transacao.IsParcelada)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool StatusAtendeFiltro(bool isPaga, string? status)
+    {
+        return status switch
+        {
+            "realizado" or "pagas" or "paga" => isPaga,
+            "pendente" or "pendentes" => !isPaga,
+            _ => true
+        };
+    }
+
+    private static TransacaoRelatorio MapearItemExtratoRelatorio(
+        ExtratoMensalItemResponse item,
+        IReadOnlyDictionary<Guid, Guid?> contasPorCartao)
+    {
+        var isFatura = item.Origem == "FaturaCartao";
+        var isPagamentoFatura = item.FormaPagamento == FormaPagamentoFaturaCartao;
+        var contaId = item.ContaBancariaId;
+        if (isFatura && item.CartaoCreditoId.HasValue)
+        {
+            contasPorCartao.TryGetValue(item.CartaoCreditoId.Value, out contaId);
+        }
+
+        var origemId = item.Id ??
+            item.CompraParceladaId ??
+            item.CartaoCreditoId ??
+            throw new InvalidOperationException("Ocorrência financeira sem identificador de origem.");
+
+        return new TransacaoRelatorio(
+            item.DataOcorrencia,
+            item.Tipo,
+            item.Valor,
+            item.IsPaga,
+            item.CategoriaId,
+            item.CategoriaNome,
+            string.IsNullOrWhiteSpace(item.CategoriaCorHexa) ? "#64748B" : item.CategoriaCorHexa,
+            item.IsFixa,
+            item.CompraParceladaId.HasValue,
+            item.CartaoCreditoId.HasValue,
+            item.FormaPagamento,
+            origemId,
+            item.CartaoCreditoId,
+            contaId,
+            item.CompraParceladaId,
+            item.NumeroParcela,
+            item.DataOcorrencia,
+            isPagamentoFatura ? "PagamentoFatura" : item.Origem,
+            item.OrigemTransacao == OrigemTransacao.Lancamento && !isFatura && !isPagamentoFatura,
+            item.OrigemTransacao == OrigemTransacao.Lancamento &&
+                (!item.CartaoCreditoId.HasValue || isFatura || isPagamentoFatura),
+            !item.IsPaga && (isFatura || (!item.CartaoCreditoId.HasValue && item.Tipo != TipoTransacao.Receita)));
+    }
+
+    private static TransacaoRelatorio MapearDetalheFaturaRelatorio(
+        FaturaConsolidadaResponse fatura,
+        FaturaDetalheResponse detalhe,
+        Guid? contaPagamentoId)
+    {
+        var origemId = detalhe.TransacaoId ??
+            detalhe.CompraParceladaId ??
+            fatura.CartaoCreditoId;
+        var dataCompetencia = fatura.DataVencimento;
+
+        return new TransacaoRelatorio(
+            dataCompetencia,
+            TipoTransacao.Despesa,
+            detalhe.Valor,
+            fatura.IsPaga,
+            detalhe.CategoriaId,
+            string.IsNullOrWhiteSpace(detalhe.CategoriaNome) ? "Sem categoria" : detalhe.CategoriaNome,
+            string.IsNullOrWhiteSpace(detalhe.CategoriaCorHexa) ? "#64748B" : detalhe.CategoriaCorHexa,
+            detalhe.Origem == "DespesaFixa",
+            detalhe.CompraParceladaId.HasValue,
+            true,
+            "Cartão de crédito",
+            origemId,
+            fatura.CartaoCreditoId,
+            contaPagamentoId,
+            detalhe.CompraParceladaId,
+            detalhe.NumeroParcela,
+            fatura.DataVencimento,
+            detalhe.Origem,
+            true,
+            false,
+            !fatura.IsPaga);
+    }
+
+    private static IReadOnlyList<TransacaoRelatorio> RemoverDuplicidades(
+        IEnumerable<TransacaoRelatorio> transacoes)
+    {
+        return transacoes
+            .GroupBy(transacao => new
+            {
+                transacao.OrigemId,
+                transacao.NumeroParcela,
+                transacao.Competencia,
+                transacao.Origem,
+                transacao.ImpactaConsumo,
+                transacao.ImpactaSaldo
+            })
+            .Select(grupo => grupo.First())
+            .OrderBy(transacao => transacao.DataOcorrencia)
+            .ToList();
+    }
+
     private static IReadOnlyList<RelatorioCategoriaResponse> CalcularDespesasPorCategoria(
         IReadOnlyList<TransacaoRelatorio> transacoes)
     {
         return transacoes
-            .Where(transacao => transacao.Tipo == TipoTransacao.Despesa)
+            .Where(transacao =>
+                transacao.Tipo == TipoTransacao.Despesa &&
+                transacao.ImpactaConsumo)
             .GroupBy(transacao => new
             {
                 transacao.CategoriaId,
@@ -328,7 +703,8 @@ public sealed class RelatorioService : IRelatorioService
     private static IReadOnlyList<RelatorioMensalResponse> CalcularTotaisMensais(
         IReadOnlyList<TransacaoRelatorio> transacoes,
         DateOnly dataInicial,
-        DateOnly dataFinal)
+        DateOnly dataFinal,
+        bool fluxoCaixa = false)
     {
         var agregados = transacoes
             .GroupBy(transacao => new
@@ -341,13 +717,20 @@ public sealed class RelatorioService : IRelatorioService
                 grupo =>
                 {
                     var receitas = grupo
-                        .Where(transacao => transacao.Tipo == TipoTransacao.Receita)
+                        .Where(transacao =>
+                            transacao.Tipo == TipoTransacao.Receita &&
+                            transacao.Realizada)
                         .Sum(transacao => transacao.Valor);
                     var despesas = grupo
-                        .Where(transacao => transacao.Tipo == TipoTransacao.Despesa)
+                        .Where(transacao =>
+                            transacao.Tipo == TipoTransacao.Despesa &&
+                            (fluxoCaixa ? transacao.ImpactaSaldo : transacao.ImpactaConsumo))
                         .Sum(transacao => transacao.Valor);
                     var investimentos = grupo
-                        .Where(transacao => transacao.Tipo == TipoTransacao.Investimento)
+                        .Where(transacao =>
+                            transacao.Tipo == TipoTransacao.Investimento &&
+                            transacao.Realizada &&
+                            (fluxoCaixa ? transacao.ImpactaSaldo : transacao.ImpactaConsumo))
                         .Sum(transacao => transacao.Valor);
 
                     return new RelatorioMensalResponse
@@ -384,12 +767,16 @@ public sealed class RelatorioService : IRelatorioService
                 grupo => new
                 {
                     Entradas = grupo
-                        .Where(transacao => transacao.Tipo == TipoTransacao.Receita)
+                        .Where(transacao =>
+                            transacao.Tipo == TipoTransacao.Receita &&
+                            transacao.Realizada &&
+                            transacao.ImpactaSaldo)
                         .Sum(transacao => transacao.Valor),
                     Saidas = grupo
                         .Where(transacao =>
-                            transacao.Tipo == TipoTransacao.Despesa ||
-                            transacao.Tipo == TipoTransacao.Investimento)
+                            transacao.ImpactaSaldo &&
+                            (transacao.Tipo == TipoTransacao.Despesa ||
+                                transacao.Tipo == TipoTransacao.Investimento))
                         .Sum(transacao => transacao.Valor)
                 });
 
@@ -418,17 +805,32 @@ public sealed class RelatorioService : IRelatorioService
         DateOnly hoje)
     {
         decimal Realizado(Func<TransacaoRelatorio, bool> predicate) =>
-            transacoes.Where(item => predicate(item) && (item.IsPaga || item.DataOcorrencia <= hoje))
+            transacoes.Where(item => predicate(item) && item.Realizada)
                 .Sum(item => item.Valor);
 
         decimal Previsto(Func<TransacaoRelatorio, bool> predicate) =>
-            transacoes.Where(predicate).Sum(item => item.Valor);
+            transacoes.Where(item => predicate(item) && item.Pendente && item.DataOcorrencia >= hoje)
+                .Sum(item => item.Valor);
 
         var receitasPrevistas = Previsto(item => item.Tipo == TipoTransacao.Receita);
-        var despesasPrevistas = Previsto(item => item.Tipo == TipoTransacao.Despesa);
-        var investimentosPrevistos = Previsto(item => item.Tipo == TipoTransacao.Investimento);
+        var despesasPrevistas = transacoes
+            .Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                item.ImpactaConsumo &&
+                item.Pendente)
+            .Sum(item => item.Valor);
+        var investimentosPrevistos = transacoes
+            .Where(item =>
+                item.Tipo == TipoTransacao.Investimento &&
+                item.Pendente)
+            .Sum(item => item.Valor);
         var receitasRealizadas = Realizado(item => item.Tipo == TipoTransacao.Receita);
-        var despesasRealizadas = Realizado(item => item.Tipo == TipoTransacao.Despesa);
+        var despesasRealizadas = transacoes
+            .Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                item.ImpactaConsumo &&
+                item.Realizada)
+            .Sum(item => item.Valor);
         var investimentosRealizados = Realizado(item => item.Tipo == TipoTransacao.Investimento);
 
         return
@@ -870,6 +1272,7 @@ public sealed class RelatorioService : IRelatorioService
 
     private async Task<RelatorioDisponivelAposCompromissosResponse> CalcularDisponivelAposCompromissosAsync(
         IReadOnlyList<TransacaoRelatorio> transacoesPeriodo,
+        IReadOnlyList<TransacaoRelatorio> transacoesCaixaPeriodo,
         DateOnly dataLimite,
         Guid usuarioId,
         Guid? contaBancariaId,
@@ -882,19 +1285,28 @@ public sealed class RelatorioService : IRelatorioService
                 .Where(conta => conta.Id == contaBancariaId.Value)
                 .Sum(conta => conta.SaldoAtual)
             : saldosContas.Sum(conta => conta.SaldoAtual);
-        var pendentesAteLimite = transacoesPeriodo
+        var pendentesCaixaAteLimite = transacoesCaixaPeriodo
             .Where(transacao =>
                 !transacao.IsPaga &&
                 transacao.DataOcorrencia <= dataLimite)
             .ToList();
-        var obrigacoesPendentes = pendentesAteLimite
-            .Where(transacao => transacao.Tipo == TipoTransacao.Despesa)
+        var obrigacoesPendentes = pendentesCaixaAteLimite
+            .Where(transacao =>
+                transacao.Tipo == TipoTransacao.Despesa &&
+                transacao.ImpactaCompromissos)
             .Sum(transacao => transacao.Valor);
-        var investimentosPendentes = pendentesAteLimite
-            .Where(transacao => transacao.Tipo == TipoTransacao.Investimento)
+        var investimentosPendentes = pendentesCaixaAteLimite
+            .Where(transacao =>
+                transacao.Tipo == TipoTransacao.Investimento &&
+                transacao.ImpactaCompromissos)
             .Sum(transacao => transacao.Valor);
-        var receitasPrevistas = pendentesAteLimite
-            .Where(transacao => transacao.Tipo == TipoTransacao.Receita)
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var receitasPrevistas = transacoesPeriodo
+            .Where(transacao =>
+                transacao.Tipo == TipoTransacao.Receita &&
+                transacao.Pendente &&
+                transacao.DataOcorrencia >= hoje &&
+                transacao.DataOcorrencia <= dataLimite)
             .Sum(transacao => transacao.Valor);
         const decimal reservaMinimaConfigurada = 0m;
         var disponivel =
@@ -922,42 +1334,153 @@ public sealed class RelatorioService : IRelatorioService
     private static ResumoPeriodo CalcularResumo(IReadOnlyList<TransacaoRelatorio> transacoes)
     {
         var receitas = transacoes
-            .Where(transacao => transacao.Tipo == TipoTransacao.Receita)
+            .Where(transacao =>
+                transacao.Tipo == TipoTransacao.Receita &&
+                transacao.Realizada)
             .Sum(transacao => transacao.Valor);
         var despesas = transacoes
-            .Where(transacao => transacao.Tipo == TipoTransacao.Despesa)
+            .Where(transacao =>
+                transacao.Tipo == TipoTransacao.Despesa &&
+                transacao.ImpactaConsumo)
             .Sum(transacao => transacao.Valor);
         var investimentos = transacoes
-            .Where(transacao => transacao.Tipo == TipoTransacao.Investimento)
+            .Where(transacao =>
+                transacao.Tipo == TipoTransacao.Investimento &&
+                transacao.Realizada)
             .Sum(transacao => transacao.Valor);
 
         return new ResumoPeriodo(receitas, despesas, investimentos);
     }
 
-    private static decimal CalcularTaxaEconomia(decimal receitas, decimal despesas)
+    private static RelatorioResumoAuditavelResponse CalcularResumoAuditavel(
+        IReadOnlyList<TransacaoRelatorio> transacoesConsumo,
+        IReadOnlyList<TransacaoRelatorio> transacoesCaixa,
+        RelatorioDisponivelAposCompromissosResponse disponivel,
+        DateOnly dataLimite,
+        DateOnly hoje)
+    {
+        var receitasRealizadas = transacoesConsumo
+            .Where(item => item.Tipo == TipoTransacao.Receita && item.Realizada)
+            .Sum(item => item.Valor);
+        var receitasPrevistas = transacoesConsumo
+            .Where(item =>
+                item.Tipo == TipoTransacao.Receita &&
+                item.Pendente &&
+                item.DataOcorrencia >= hoje &&
+                item.DataOcorrencia <= dataLimite)
+            .Sum(item => item.Valor);
+        var receitasVencidas = transacoesConsumo
+            .Where(item =>
+                item.Tipo == TipoTransacao.Receita &&
+                item.Pendente &&
+                item.DataOcorrencia < hoje)
+            .Sum(item => item.Valor);
+        var despesasDoPeriodo = transacoesConsumo
+            .Where(item => item.Tipo == TipoTransacao.Despesa && item.ImpactaConsumo)
+            .Sum(item => item.Valor);
+        var despesasPagas = transacoesConsumo
+            .Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                item.ImpactaConsumo &&
+                item.Realizada)
+            .Sum(item => item.Valor);
+        var despesasEmAberto = transacoesConsumo
+            .Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                item.ImpactaConsumo &&
+                item.Pendente)
+            .Sum(item => item.Valor);
+        var despesasCartao = transacoesConsumo
+            .Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                item.ImpactaConsumo &&
+                item.IsCartao)
+            .Sum(item => item.Valor);
+        var despesasRecorrentes = transacoesConsumo
+            .Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                item.ImpactaConsumo &&
+                !item.IsCartao &&
+                item.IsFixa)
+            .Sum(item => item.Valor);
+        var investimentosRealizados = transacoesConsumo
+            .Where(item => item.Tipo == TipoTransacao.Investimento && item.Realizada)
+            .Sum(item => item.Valor);
+        var investimentosPendentes = transacoesCaixa
+            .Where(item =>
+                item.Tipo == TipoTransacao.Investimento &&
+                item.Pendente &&
+                item.DataOcorrencia <= dataLimite)
+            .Sum(item => item.Valor);
+        var obrigacoesEmAberto = transacoesCaixa
+            .Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                item.Pendente &&
+                item.ImpactaCompromissos &&
+                item.DataOcorrencia <= dataLimite)
+            .Sum(item => item.Valor);
+
+        return new RelatorioResumoAuditavelResponse
+        {
+            ReceitasRealizadas = receitasRealizadas,
+            ReceitasPrevistas = receitasPrevistas,
+            ReceitasVencidas = receitasVencidas,
+            DespesasDoPeriodo = despesasDoPeriodo,
+            DespesasPagas = despesasPagas,
+            DespesasEmAberto = despesasEmAberto,
+            DespesasCartao = despesasCartao,
+            DespesasRecorrentes = despesasRecorrentes,
+            DemaisDespesas = despesasDoPeriodo - despesasCartao - despesasRecorrentes,
+            InvestimentosRealizados = investimentosRealizados,
+            InvestimentosPendentes = investimentosPendentes,
+            ObrigacoesEmAberto = obrigacoesEmAberto,
+            ResultadoLiquido = receitasRealizadas - despesasDoPeriodo - investimentosRealizados,
+            SaldoAtual = disponivel.SaldoAtual,
+            SaldoPrevistoFimPeriodo = disponivel.DisponivelAposCompromissos,
+            DataLimite = dataLimite
+        };
+    }
+
+    private static decimal? CalcularTaxaEconomia(decimal receitas, decimal despesas)
     {
         if (receitas <= 0)
         {
-            return 0;
+            return null;
         }
 
         return Math.Round(((receitas - despesas) / receitas) * 100, 2);
     }
 
     private static RelatorioComparativoValorResponse CriarComparativo(
-        decimal atual,
-        decimal anterior,
+        decimal? atual,
+        decimal? anterior,
         string tipo)
     {
-        var diferenca = atual - anterior;
-        var percentual = anterior == 0
+        if (!atual.HasValue)
+        {
+            return new RelatorioComparativoValorResponse
+            {
+                ValorAtual = null,
+                ValorAnterior = anterior,
+                DiferencaAbsoluta = null,
+                VariacaoPercentual = null,
+                Tendencia = "Neutra",
+                Mensagem = tipo == "taxa"
+                    ? "Sem base para cálculo"
+                    : "Sem base para comparação"
+            };
+        }
+
+        var anteriorValor = anterior ?? 0m;
+        var diferenca = atual.Value - anteriorValor;
+        var percentual = anteriorValor == 0
             ? (decimal?)null
-            : Math.Round((diferenca / Math.Abs(anterior)) * 100, 2);
+            : Math.Round((diferenca / Math.Abs(anteriorValor)) * 100, 2);
         var tendencia = CalcularTendencia(tipo, diferenca);
 
         return new RelatorioComparativoValorResponse
         {
-            ValorAtual = atual,
+            ValorAtual = atual.Value,
             ValorAnterior = anterior,
             DiferencaAbsoluta = diferenca,
             VariacaoPercentual = percentual,

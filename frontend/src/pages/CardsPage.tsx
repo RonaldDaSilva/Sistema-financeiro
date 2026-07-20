@@ -302,7 +302,7 @@ export function CardsPage() {
         </div>
 
         {erro && !isModalOpen && (
-          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
             {erro}
           </div>
         )}
@@ -312,7 +312,7 @@ export function CardsPage() {
             Carregando cartões...
           </div>
         ) : cartoesQuery.isError ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
             Não foi possível carregar os cartões.
           </div>
         ) : cartoes.length === 0 ? (
@@ -363,7 +363,7 @@ export function CardsPage() {
                   <div className="absolute left-0 top-0 h-full w-1.5 bg-[var(--app-accent)]" />
                   <div className="flex min-w-0 flex-col gap-3 min-[380px]:flex-row min-[380px]:items-start min-[380px]:justify-between">
                     <div className="flex min-w-0 items-center gap-3">
-                      <div className="shrink-0 rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
+                      <div className="shrink-0 rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)] dark:bg-slate-950 dark:text-blue-300">
                         <CreditCard size={20} />
                       </div>
                       <div className="min-w-0">
@@ -379,7 +379,7 @@ export function CardsPage() {
                     </div>
                     <div className="flex shrink-0 gap-2 self-end min-[380px]:self-start">
                       <button
-                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:hover:bg-slate-800"
+                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-blue-300"
                         type="button"
                         title="Ver fatura"
                         onClick={() => abrirFatura(cartao)}
@@ -388,7 +388,7 @@ export function CardsPage() {
                         <Eye size={18} />
                       </button>
                       <button
-                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:hover:bg-slate-800"
+                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-blue-300"
                         type="button"
                         onClick={() => editar(cartao)}
                         title="Editar cartão"
@@ -397,7 +397,7 @@ export function CardsPage() {
                         <Pencil size={18} />
                       </button>
                       <button
-                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-700"
+                        className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-700 dark:text-slate-300 dark:hover:bg-red-950/40 dark:hover:text-red-300"
                         type="button"
                         onClick={() => arquivar(cartao)}
                         title="Arquivar cartão"
@@ -1071,7 +1071,7 @@ function CartaoModal({
         </button>
 
         <div className="flex min-w-0 items-start gap-3 pr-10">
-          <div className="shrink-0 rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)]">
+          <div className="shrink-0 rounded-xl bg-[var(--app-card-muted)] p-2 text-[var(--app-accent)] dark:bg-slate-950 dark:text-blue-300">
             {isEditing ? <Pencil size={20} /> : <Plus size={20} />}
           </div>
           <div className="min-w-0">

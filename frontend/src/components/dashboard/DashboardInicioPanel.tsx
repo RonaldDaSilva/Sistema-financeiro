@@ -162,7 +162,7 @@ export function DashboardInicioPanel({ hiddenValues, filters }: DashboardInicioP
                   hiddenValues={hiddenValues}
                 />
                 <a
-                  className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[var(--app-primary)] outline-none transition hover:bg-[var(--app-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--app-primary)]"
+                  className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[var(--app-primary)] outline-none transition hover:bg-[var(--app-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--app-primary)] dark:text-blue-300 dark:hover:bg-slate-800"
                   href="#movimentacoes-recentes"
                 >
                   Ver todos

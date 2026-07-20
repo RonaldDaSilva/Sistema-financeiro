@@ -65,9 +65,9 @@ export type RelatorioCategoria = {
 };
 
 export type RelatorioComparativoValor = {
-  valorAtual: number;
-  valorAnterior: number;
-  diferencaAbsoluta: number;
+  valorAtual: number | null;
+  valorAnterior: number | null;
+  diferencaAbsoluta: number | null;
   variacaoPercentual: number | null;
   tendencia: 'Melhora' | 'Piora' | 'Neutra' | string;
   mensagem: string;
@@ -92,6 +92,25 @@ export type RelatorioDisponivelAposCompromissos = {
   disponivelConsiderandoReceitasPrevistas: number;
   dataLimite: string;
   observacao: string | null;
+};
+
+export type RelatorioResumoAuditavel = {
+  receitasRealizadas: number;
+  receitasPrevistas: number;
+  receitasVencidas: number;
+  despesasDoPeriodo: number;
+  despesasPagas: number;
+  despesasEmAberto: number;
+  despesasCartao: number;
+  despesasRecorrentes: number;
+  demaisDespesas: number;
+  investimentosRealizados: number;
+  investimentosPendentes: number;
+  obrigacoesEmAberto: number;
+  resultadoLiquido: number;
+  saldoAtual: number;
+  saldoPrevistoFimPeriodo: number;
+  dataLimite: string;
 };
 
 export type RelatorioMensal = {
@@ -141,6 +160,7 @@ export type RelatorioGraficos = {
   projecaoDiaria: RelatorioProjecaoDiaria[];
   previstoVersusRealizado: RelatorioPrevistoRealizado[];
   evolucaoMensal: RelatorioMensal[];
+  resumoAuditavel: RelatorioResumoAuditavel;
   disponivelAposCompromissos: RelatorioDisponivelAposCompromissos;
   compromissosFuturos: RelatorioCompromissoFuturo[];
 };

@@ -175,7 +175,7 @@ export function ReportsPage() {
                 onChange={(value) => updateFilters({ fimMes: value })}
               />
               <button
-                className="mt-auto inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[color:var(--app-card-border)] px-4 text-sm font-black text-slate-700 transition hover:bg-[var(--app-card-muted)] dark:text-white"
+                className="mt-auto inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-[color:var(--app-card-border)] px-4 text-sm font-black text-slate-700 transition hover:bg-[var(--app-card-muted)] dark:border-slate-700 dark:text-white dark:hover:bg-slate-800"
                 type="button"
                 onClick={() => setShowAdvanced((value) => !value)}
               >
@@ -282,7 +282,7 @@ export function ReportsPage() {
                   </div>
                 </div>
                 <button
-                  className="rounded-2xl border border-[color:var(--app-card-border)] px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-[var(--app-card-muted)] dark:text-slate-200 md:col-span-2 xl:col-span-3"
+                  className="rounded-2xl border border-[color:var(--app-card-border)] px-4 py-3 text-sm font-black text-slate-600 transition hover:bg-[var(--app-card-muted)] dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 md:col-span-2 xl:col-span-3"
                   type="button"
                   onClick={limparFiltros}
                 >
@@ -321,8 +321,8 @@ export function ReportsPage() {
               key={value}
               className={`whitespace-nowrap rounded-xl px-4 py-2 text-sm font-black transition ${
                 tab === value
-                  ? "bg-[var(--app-accent)] text-[var(--app-accent-contrast)]"
-                  : "text-slate-500 hover:bg-[var(--app-card-muted)] dark:text-slate-300"
+                  ? "bg-[var(--app-accent)] text-[var(--app-accent-contrast)] dark:bg-blue-600 dark:text-white"
+                  : "text-slate-500 hover:bg-[var(--app-card-muted)] dark:text-slate-300 dark:hover:bg-slate-800"
               }`}
               type="button"
               onClick={() => setTab(value as TabRelatorio)}
@@ -456,7 +456,7 @@ export function ReportsPage() {
                   return (
                     <button
                       key={`${item.categoriaId ?? item.categoriaNome}-${index}`}
-                      className="w-full space-y-2 rounded-2xl p-2 text-left transition hover:bg-[var(--app-card-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-primary)] disabled:cursor-not-allowed disabled:opacity-70"
+                      className="w-full space-y-2 rounded-2xl p-2 text-left transition hover:bg-[var(--app-card-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-primary)] disabled:cursor-not-allowed disabled:opacity-70 dark:hover:bg-slate-800"
                       type="button"
                       disabled={!item.categoriaId}
                       onClick={() => abrirExtratoDaCategoria(item.categoriaId)}
@@ -540,22 +540,59 @@ function KpiGrid({
   isLoading: boolean;
 }) {
   const kpis = relatorio?.kpis;
+  const dataLimite = relatorio?.resumoAuditavel?.dataLimite;
   const items = [
-    ["Receitas", kpis?.receitas, "text-emerald-600"],
-    ["Despesas", kpis?.despesas, "text-red-600"],
-    ["Investimentos", kpis?.investimentos, "text-blue-600"],
-    ["Resultado líquido", kpis?.resultadoLiquido, "text-[var(--app-primary)]"],
-    ["Saldo previsto", kpis?.saldoPrevistoFimPeriodo, "text-slate-900 dark:text-white"],
-    ["Taxa de economia", kpis?.taxaEconomia, "text-purple-600"],
+    [
+      "Receitas realizadas",
+      kpis?.receitas,
+      "text-emerald-600 dark:text-emerald-300",
+      "Receitas efetivamente recebidas no período filtrado.",
+    ],
+    [
+      "Despesas do período",
+      kpis?.despesas,
+      "text-red-600 dark:text-red-300",
+      "Consumo reconhecido no período, incluindo cartão por competência e sem duplicar pagamento de fatura.",
+    ],
+    [
+      "Investimentos realizados",
+      kpis?.investimentos,
+      "text-blue-600 dark:text-blue-300",
+      "Investimentos efetivados no período filtrado.",
+    ],
+    [
+      "Resultado líquido",
+      kpis?.resultadoLiquido,
+      "text-[var(--app-primary)] dark:text-white",
+      "Receitas realizadas menos despesas do período e investimentos realizados.",
+    ],
+    [
+      dataLimite ? `Saldo previsto em ${formatDate(dataLimite)}` : "Saldo previsto",
+      kpis?.saldoPrevistoFimPeriodo,
+      "text-slate-900 dark:text-white",
+      "Saldo atual menos obrigações e investimentos ainda pendentes até a data limite.",
+    ],
+    [
+      "Taxa de economia",
+      kpis?.taxaEconomia,
+      "text-purple-600 dark:text-purple-300",
+      "Calculada sobre receitas realizadas: (receitas - despesas) / receitas.",
+    ],
   ] as const;
 
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {items.map(([title, value, color]) =>
+      {items.map(([title, value, color, description]) =>
         isLoading ? (
           <Skeleton key={title} className="h-32" />
         ) : (
-          <KpiCard key={title} title={title} value={value} colorClass={color} />
+          <KpiCard
+            key={title}
+            title={title}
+            value={value}
+            colorClass={color}
+            description={description}
+          />
         ),
       )}
       {isLoading ? (
@@ -596,6 +633,18 @@ function DisponivelCompromissosCard({
         </div>
         <dl className="grid min-w-0 gap-3 sm:grid-cols-2 lg:min-w-[420px]">
           <MetricDetail
+            label="Saldo atual"
+            value={formatCurrency(disponivel?.saldoAtual ?? 0)}
+          />
+          <MetricDetail
+            label="Obrigações em aberto"
+            value={formatCurrency(disponivel?.obrigacoesPendentesAteDataLimite ?? 0)}
+          />
+          <MetricDetail
+            label="Investimentos pendentes"
+            value={formatCurrency(disponivel?.investimentosPendentesAteDataLimite ?? 0)}
+          />
+          <MetricDetail
             label="Receitas previstas"
             value={formatCurrency(disponivel?.receitasPrevistas ?? 0)}
           />
@@ -611,8 +660,8 @@ function DisponivelCompromissosCard({
 
 function MetricDetail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-2xl bg-[var(--app-card-muted)] p-3">
-      <dt className="text-xs font-bold text-slate-500 dark:text-slate-400">{label}</dt>
+    <div className="min-w-0 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-3 dark:border-slate-700 dark:bg-slate-950/80">
+      <dt className="text-xs font-bold text-slate-600 dark:text-slate-300">{label}</dt>
       <dd className="mt-1 break-words text-base font-black text-slate-900 [overflow-wrap:anywhere] dark:text-white">
         {value}
       </dd>
@@ -711,34 +760,42 @@ function KpiCard({
   title,
   value,
   colorClass,
+  description,
 }: {
   title: string;
   value?: RelatorioComparativoValor;
   colorClass: string;
+  description: string;
 }) {
   const isPercent = title === "Taxa de economia";
+  const hasValue = value?.valorAtual !== null && value?.valorAtual !== undefined;
   return (
-    <article className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5">
+    <article
+      className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5"
+      title={description}
+    >
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-bold text-slate-500 dark:text-slate-400">{title}</p>
           <p className={`mt-3 break-words text-2xl font-black leading-tight [overflow-wrap:anywhere] sm:text-3xl ${colorClass}`}>
-            {isPercent
-              ? formatPercent(value?.valorAtual ?? 0)
-              : formatCurrency(value?.valorAtual ?? 0)}
+            {!hasValue
+              ? "Sem base"
+              : isPercent
+                ? formatPercent(value.valorAtual!)
+                : formatCurrency(value.valorAtual!)}
           </p>
         </div>
-        <span className="shrink-0 rounded-2xl bg-[var(--app-card-muted)] p-3 text-[var(--app-primary)]">
+        <span className="shrink-0 rounded-2xl bg-[var(--app-card-muted)] p-3 text-[var(--app-primary)] dark:bg-slate-950 dark:text-blue-300">
           <TrendingUp size={20} />
         </span>
       </div>
       <p
         className={`mt-3 text-sm font-bold ${
           value?.tendencia === "Melhora"
-            ? "text-emerald-600"
+            ? "text-emerald-600 dark:text-emerald-300"
             : value?.tendencia === "Piora"
-              ? "text-red-600"
-              : "text-slate-500"
+              ? "text-red-600 dark:text-red-300"
+              : "text-slate-500 dark:text-slate-400"
         }`}
       >
         {value?.mensagem ?? "Sem base para comparação"}

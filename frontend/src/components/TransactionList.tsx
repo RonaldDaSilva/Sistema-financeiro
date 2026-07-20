@@ -112,8 +112,8 @@ export const TransactionList = memo(function TransactionList({
               : "text-red-700";
           const MovementIcon = isReceita ? ArrowUpCircle : ArrowDownCircle;
           const movementIconClass = isReceita
-            ? "bg-emerald-50 text-emerald-500"
-            : "bg-red-50 text-red-500";
+            ? "bg-emerald-50 text-emerald-500 dark:bg-emerald-950/50 dark:text-emerald-300"
+            : "bg-red-50 text-red-500 dark:bg-red-950/50 dark:text-red-300";
           const isFatura =
             item.origem === "FaturaCartao" && item.cartaoCreditoId;
           const fatura = isFatura
@@ -149,7 +149,7 @@ export const TransactionList = memo(function TransactionList({
                   canTogglePagamento ? "cursor-pointer md:cursor-default" : ""
                 } ${
                   isHighlighted
-                    ? "bg-[var(--app-primary-soft)] ring-2 ring-inset ring-[var(--app-primary)]"
+                    ? "bg-[var(--app-primary-soft)] ring-2 ring-inset ring-[var(--app-primary)] dark:bg-blue-500/10 dark:ring-blue-400/50"
                     : ""
                 }`}
                 onClick={(event) => {
@@ -184,7 +184,7 @@ export const TransactionList = memo(function TransactionList({
                     <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
                       {formatDate(item.dataOcorrencia)}
                     </span>
-                    {!isReceita && <StatusBadge status={statusVisual} />}
+                    <StatusBadge status={statusVisual} isReceita={isReceita} />
                   </div>
                 </div>
                 <div className="col-span-2 row-start-2 flex min-w-0 items-center gap-3 md:col-auto md:row-auto md:gap-4">
@@ -228,17 +228,17 @@ export const TransactionList = memo(function TransactionList({
                       </span>
                     )}
                     {item.numeroParcela && item.quantidadeParcelas && (
-                      <span className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                      <span className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 dark:bg-blue-950/50 dark:text-blue-200">
                         {item.numeroParcela}/{item.quantidadeParcelas}
                       </span>
                     )}
                     {item.origem === "Carne" && (
-                      <span className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+                      <span className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-200">
                         Carnê/Crediário
                       </span>
                     )}
                     {item.isFixa && (
-                      <span className="rounded bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                      <span className="rounded bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-200">
                         Fixa
                       </span>
                     )}
@@ -286,7 +286,7 @@ export const TransactionList = memo(function TransactionList({
                 <div className="col-start-2 row-start-1 flex justify-end gap-1 md:col-auto md:row-auto md:gap-2">
                   {canAnticipate && (
                     <button
-                      className="rounded-xl p-2 text-slate-300 opacity-100 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
+                      className="rounded-xl p-2 text-slate-300 opacity-100 transition-colors hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-300 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
                       type="button"
                       onClick={() => onAnticipate(item)}
                       title="Antecipar parcela"
@@ -308,7 +308,7 @@ export const TransactionList = memo(function TransactionList({
                     <Pencil size={18} />
                   </button>
                   <button
-                    className="rounded-xl p-2 text-slate-300 opacity-100 transition-colors hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
+                    className="rounded-xl p-2 text-slate-300 opacity-100 transition-colors hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-red-950/40 dark:hover:text-red-300 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
                     type="button"
                     disabled={!canManage}
                     onClick={() => onDelete(item)}
@@ -348,7 +348,7 @@ export const TransactionList = memo(function TransactionList({
                             </span>
                             {detalhe.numeroParcela &&
                               detalhe.quantidadeParcelas && (
-                                <span className="ml-2 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                                <span className="ml-2 rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 dark:bg-blue-950/50 dark:text-blue-200">
                                   {detalhe.numeroParcela}/
                                   {detalhe.quantidadeParcelas}
                                 </span>
@@ -388,7 +388,7 @@ export const TransactionList = memo(function TransactionList({
                               detalhe.origem !== "Transacao" &&
                               isFutureMonth(fatura.dataVencimento) && (
                                 <button
-                                  className="rounded-full p-2 text-slate-400 hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)]"
+                                  className="rounded-full p-2 text-slate-400 hover:bg-[var(--app-primary-soft)] hover:text-[var(--app-primary)] dark:hover:bg-slate-800 dark:hover:text-blue-300"
                                   type="button"
                                   onClick={() =>
                                     onAnticipate(
@@ -418,7 +418,7 @@ export const TransactionList = memo(function TransactionList({
                               <Pencil size={16} />
                             </button>
                             <button
-                              className="rounded-full p-2 text-slate-400 hover:bg-red-50 hover:text-red-700"
+                              className="rounded-full p-2 text-slate-400 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40 dark:hover:text-red-300"
                               type="button"
                               onClick={() =>
                                 onDelete(
@@ -486,7 +486,18 @@ function SortHeader({
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({
+  status,
+  isReceita = false,
+}: {
+  status: string;
+  isReceita?: boolean;
+}) {
+  const label = isReceita && status === "Paga"
+    ? "Recebida"
+    : isReceita && status === "Atrasada"
+      ? "Vencida"
+      : status;
   const className =
     status === "Paga"
       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
@@ -496,7 +507,7 @@ function StatusBadge({ status }: { status: string }) {
 
   return (
     <span className={`mt-1 block w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${className}`}>
-      {status}
+      {label}
     </span>
   );
 }
@@ -528,6 +539,14 @@ function StatusButton({
   onToggle: (item: ExtratoMensalItem) => void;
 }) {
   const Icon = item.isPaga ? CheckCircle2 : Circle;
+  const isReceita = item.tipo === 1 || item.tipo === "Receita";
+  const title = item.isPaga
+    ? isReceita
+      ? "Marcar receita como pendente"
+      : "Marcar como pendente"
+    : isReceita
+      ? "Marcar como recebida"
+      : "Marcar como paga";
 
   if (!podeAlternarPagamento(item)) {
     return null;
@@ -541,7 +560,7 @@ function StatusButton({
           : "-translate-x-2 pointer-events-none opacity-0"
       } md:pointer-events-auto ${
         item.isPaga
-          ? "text-emerald-600 hover:bg-emerald-50"
+          ? "text-emerald-600 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
           : "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
       }`}
       type="button"
@@ -549,8 +568,8 @@ function StatusButton({
         event.stopPropagation();
         onToggle(item);
       }}
-      title={item.isPaga ? "Marcar como pendente" : "Marcar como pago"}
-      aria-label={item.isPaga ? "Marcar como pendente" : "Marcar como pago"}
+      title={title}
+      aria-label={title}
     >
       <Icon size={20} />
     </button>
@@ -558,7 +577,6 @@ function StatusButton({
 }
 
 function podeAlternarPagamento(item: ExtratoMensalItem) {
-  const isReceita = item.tipo === 1 || item.tipo === "Receita";
   const isFatura = item.origem === "FaturaCartao" && item.cartaoCreditoId;
   const isCompraCartao = item.formaPagamento === "Cartão de crédito";
   const isParcelaCarneProjetada =
@@ -568,7 +586,6 @@ function podeAlternarPagamento(item: ExtratoMensalItem) {
     Boolean(item.numeroParcela);
 
   return (
-    !isReceita &&
     !isCompraCartao &&
     ((Boolean(item.id) && (!item.isProjetada || item.isFixa)) ||
       Boolean(isFatura) ||

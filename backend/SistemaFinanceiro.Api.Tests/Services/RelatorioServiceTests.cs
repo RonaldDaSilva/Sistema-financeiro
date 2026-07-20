@@ -369,6 +369,124 @@ public sealed class RelatorioServiceTests
         Assert.Equal(100m, response.SerieFluxo.Single().Despesas);
     }
 
+    [Fact]
+    public async Task GetGraficosAsync_Receitas_SeparaRealizadasPrevistasEVencidasPorStatus()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var inicio = new DateOnly(hoje.Year, hoje.Month, 1);
+        var fim = inicio.AddMonths(1).AddDays(-1);
+        var conta = CriarConta(usuarioId, "Conta principal");
+        var categoria = CriarCategoria(usuarioId, "Geral");
+        database.Context.AddRange(conta, categoria);
+        database.Context.Transacoes.AddRange(
+            CriarTransacao(usuarioId, TipoTransacao.Receita, 1000m, inicio.AddDays(1), categoria, conta, null, isPaga: true),
+            CriarTransacao(usuarioId, TipoTransacao.Receita, 200m, hoje.AddDays(-1), categoria, conta, null, isPaga: false),
+            CriarTransacao(usuarioId, TipoTransacao.Receita, 300m, hoje.AddDays(1), categoria, conta, null, isPaga: false));
+        await database.Context.SaveChangesAsync();
+
+        var service = CriarService(database.Context);
+
+        var response = await service.GetGraficosAsync(inicio, fim, usuarioId, conta.Id);
+
+        Assert.Equal(1000m, response.Kpis.Receitas.ValorAtual);
+        Assert.Equal(1000m, response.ResumoAuditavel.ReceitasRealizadas);
+        Assert.Equal(300m, response.ResumoAuditavel.ReceitasPrevistas);
+        Assert.Equal(200m, response.ResumoAuditavel.ReceitasVencidas);
+        Assert.Equal(300m, response.DisponivelAposCompromissos.ReceitasPrevistas);
+    }
+
+    [Fact]
+    public async Task AlternarStatusPagamentoAsync_Receita_MarcaComoRecebidaEAtualizaSaldoSemDuplicar()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var inicio = new DateOnly(hoje.Year, hoje.Month, 1);
+        var fim = inicio.AddMonths(1).AddDays(-1);
+        var conta = CriarConta(usuarioId, "Conta principal");
+        conta.SaldoInicial = 100m;
+        var categoria = CriarCategoria(usuarioId, "Geral");
+        var receita = CriarTransacao(
+            usuarioId,
+            TipoTransacao.Receita,
+            300m,
+            hoje,
+            categoria,
+            null,
+            null,
+            isPaga: false);
+        database.Context.AddRange(conta, categoria, receita);
+        await database.Context.SaveChangesAsync();
+
+        var transacaoService = new TransacaoService(database.Context);
+        var request = new AlterarStatusPagamentoRequest
+        {
+            IsPaga = true,
+            ContaBancariaId = conta.Id
+        };
+
+        var primeiraLiquidacao = await transacaoService.AlternarStatusPagamentoAsync(
+            receita.Id,
+            usuarioId,
+            request: request);
+        var segundaLiquidacao = await transacaoService.AlternarStatusPagamentoAsync(
+            receita.Id,
+            usuarioId,
+            request: request);
+        var service = CriarService(database.Context);
+
+        var response = await service.GetGraficosAsync(inicio, fim, usuarioId, conta.Id);
+
+        Assert.True(primeiraLiquidacao);
+        Assert.True(segundaLiquidacao);
+        Assert.Equal(300m, response.Kpis.Receitas.ValorAtual);
+        Assert.Equal(400m, response.DisponivelAposCompromissos.SaldoAtual);
+        Assert.Equal(400m, response.DisponivelAposCompromissos.DisponivelAposCompromissos);
+        Assert.Equal(1, await database.Context.Transacoes.CountAsync(item => item.Id == receita.Id));
+    }
+
+    [Fact]
+    public async Task GetGraficosAsync_DisponivelAposCompromissos_SemObrigacoesPendentesIgualSaldoAtual()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var inicio = new DateOnly(hoje.Year, hoje.Month, 1);
+        var fim = inicio.AddMonths(1).AddDays(-1);
+        var conta = CriarConta(usuarioId, "Conta principal");
+        conta.SaldoInicial = 500m;
+        var categoria = CriarCategoria(usuarioId, "Geral");
+        database.Context.AddRange(conta, categoria);
+        database.Context.Transacoes.AddRange(
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 100m, inicio.AddDays(2), categoria, conta, null, isPaga: true),
+            CriarTransacao(usuarioId, TipoTransacao.Receita, 200m, inicio.AddDays(3), categoria, conta, null, isPaga: true));
+        await database.Context.SaveChangesAsync();
+
+        var service = CriarService(database.Context);
+
+        var response = await service.GetGraficosAsync(inicio, fim, usuarioId, conta.Id);
+
+        Assert.Equal(600m, response.DisponivelAposCompromissos.SaldoAtual);
+        Assert.Equal(0m, response.DisponivelAposCompromissos.ObrigacoesPendentesAteDataLimite);
+        Assert.Equal(0m, response.DisponivelAposCompromissos.InvestimentosPendentesAteDataLimite);
+        Assert.Equal(
+            response.DisponivelAposCompromissos.SaldoAtual,
+            response.DisponivelAposCompromissos.DisponivelAposCompromissos);
+        Assert.Equal(
+            response.Kpis.Receitas.ValorAtual -
+            response.Kpis.Despesas.ValorAtual -
+            response.Kpis.Investimentos.ValorAtual,
+            response.Kpis.ResultadoLiquido.ValorAtual);
+    }
+
     private static async Task SeedUsuarioAsync(AppDbContext context, Guid usuarioId)
     {
         context.Usuarios.Add(new Usuario

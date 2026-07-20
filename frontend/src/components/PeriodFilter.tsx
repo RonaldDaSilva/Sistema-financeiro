@@ -304,7 +304,7 @@ export function PeriodFilter({
                   </div>
                   {hasActiveFilters && (
                     <button
-                      className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--app-card-border)] px-3 py-1.5 text-xs font-bold text-[var(--app-primary)] transition hover:bg-[var(--app-primary-soft)] dark:border-slate-700"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--app-card-border)] px-3 py-1.5 text-xs font-bold text-[var(--app-primary)] transition hover:bg-[var(--app-primary-soft)] dark:border-slate-700 dark:text-blue-300 dark:hover:bg-slate-800"
                       type="button"
                       onClick={limparFiltros}
                     >
@@ -415,7 +415,7 @@ export function PeriodFilter({
                         key={option.value}
                         className={`rounded-xl border px-3 py-2 text-sm font-bold transition ${
                           tipoTransacao === option.value
-                            ? "border-[var(--app-primary)] bg-[var(--app-primary-soft)] text-[var(--app-primary)]"
+                            ? "border-[var(--app-primary)] bg-[var(--app-primary-soft)] text-[var(--app-primary)] dark:border-blue-500/50 dark:bg-blue-500/15 dark:text-blue-200"
                             : "border-[color:var(--app-card-border)] text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                         }`}
                         type="button"
@@ -509,7 +509,7 @@ export function PeriodFilter({
 
               <div className="flex items-center justify-end gap-2 border-t border-[color:var(--app-card-border)] p-3 dark:border-slate-800">
                 <button
-                  className="rounded-xl bg-[var(--app-accent)] px-4 py-2.5 text-sm font-bold text-[var(--app-accent-contrast)] transition hover:opacity-90"
+                  className="rounded-xl bg-[var(--app-accent)] px-4 py-2.5 text-sm font-bold text-[var(--app-accent-contrast)] transition hover:opacity-90 dark:bg-blue-600 dark:text-white"
                   type="button"
                   onClick={() => setIsOpen(false)}
                 >
@@ -595,7 +595,7 @@ type FilterChipProps = {
 
 function FilterChip({ label, color, onRemove }: FilterChipProps) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-[var(--app-primary-soft)] px-3 py-1.5 text-xs font-bold text-[var(--app-primary)]">
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-[var(--app-primary-soft)] px-3 py-1.5 text-xs font-bold text-[var(--app-primary)] dark:bg-blue-500/15 dark:text-blue-200">
       {color && (
         <span
           className="h-2 w-2 shrink-0 rounded-full"
@@ -672,7 +672,7 @@ function ToggleOption({ label, checked, onChange }: ToggleOptionProps) {
     <button
       className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-bold transition ${
         checked
-          ? "border-[var(--app-primary)] bg-[var(--app-primary-soft)] text-[var(--app-primary)]"
+          ? "border-[var(--app-primary)] bg-[var(--app-primary-soft)] text-[var(--app-primary)] dark:border-blue-500/50 dark:bg-blue-500/15 dark:text-blue-200"
           : "border-[color:var(--app-card-border)] text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
       }`}
       type="button"
@@ -704,7 +704,7 @@ function CategoryOption({ categoria, checked, onChange }: CategoryOptionProps) {
     <button
       className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-bold transition ${
         checked
-          ? "bg-[var(--app-primary-soft)] text-[var(--app-primary)]"
+          ? "bg-[var(--app-primary-soft)] text-[var(--app-primary)] dark:bg-blue-500/15 dark:text-blue-200"
           : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
       }`}
       type="button"
@@ -814,7 +814,7 @@ function DateRangeCalendar({
                 isStart || isEnd
                   ? "bg-[var(--app-primary)] text-white shadow-sm"
                   : isInRange
-                    ? "bg-[var(--app-primary-soft)] text-[var(--app-primary)]"
+                    ? "bg-[var(--app-primary-soft)] text-[var(--app-primary)] dark:bg-blue-500/15 dark:text-blue-200"
                     : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
               }`}
               type="button"
@@ -834,7 +834,7 @@ function DateRangeCalendar({
             : "Selecione o início e o fim"}
         </p>
         <button
-          className="rounded-xl bg-[var(--app-accent)] px-4 py-2 text-sm font-bold text-[var(--app-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-xl bg-[var(--app-accent)] px-4 py-2 text-sm font-bold text-[var(--app-accent-contrast)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-600 dark:text-white"
           type="button"
           disabled={selectingEnd}
           onClick={onApply}
