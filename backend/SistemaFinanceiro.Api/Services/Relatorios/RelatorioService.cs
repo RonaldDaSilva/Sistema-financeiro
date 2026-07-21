@@ -176,6 +176,10 @@ public sealed class RelatorioService : IRelatorioService
         {
             Mes = fimPeriodo.Month,
             Ano = fimPeriodo.Year,
+            DataInicialPeriodoAtual = dataInicial,
+            DataFinalPeriodoAtual = dataFinal,
+            DataInicialPeriodoAnterior = inicioPeriodoAnterior,
+            DataFinalPeriodoAnterior = fimPeriodoAnterior,
             DespesasPorCategoria = despesasPorCategoria,
             SaldoAnual = totaisMensais,
             SerieFluxo = totaisMensaisCaixa,

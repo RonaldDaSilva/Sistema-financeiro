@@ -9,7 +9,7 @@ import {
   ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
 } from "recharts";
@@ -25,6 +25,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
+import { InfoTooltip } from "../components/InfoTooltip";
 import {
   useCartoes,
   useCategorias,
@@ -389,7 +390,7 @@ export function ReportsPage() {
                       tickFormatter={formatMoneyShort}
                       tickLine={false}
                     />
-                    <Tooltip
+                    <RechartsTooltip
                       content={<ChartTooltip />}
                     />
                     <Legend />
@@ -540,90 +541,167 @@ function KpiGrid({
   isLoading: boolean;
 }) {
   const kpis = relatorio?.kpis;
-  const dataLimite = relatorio?.resumoAuditavel?.dataLimite;
-  const items = [
-    [
-      "Receitas realizadas",
-      kpis?.receitas,
-      "text-emerald-600 dark:text-emerald-300",
-      "Receitas efetivamente recebidas no período filtrado.",
-    ],
-    [
-      "Despesas do período",
-      kpis?.despesas,
-      "text-red-600 dark:text-red-300",
-      "Consumo reconhecido no período, incluindo cartão por competência e sem duplicar pagamento de fatura.",
-    ],
-    [
-      "Investimentos realizados",
-      kpis?.investimentos,
-      "text-blue-600 dark:text-blue-300",
-      "Investimentos efetivados no período filtrado.",
-    ],
-    [
-      "Resultado líquido",
-      kpis?.resultadoLiquido,
-      "text-[var(--app-primary)] dark:text-white",
-      "Receitas realizadas menos despesas do período e investimentos realizados.",
-    ],
-    [
-      dataLimite ? `Saldo previsto em ${formatDate(dataLimite)}` : "Saldo previsto",
-      kpis?.saldoPrevistoFimPeriodo,
-      "text-slate-900 dark:text-white",
-      "Saldo atual menos obrigações e investimentos ainda pendentes até a data limite.",
-    ],
-    [
-      "Taxa de economia",
-      kpis?.taxaEconomia,
-      "text-purple-600 dark:text-purple-300",
-      "Calculada sobre receitas realizadas: (receitas - despesas) / receitas.",
-    ],
-  ] as const;
+  const resumo = relatorio?.resumoAuditavel;
+  const disponivel = relatorio?.disponivelAposCompromissos;
+  const comparisonPeriod = formatComparisonPeriod(relatorio);
+  const dataLimite = disponivel?.dataLimite ?? resumo?.dataLimite;
+  const dataLimiteText = dataLimite ? formatDate(dataLimite) : "a data final";
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {items.map(([title, value, color, description]) =>
-        isLoading ? (
-          <Skeleton key={title} className="h-32" />
+    <div className="space-y-5">
+      <KpiSection title="Desempenho do período">
+        {isLoading ? (
+          <SkeletonGrid count={4} />
         ) : (
-          <KpiCard
-            key={title}
-            title={title}
-            value={value}
-            colorClass={color}
-            description={description}
-          />
-        ),
-      )}
-      {isLoading ? (
-        <Skeleton className="h-40 md:col-span-2 xl:col-span-3" />
-      ) : (
-        <DisponivelCompromissosCard
-          disponivel={relatorio?.disponivelAposCompromissos}
-        />
-      )}
+          <>
+            <KpiCard
+              title="Receitas realizadas"
+              value={kpis?.receitas}
+              colorClass="text-emerald-600 dark:text-emerald-300"
+              tooltip="Total de receitas efetivamente recebidas dentro do período selecionado."
+              comparisonPeriod={comparisonPeriod}
+            />
+            <KpiCard
+              title="Despesas do período"
+              value={kpis?.despesas}
+              colorClass="text-red-600 dark:text-red-300"
+              tooltip="Total de despesas reconhecidas no período, incluindo compras de cartão por competência, sem duplicar o pagamento da fatura."
+              comparisonPeriod={comparisonPeriod}
+            />
+            <KpiCard
+              title="Investimentos realizados"
+              value={kpis?.investimentos}
+              colorClass="text-blue-600 dark:text-blue-300"
+              tooltip="Total de investimentos efetivamente realizados dentro do período."
+              comparisonPeriod={comparisonPeriod}
+            />
+            <KpiCard
+              title="Resultado líquido"
+              value={kpis?.resultadoLiquido}
+              colorClass="text-[var(--app-primary)] dark:text-white"
+              tooltip="Receitas realizadas menos despesas do período e investimentos realizados."
+              comparisonPeriod={comparisonPeriod}
+            />
+          </>
+        )}
+      </KpiSection>
+
+      <KpiSection title="Posição financeira">
+        {isLoading ? (
+          <>
+            <Skeleton className="h-32" />
+            <Skeleton className="h-32" />
+            <Skeleton className="h-52 md:col-span-2 xl:col-span-1" />
+          </>
+        ) : (
+          <>
+            <MetricCard
+              title="Saldo atual"
+              value={formatCurrency(disponivel?.saldoAtual ?? resumo?.saldoAtual ?? 0)}
+              tooltip="Valor efetivamente disponível nas contas neste momento, sem receitas futuras."
+            />
+            <MetricCard
+              title="Obrigações em aberto"
+              value={formatCurrency(
+                disponivel?.obrigacoesPendentesAteDataLimite ?? resumo?.obrigacoesEmAberto ?? 0,
+              )}
+              helper={`Até ${dataLimiteText}`}
+              tooltip="Despesas, parcelas, faturas e investimentos que ainda precisam ser pagos até a data final selecionada."
+            />
+            <DisponivelCompromissosCard
+              disponivel={disponivel}
+              saldoPrevisto={kpis?.saldoPrevistoFimPeriodo}
+              dataLimite={dataLimite}
+            />
+          </>
+        )}
+      </KpiSection>
+
+      <KpiSection title="Indicadores secundários">
+        {isLoading ? (
+          <SkeletonGrid count={4} />
+        ) : (
+          <>
+            <KpiCard
+              title="Taxa de economia"
+              value={kpis?.taxaEconomia}
+              colorClass="text-purple-600 dark:text-purple-300"
+              tooltip="Percentual das receitas realizadas que não foi consumido pelas despesas do período."
+              comparisonPeriod={comparisonPeriod}
+            />
+            <MetricCard
+              title="Comparação"
+              value={comparisonPeriod ?? "Sem período anterior"}
+              helper="Base dos percentuais exibidos nos cards."
+              tooltip="Variação em relação ao período imediatamente anterior de mesma duração."
+            />
+            <MetricCard
+              title="Receitas previstas"
+              value={formatCurrency(disponivel?.receitasPrevistas ?? resumo?.receitasPrevistas ?? 0)}
+              helper={`Entre hoje e ${dataLimiteText}`}
+              tooltip="Receitas futuras ainda não recebidas entre hoje e a data final selecionada."
+            />
+            <MetricCard
+              title="Cenário com receitas previstas"
+              value={formatCurrency(disponivel?.disponivelConsiderandoReceitasPrevistas ?? 0)}
+              helper="Simulação secundária, sem antecipar receita no disponível principal."
+              tooltip="Simulação do disponível caso todas as receitas previstas sejam recebidas."
+            />
+          </>
+        )}
+      </KpiSection>
     </div>
+  );
+}
+
+function KpiSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        {title}
+      </h2>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{children}</div>
+    </section>
+  );
+}
+
+function SkeletonGrid({ count }: { count: number }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, index) => (
+        <Skeleton key={index} className="h-32" />
+      ))}
+    </>
   );
 }
 
 function DisponivelCompromissosCard({
   disponivel,
+  saldoPrevisto,
+  dataLimite,
 }: {
   disponivel?: RelatorioGraficos["disponivelAposCompromissos"];
+  saldoPrevisto?: RelatorioComparativoValor;
+  dataLimite?: string;
 }) {
+  const dataLimiteText = dataLimite ? formatDate(dataLimite) : "o fim do período";
   return (
-    <article className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5 md:col-span-2 xl:col-span-3">
+    <article className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5 md:col-span-2 xl:col-span-2">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <p className="text-sm font-bold text-slate-500 dark:text-slate-400">
-            Disponível após compromissos
-          </p>
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <p className="min-w-0 text-sm font-bold text-slate-500 dark:text-slate-400">
+              Disponível após compromissos
+            </p>
+            <InfoTooltip label="Disponível após compromissos">
+              Saldo atual descontando as obrigações e investimentos ainda pendentes até a data final selecionada.
+            </InfoTooltip>
+          </div>
           <p className="mt-3 break-words text-3xl font-black leading-tight text-[var(--app-primary)] [overflow-wrap:anywhere] sm:text-4xl">
             {formatCurrency(disponivel?.disponivelAposCompromissos ?? 0)}
           </p>
           <p className="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-            Saldo atual menos obrigações, investimentos pendentes e reserva mínima até{" "}
-            {disponivel?.dataLimite ? formatDate(disponivel.dataLimite) : "o fim do período"}.
+            Considerando obrigações ainda não pagas até {dataLimiteText}.
           </p>
           {disponivel?.observacao && (
             <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-200">
@@ -631,26 +709,38 @@ function DisponivelCompromissosCard({
             </p>
           )}
         </div>
-        <dl className="grid min-w-0 gap-3 sm:grid-cols-2 lg:min-w-[420px]">
+        <dl className="grid min-w-0 gap-2 lg:min-w-[360px]">
           <MetricDetail
             label="Saldo atual"
             value={formatCurrency(disponivel?.saldoAtual ?? 0)}
           />
           <MetricDetail
-            label="Obrigações em aberto"
+            label="(-) Obrigações em aberto"
             value={formatCurrency(disponivel?.obrigacoesPendentesAteDataLimite ?? 0)}
           />
           <MetricDetail
-            label="Investimentos pendentes"
+            label="(-) Investimentos pendentes"
             value={formatCurrency(disponivel?.investimentosPendentesAteDataLimite ?? 0)}
+          />
+          <MetricDetail
+            label="(-) Reserva mínima"
+            value={formatCurrency(disponivel?.reservaMinimaConfigurada ?? 0)}
+          />
+          <MetricDetail
+            label={dataLimite ? `Saldo previsto em ${formatDate(dataLimite)}` : "Saldo previsto"}
+            value={formatKpiValue(saldoPrevisto, false)}
+            tooltip="Estimativa de saldo ao final do período após considerar as saídas pendentes. Receitas futuras não são antecipadas no cenário conservador."
+            strong
           />
           <MetricDetail
             label="Receitas previstas"
             value={formatCurrency(disponivel?.receitasPrevistas ?? 0)}
+            tooltip="Receitas futuras ainda não recebidas entre hoje e a data final selecionada."
           />
           <MetricDetail
             label="Cenário com receitas previstas"
             value={formatCurrency(disponivel?.disponivelConsiderandoReceitasPrevistas ?? 0)}
+            tooltip="Simulação do disponível caso todas as receitas previstas sejam recebidas."
           />
         </dl>
       </div>
@@ -658,11 +748,24 @@ function DisponivelCompromissosCard({
   );
 }
 
-function MetricDetail({ label, value }: { label: string; value: string }) {
+function MetricDetail({
+  label,
+  value,
+  tooltip,
+  strong,
+}: {
+  label: string;
+  value: string;
+  tooltip?: string;
+  strong?: boolean;
+}) {
   return (
-    <div className="min-w-0 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-3 dark:border-slate-700 dark:bg-slate-950/80">
-      <dt className="text-xs font-bold text-slate-600 dark:text-slate-300">{label}</dt>
-      <dd className="mt-1 break-words text-base font-black text-slate-900 [overflow-wrap:anywhere] dark:text-white">
+    <div className={`min-w-0 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-3 dark:border-slate-700 dark:bg-slate-950/80 ${strong ? "ring-1 ring-[var(--app-primary)]/30" : ""}`}>
+      <dt className="flex min-w-0 items-center justify-between gap-2 text-xs font-bold text-slate-600 dark:text-slate-300">
+        <span className="min-w-0 break-words">{label}</span>
+        {tooltip && <InfoTooltip label={label}>{tooltip}</InfoTooltip>}
+      </dt>
+      <dd className={`mt-1 break-words text-base font-black [overflow-wrap:anywhere] ${strong ? "text-[var(--app-primary)] dark:text-blue-200" : "text-slate-900 dark:text-white"}`}>
         {value}
       </dd>
     </div>
@@ -756,38 +859,66 @@ function CommitmentRow({
   );
 }
 
+function MetricCard({
+  title,
+  value,
+  helper,
+  tooltip,
+}: {
+  title: string;
+  value: string;
+  helper?: string;
+  tooltip: string;
+}) {
+  return (
+    <article className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-slate-500 dark:text-slate-400">{title}</p>
+          <p className="mt-3 break-words text-2xl font-black leading-tight text-slate-900 [overflow-wrap:anywhere] dark:text-white sm:text-3xl">
+            {value}
+          </p>
+        </div>
+        <InfoTooltip label={title}>{tooltip}</InfoTooltip>
+      </div>
+      {helper && (
+        <p className="mt-3 break-words text-sm font-bold text-slate-500 dark:text-slate-400">
+          {helper}
+        </p>
+      )}
+    </article>
+  );
+}
+
 function KpiCard({
   title,
   value,
   colorClass,
-  description,
+  tooltip,
+  comparisonPeriod,
 }: {
   title: string;
   value?: RelatorioComparativoValor;
   colorClass: string;
-  description: string;
+  tooltip: string;
+  comparisonPeriod?: string | null;
 }) {
   const isPercent = title === "Taxa de economia";
-  const hasValue = value?.valorAtual !== null && value?.valorAtual !== undefined;
   return (
-    <article
-      className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5"
-      title={description}
-    >
+    <article className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-bold text-slate-500 dark:text-slate-400">{title}</p>
           <p className={`mt-3 break-words text-2xl font-black leading-tight [overflow-wrap:anywhere] sm:text-3xl ${colorClass}`}>
-            {!hasValue
-              ? "Sem base"
-              : isPercent
-                ? formatPercent(value.valorAtual!)
-                : formatCurrency(value.valorAtual!)}
+            {formatKpiValue(value, isPercent)}
           </p>
         </div>
-        <span className="shrink-0 rounded-2xl bg-[var(--app-card-muted)] p-3 text-[var(--app-primary)] dark:bg-slate-950 dark:text-blue-300">
-          <TrendingUp size={20} />
-        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          <InfoTooltip label={title}>{tooltip}</InfoTooltip>
+          <span className="hidden rounded-2xl bg-[var(--app-card-muted)] p-3 text-[var(--app-primary)] dark:bg-slate-950 dark:text-blue-300 sm:inline-flex">
+            <TrendingUp size={20} />
+          </span>
+        </div>
       </div>
       <p
         className={`mt-3 text-sm font-bold ${
@@ -800,6 +931,11 @@ function KpiCard({
       >
         {value?.mensagem ?? "Sem base para comparação"}
       </p>
+      {comparisonPeriod && (
+        <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          Comparado a {comparisonPeriod}
+        </p>
+      )}
     </article>
   );
 }
@@ -982,6 +1118,24 @@ function formatPercent(value: number) {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })}%`;
+}
+
+function formatKpiValue(value: RelatorioComparativoValor | undefined, isPercent: boolean) {
+  if (value?.valorAtual === null || value?.valorAtual === undefined) {
+    return "Sem base";
+  }
+
+  return isPercent ? formatPercent(value.valorAtual) : formatCurrency(value.valorAtual);
+}
+
+function formatComparisonPeriod(relatorio: RelatorioGraficos | undefined) {
+  if (!relatorio?.dataInicialPeriodoAnterior || !relatorio.dataFinalPeriodoAnterior) {
+    return null;
+  }
+
+  return `${formatDate(relatorio.dataInicialPeriodoAnterior)}-${formatDate(
+    relatorio.dataFinalPeriodoAnterior,
+  )}`;
 }
 
 function formatSignedCurrency(value: number) {

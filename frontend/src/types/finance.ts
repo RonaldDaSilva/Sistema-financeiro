@@ -153,6 +153,10 @@ export type RelatorioCompromissoFuturo = {
 export type RelatorioGraficos = {
   mes: number;
   ano: number;
+  dataInicialPeriodoAtual: string;
+  dataFinalPeriodoAtual: string;
+  dataInicialPeriodoAnterior: string;
+  dataFinalPeriodoAnterior: string;
   despesasPorCategoria: RelatorioCategoria[];
   saldoAnual: RelatorioMensal[];
   serieFluxo: RelatorioMensal[];
