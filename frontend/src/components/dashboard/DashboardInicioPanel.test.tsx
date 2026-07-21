@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DashboardInicioPanel } from "./DashboardInicioPanel";
 
@@ -70,5 +71,24 @@ describe("DashboardInicioPanel", () => {
 
     expect(screen.getAllByText("R$ •••••").length).toBeGreaterThan(0);
     expect(screen.getByText("Atenção: teste de insight responsivo.")).toBeInTheDocument();
+  });
+
+  it("mantém os textos explicativos em tooltips acessíveis", async () => {
+    const user = userEvent.setup();
+    render(<DashboardInicioPanel hiddenValues={false} filters={{}} />);
+
+    const saldoTooltip = screen.getByRole("button", { name: "Ajuda: Saldo atual" });
+    await user.hover(saldoTooltip);
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "Dinheiro já efetivado nas contas. Receitas futuras e despesas ainda não pagas não entram neste valor.",
+    );
+
+    await user.unhover(saldoTooltip);
+    await user.hover(screen.getByRole("button", { name: "Ajuda: Saldo previsto" }));
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "Saldo atual menos despesas e investimentos em aberto do período. Não soma receitas futuras.",
+    );
   });
 });

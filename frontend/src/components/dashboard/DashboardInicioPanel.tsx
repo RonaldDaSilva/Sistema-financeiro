@@ -8,6 +8,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { InfoTooltip } from "../InfoTooltip";
 import { useDashboardInicio } from "../../hooks/queries/useFinanceQueries";
 import type { DashboardLancamento } from "../../types/finance";
 import type { DashboardInicioParams } from "../../services/financeService";
@@ -54,13 +55,20 @@ export function DashboardInicioPanel({ hiddenValues, filters }: DashboardInicioP
       <div className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
         <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <p className="text-sm font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              {dashboard.contextoPeriodo === "Passado"
-                ? "Saldo do fechamento"
-                : dashboard.contextoPeriodo === "Futuro"
-                  ? "Saldo atual de partida"
-                  : "Saldo atual"}
-            </p>
+            <div className="flex min-w-0 items-start gap-2">
+              <p className="min-w-0 text-sm font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {dashboard.contextoPeriodo === "Passado"
+                  ? "Saldo do fechamento"
+                  : dashboard.contextoPeriodo === "Futuro"
+                    ? "Saldo atual de partida"
+                    : "Saldo atual"}
+              </p>
+              <InfoTooltip label="Saldo atual">
+                {dashboard.contextoPeriodo === "Passado"
+                  ? "Snapshot do saldo ao encerrar o período, sem recalcular silenciosamente meses já fechados."
+                  : "Dinheiro já efetivado nas contas. Receitas futuras e despesas ainda não pagas não entram neste valor."}
+              </InfoTooltip>
+            </div>
             <p
               className={`mt-4 max-w-full break-words text-3xl font-black leading-tight tracking-normal [overflow-wrap:anywhere] sm:text-4xl lg:text-5xl ${
                 dashboard.saldoAtual >= 0
@@ -69,11 +77,6 @@ export function DashboardInicioPanel({ hiddenValues, filters }: DashboardInicioP
               }`}
             >
               {maskCurrency(dashboard.saldoAtual, hiddenValues)}
-            </p>
-            <p className="mt-3 max-w-xl break-words text-sm font-medium leading-6 text-slate-500 dark:text-slate-400">
-              {dashboard.contextoPeriodo === "Passado"
-                ? "Snapshot do saldo ao encerrar o período, sem recalcular silenciosamente meses já fechados."
-                : "Dinheiro já efetivado nas contas. Receitas futuras e despesas ainda não pagas não entram neste valor."}
             </p>
           </div>
           <span className="self-start rounded-2xl bg-[var(--app-primary-soft)] p-3 text-[var(--app-primary)] dark:bg-emerald-950/50 dark:text-emerald-300 sm:shrink-0">
@@ -201,16 +204,16 @@ function MetricCard({
   return (
     <div className="min-w-0 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950">
       <div className="flex min-w-0 items-start justify-between gap-3">
-        <span className="min-w-0 break-words text-sm font-bold text-slate-500 dark:text-slate-400">
-          {label}
-        </span>
+        <div className="flex min-w-0 items-start gap-2">
+          <span className="min-w-0 break-words text-sm font-bold text-slate-500 dark:text-slate-400">
+            {label}
+          </span>
+          <InfoTooltip label={label}>{description}</InfoTooltip>
+        </div>
         <span className={`shrink-0 rounded-xl p-2 ${toneClass}`}>{icon}</span>
       </div>
       <p className={`mt-4 max-w-full break-words text-2xl font-black leading-tight [overflow-wrap:anywhere] ${value >= 0 ? "text-slate-950 dark:text-white" : "text-red-500"}`}>
         {maskCurrency(value, hiddenValues)}
-      </p>
-      <p className="mt-2 text-xs font-medium leading-snug text-slate-500 dark:text-slate-400">
-        {description}
       </p>
     </div>
   );
