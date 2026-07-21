@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Relatorios;
 using SistemaFinanceiro.Api.Dtos.Transacoes;
@@ -15,20 +17,23 @@ public sealed class RelatorioService : IRelatorioService
     private readonly AppDbContext _dbContext;
     private readonly IContaBancariaService _contaBancariaService;
     private readonly ITransacaoService? _transacaoService;
+    private readonly ILogger<RelatorioService>? _logger;
 
     public RelatorioService(AppDbContext dbContext, IContaBancariaService contaBancariaService)
-        : this(dbContext, contaBancariaService, null)
+        : this(dbContext, contaBancariaService, null, null)
     {
     }
 
     public RelatorioService(
         AppDbContext dbContext,
         IContaBancariaService contaBancariaService,
-        ITransacaoService? transacaoService)
+        ITransacaoService? transacaoService,
+        ILogger<RelatorioService>? logger = null)
     {
         _dbContext = dbContext;
         _contaBancariaService = contaBancariaService;
         _transacaoService = transacaoService;
+        _logger = logger;
     }
 
     public async Task<RelatorioGraficosResponse> GetGraficosAsync(
@@ -72,6 +77,41 @@ public sealed class RelatorioService : IRelatorioService
         var fimPeriodoAnterior = dataInicial.AddDays(-1);
         var inicioPeriodoAnterior = fimPeriodoAnterior.AddDays(-(diasPeriodo - 1));
         var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var inicioCompromissos = new DateOnly(hoje.Year, hoje.Month, 1);
+        var horizonteMeses = Math.Clamp(quantidadeMeses, 6, 12);
+        var fimCompromissos = inicioCompromissos.AddMonths(horizonteMeses).AddDays(-1);
+        var statusCompromissos = status?.Trim().ToLowerInvariant();
+        var incluirCompromissosNoMotor =
+            _transacaoService is not null &&
+            statusCompromissos is not ("realizado" or "pagas" or "paga");
+        var tempos = new Dictionary<string, long>();
+        var total = Stopwatch.StartNew();
+
+        async Task<T> MedirAsync<T>(string secao, Func<Task<T>> acao)
+        {
+            var cronometro = Stopwatch.StartNew();
+            var resultado = await acao();
+            tempos[secao] = cronometro.ElapsedMilliseconds;
+            return resultado;
+        }
+
+        T Medir<T>(string secao, Func<T> acao)
+        {
+            var cronometro = Stopwatch.StartNew();
+            var resultado = acao();
+            tempos[secao] = cronometro.ElapsedMilliseconds;
+            return resultado;
+        }
+
+        var dadosConsolidados = _transacaoService is null
+            ? null
+            : await MedirAsync(
+                "motor_consolidado",
+                () => CarregarDadosConsolidadosAsync(
+                    usuarioId,
+                    MenorData(dataInicial, inicioPeriodoAnterior, incluirCompromissosNoMotor ? inicioCompromissos : dataInicial),
+                    MaiorData(dataFinal, fimPeriodoAnterior, incluirCompromissosNoMotor ? fimCompromissos : dataFinal),
+                    cancellationToken));
 
         var transacoesPeriodo = await ObterTransacoesRelatorioAsync(
             usuarioId,
@@ -85,7 +125,8 @@ public sealed class RelatorioService : IRelatorioService
             somenteRecorrentes,
             somenteParceladas,
             VisaoRelatorio.Consumo,
-            cancellationToken);
+            cancellationToken,
+            dadosConsolidados);
 
         var transacoesPeriodoAnterior = await ObterTransacoesRelatorioAsync(
             usuarioId,
@@ -99,7 +140,8 @@ public sealed class RelatorioService : IRelatorioService
             somenteRecorrentes,
             somenteParceladas,
             VisaoRelatorio.Consumo,
-            cancellationToken);
+            cancellationToken,
+            dadosConsolidados);
 
         var transacoesCaixaPeriodo = await ObterTransacoesRelatorioAsync(
             usuarioId,
@@ -113,22 +155,20 @@ public sealed class RelatorioService : IRelatorioService
             somenteRecorrentes,
             somenteParceladas,
             VisaoRelatorio.Caixa,
-            cancellationToken);
+            cancellationToken,
+            dadosConsolidados);
 
-        var resumoAtual = CalcularResumo(transacoesPeriodo);
-        var resumoAnterior = CalcularResumo(transacoesPeriodoAnterior);
-        var despesasPorCategoria = CalcularDespesasPorCategoria(transacoesPeriodo);
-        var totaisMensais = CalcularTotaisMensais(transacoesPeriodo, inicioPeriodo, fimPeriodo);
-        var totaisMensaisCaixa = CalcularTotaisMensais(
+        var resumoAtual = Medir("kpis_atual", () => CalcularResumo(transacoesPeriodo));
+        var resumoAnterior = Medir("kpis_anterior", () => CalcularResumo(transacoesPeriodoAnterior));
+        var despesasPorCategoria = Medir("categorias", () => CalcularDespesasPorCategoria(transacoesPeriodo));
+        var totaisMensais = Medir("evolucao_mensal", () => CalcularTotaisMensais(transacoesPeriodo, inicioPeriodo, fimPeriodo));
+        var totaisMensaisCaixa = Medir("serie_fluxo", () => CalcularTotaisMensais(
             transacoesCaixaPeriodo,
             inicioPeriodo,
             fimPeriodo,
-            fluxoCaixa: true);
-        var projecaoDiaria = CalcularProjecaoDiaria(transacoesCaixaPeriodo, dataInicial, dataFinal);
-        var previstoRealizado = CalcularPrevistoRealizado(transacoesPeriodo, hoje);
-        var inicioCompromissos = new DateOnly(hoje.Year, hoje.Month, 1);
-        var horizonteMeses = Math.Clamp(quantidadeMeses, 6, 12);
-        var fimCompromissos = inicioCompromissos.AddMonths(horizonteMeses).AddDays(-1);
+            fluxoCaixa: true));
+        var projecaoDiaria = Medir("projecao_diaria", () => CalcularProjecaoDiaria(transacoesCaixaPeriodo, dataInicial, dataFinal));
+        var previstoRealizado = Medir("previsto_realizado", () => CalcularPrevistoRealizado(transacoesPeriodo, hoje));
         var transacoesCompromissos = _transacaoService is null
             ? await ObterTransacoesRelatorioAsync(
                 usuarioId,
@@ -144,33 +184,46 @@ public sealed class RelatorioService : IRelatorioService
                 VisaoRelatorio.Consumo,
                 cancellationToken)
             : [];
-        var compromissosFuturos = await CalcularCompromissosFuturosAsync(
-            transacoesCompromissos,
-            inicioCompromissos,
-            fimCompromissos,
-            usuarioId,
-            contaBancariaId,
-            cartaoCreditoId,
-            categoriaIds,
-            tipoTransacao,
-            status,
-            somenteRecorrentes,
-            somenteParceladas,
-            cancellationToken);
-        var disponivelAposCompromissos = await CalcularDisponivelAposCompromissosAsync(
-            transacoesPeriodo,
-            transacoesCaixaPeriodo,
-            dataFinal,
-            usuarioId,
-            contaBancariaId,
-            categoriaIds,
-            cancellationToken);
-        var resumoAuditavel = CalcularResumoAuditavel(
+        var compromissosFuturos = await MedirAsync(
+            "compromissos_futuros",
+            () => CalcularCompromissosFuturosAsync(
+                transacoesCompromissos,
+                inicioCompromissos,
+                fimCompromissos,
+                usuarioId,
+                contaBancariaId,
+                cartaoCreditoId,
+                categoriaIds,
+                tipoTransacao,
+                status,
+                somenteRecorrentes,
+                somenteParceladas,
+                cancellationToken,
+                dadosConsolidados));
+        var disponivelAposCompromissos = await MedirAsync(
+            "disponivel_apos_compromissos",
+            () => CalcularDisponivelAposCompromissosAsync(
+                transacoesPeriodo,
+                transacoesCaixaPeriodo,
+                dataFinal,
+                usuarioId,
+                contaBancariaId,
+                categoriaIds,
+                cancellationToken));
+        var resumoAuditavel = Medir("resumo_auditavel", () => CalcularResumoAuditavel(
             transacoesPeriodo,
             transacoesCaixaPeriodo,
             disponivelAposCompromissos,
             dataFinal,
-            hoje);
+            hoje));
+
+        total.Stop();
+        _logger?.LogInformation(
+            "Relatorio graficos gerado em {TempoTotalMs}ms para periodo {DataInicial}-{DataFinal}. Secoes: {TemposSecoes}",
+            total.ElapsedMilliseconds,
+            dataInicial,
+            dataFinal,
+            string.Join(", ", tempos.Select(item => $"{item.Key}={item.Value}ms")));
 
         return new RelatorioGraficosResponse
         {
@@ -207,6 +260,43 @@ public sealed class RelatorioService : IRelatorioService
         };
     }
 
+    private async Task<RelatorioDadosConsolidados> CarregarDadosConsolidadosAsync(
+        Guid usuarioId,
+        DateOnly dataInicial,
+        DateOnly dataFinal,
+        CancellationToken cancellationToken)
+    {
+        var extratos = new Dictionary<(int Ano, int Mes), ExtratoMensalResponse>();
+        var faturas = new Dictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>>();
+
+        var contasPorCartao = await _dbContext.CartoesCredito
+            .AsNoTracking()
+            .Where(cartao => cartao.UsuarioId == usuarioId)
+            .Select(cartao => new
+            {
+                cartao.Id,
+                cartao.ContaBancariaId
+            })
+            .ToDictionaryAsync(cartao => cartao.Id, cartao => cartao.ContaBancariaId, cancellationToken);
+
+        foreach (var referencia in EnumerarMeses(dataInicial, dataFinal))
+        {
+            var chave = (referencia.Year, referencia.Month);
+            extratos[chave] = await _transacaoService!.GetExtratoMensalAsync(
+                referencia.Month,
+                referencia.Year,
+                usuarioId,
+                cancellationToken: cancellationToken);
+            faturas[chave] = await _transacaoService.GetFaturasDoMesAsync(
+                referencia.Month,
+                referencia.Year,
+                usuarioId,
+                cancellationToken);
+        }
+
+        return new RelatorioDadosConsolidados(extratos, faturas, contasPorCartao);
+    }
+
     private async Task<IReadOnlyList<TransacaoRelatorio>> ObterTransacoesRelatorioAsync(
         Guid usuarioId,
         DateOnly dataInicial,
@@ -219,7 +309,8 @@ public sealed class RelatorioService : IRelatorioService
         bool somenteRecorrentes,
         bool somenteParceladas,
         VisaoRelatorio visao,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        RelatorioDadosConsolidados? dadosConsolidados = null)
     {
         if (_transacaoService is not null)
         {
@@ -235,7 +326,8 @@ public sealed class RelatorioService : IRelatorioService
                 somenteRecorrentes,
                 somenteParceladas,
                 visao,
-                cancellationToken);
+                cancellationToken,
+                dadosConsolidados);
         }
 
         var categorias = categoriaIds?
@@ -351,36 +443,31 @@ public sealed class RelatorioService : IRelatorioService
         bool somenteRecorrentes,
         bool somenteParceladas,
         VisaoRelatorio visao,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        RelatorioDadosConsolidados? dadosConsolidados = null)
     {
         var categorias = categoriaIds?
             .Where(id => id != Guid.Empty)
             .Distinct()
             .ToHashSet() ?? [];
         var statusNormalizado = status?.Trim().ToLowerInvariant();
-        var contasPorCartao = await _dbContext.CartoesCredito
-            .AsNoTracking()
-            .Where(cartao => cartao.UsuarioId == usuarioId)
-            .Select(cartao => new
-            {
-                cartao.Id,
-                cartao.ContaBancariaId
-            })
-            .ToDictionaryAsync(cartao => cartao.Id, cartao => cartao.ContaBancariaId, cancellationToken);
+        dadosConsolidados ??= await CarregarDadosConsolidadosAsync(
+            usuarioId,
+            dataInicial,
+            dataFinal,
+            cancellationToken);
+        var contasPorCartao = dadosConsolidados.ContasPorCartao;
         var ocorrencias = new List<TransacaoRelatorio>();
 
         foreach (var referencia in EnumerarMeses(dataInicial, dataFinal))
         {
-            var extrato = await _transacaoService!.GetExtratoMensalAsync(
-                referencia.Month,
-                referencia.Year,
-                usuarioId,
-                cancellationToken: cancellationToken);
-            var faturas = await _transacaoService.GetFaturasDoMesAsync(
-                referencia.Month,
-                referencia.Year,
-                usuarioId,
-                cancellationToken);
+            var chaveMes = (referencia.Year, referencia.Month);
+            var extrato = dadosConsolidados.Extratos.GetValueOrDefault(chaveMes) ??
+                new ExtratoMensalResponse
+                {
+                    Mes = referencia.Month,
+                    Ano = referencia.Year
+                };
 
             foreach (var item in extrato.Itens)
             {
@@ -409,6 +496,7 @@ public sealed class RelatorioService : IRelatorioService
                 continue;
             }
 
+            var faturas = dadosConsolidados.Faturas.GetValueOrDefault(chaveMes) ?? [];
             foreach (var fatura in faturas.Where(fatura => fatura.ValorTotal > 0))
             {
                 if (cartaoCreditoId.HasValue && fatura.CartaoCreditoId != cartaoCreditoId.Value)
@@ -883,7 +971,8 @@ public sealed class RelatorioService : IRelatorioService
         string? status,
         bool somenteRecorrentes,
         bool somenteParceladas,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        RelatorioDadosConsolidados? dadosConsolidados = null)
     {
         if (_transacaoService is null)
         {
@@ -900,29 +989,24 @@ public sealed class RelatorioService : IRelatorioService
             .Where(id => id != Guid.Empty)
             .Distinct()
             .ToHashSet() ?? [];
-        var contasPorCartao = await _dbContext.CartoesCredito
-            .AsNoTracking()
-            .Where(cartao => cartao.UsuarioId == usuarioId)
-            .Select(cartao => new
-            {
-                cartao.Id,
-                cartao.ContaBancariaId
-            })
-            .ToDictionaryAsync(cartao => cartao.Id, cartao => cartao.ContaBancariaId, cancellationToken);
+        dadosConsolidados ??= await CarregarDadosConsolidadosAsync(
+            usuarioId,
+            dataInicial,
+            dataFinal,
+            cancellationToken);
+        var contasPorCartao = dadosConsolidados.ContasPorCartao;
         var compromissos = new Dictionary<CompromissoChave, CompromissoFinanceiroProjetado>();
 
         foreach (var referencia in EnumerarMeses(dataInicial, dataFinal))
         {
-            var extrato = await _transacaoService.GetExtratoMensalAsync(
-                referencia.Month,
-                referencia.Year,
-                usuarioId,
-                cancellationToken: cancellationToken);
-            var faturas = await _transacaoService.GetFaturasDoMesAsync(
-                referencia.Month,
-                referencia.Year,
-                usuarioId,
-                cancellationToken);
+            var chaveMes = (referencia.Year, referencia.Month);
+            var extrato = dadosConsolidados.Extratos.GetValueOrDefault(chaveMes) ??
+                new ExtratoMensalResponse
+                {
+                    Mes = referencia.Month,
+                    Ano = referencia.Year
+                };
+            var faturas = dadosConsolidados.Faturas.GetValueOrDefault(chaveMes) ?? [];
 
             foreach (var fatura in faturas.Where(fatura => !fatura.IsPaga && fatura.ValorTotal > 0))
             {
@@ -1540,6 +1624,17 @@ public sealed class RelatorioService : IRelatorioService
             yield return cursor;
         }
     }
+
+    private static DateOnly MenorData(params DateOnly[] datas) =>
+        datas.MinBy(data => data.DayNumber);
+
+    private static DateOnly MaiorData(params DateOnly[] datas) =>
+        datas.MaxBy(data => data.DayNumber);
+
+    private sealed record RelatorioDadosConsolidados(
+        IReadOnlyDictionary<(int Ano, int Mes), ExtratoMensalResponse> Extratos,
+        IReadOnlyDictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>> Faturas,
+        IReadOnlyDictionary<Guid, Guid?> ContasPorCartao);
 
     private sealed record TransacaoRelatorio(
         DateOnly DataOcorrencia,

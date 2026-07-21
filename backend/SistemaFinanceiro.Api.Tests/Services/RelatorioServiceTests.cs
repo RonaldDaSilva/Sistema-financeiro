@@ -313,6 +313,56 @@ public sealed class RelatorioServiceTests
     }
 
     [Fact]
+    public async Task GetGraficosAsync_ReutilizaMotorConsolidadoUmaVezPorMesNaRequisicao()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var inicioMesAtual = new DateOnly(hoje.Year, hoje.Month, 1);
+        var fimMesAtual = inicioMesAtual.AddMonths(1).AddDays(-1);
+        var categoria = CriarCategoria(usuarioId, "Geral");
+        database.Context.Categorias.Add(categoria);
+        await database.Context.SaveChangesAsync();
+
+        var cartaoId = Guid.NewGuid();
+        var transacaoService = new TransacaoServiceCompromissosFake(
+            new Dictionary<(int Ano, int Mes), ExtratoMensalResponse>
+            {
+                [(inicioMesAtual.Year, inicioMesAtual.Month)] = new()
+                {
+                    Itens =
+                    [
+                        CriarItemExtrato(
+                            TipoTransacao.Receita,
+                            500m,
+                            inicioMesAtual.AddDays(2),
+                            categoria,
+                            isPaga: true)
+                    ]
+                }
+            },
+            new Dictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>>
+            {
+                [(inicioMesAtual.Year, inicioMesAtual.Month)] =
+                [
+                    CriarFaturaConsolidada(cartaoId, inicioMesAtual.AddDays(25), categoria, 100m)
+                ]
+            });
+        var service = new RelatorioService(
+            database.Context,
+            new ContaBancariaServiceParaTeste(database.Context),
+            transacaoService);
+
+        await service.GetGraficosAsync(inicioMesAtual, fimMesAtual, usuarioId);
+
+        var chaveMesAtual = (inicioMesAtual.Year, inicioMesAtual.Month);
+        Assert.Equal(1, transacaoService.ChamadasExtrato[chaveMesAtual]);
+        Assert.Equal(1, transacaoService.ChamadasFatura[chaveMesAtual]);
+    }
+
+    [Fact]
     public async Task GetGraficosAsync_CartaoEmRelatorios_ConsumoEFluxoNaoDuplicamPagamentoFatura()
     {
         var usuarioId = Guid.NewGuid();
@@ -775,6 +825,9 @@ public sealed class RelatorioServiceTests
         private readonly IReadOnlyDictionary<(int Ano, int Mes), ExtratoMensalResponse> _extratos;
         private readonly IReadOnlyDictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>> _faturas;
 
+        public Dictionary<(int Ano, int Mes), int> ChamadasExtrato { get; } = [];
+        public Dictionary<(int Ano, int Mes), int> ChamadasFatura { get; } = [];
+
         public TransacaoServiceCompromissosFake(
             IReadOnlyDictionary<(int Ano, int Mes), ExtratoMensalResponse> extratos,
             IReadOnlyDictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>> faturas)
@@ -791,6 +844,9 @@ public sealed class RelatorioServiceTests
             StatusFiltro? status = null,
             CancellationToken cancellationToken = default)
         {
+            var chave = (ano, mes);
+            ChamadasExtrato[chave] = ChamadasExtrato.GetValueOrDefault(chave) + 1;
+
             return Task.FromResult(
                 _extratos.GetValueOrDefault((ano, mes)) ??
                 new ExtratoMensalResponse
@@ -812,6 +868,9 @@ public sealed class RelatorioServiceTests
             Guid usuarioId,
             CancellationToken cancellationToken = default)
         {
+            var chave = (ano, mes);
+            ChamadasFatura[chave] = ChamadasFatura.GetValueOrDefault(chave) + 1;
+
             return Task.FromResult(_faturas.GetValueOrDefault((ano, mes)) ?? []);
         }
 
