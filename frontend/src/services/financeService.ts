@@ -56,6 +56,7 @@ export async function getExtratoMensal(
   ano: number,
   apenasDivididas = false,
   status: StatusFiltro = 'todos',
+  signal?: AbortSignal,
 ) {
   const { data } = await api.get<ExtratoMensal>('/api/transacoes/extrato-mensal', {
     params: {
@@ -64,6 +65,7 @@ export async function getExtratoMensal(
       apenasDivididas: apenasDivididas || undefined,
       status: normalizarStatusFiltro(status),
     },
+    signal,
   });
 
   return data;
@@ -84,7 +86,7 @@ export async function getExtratoMensalPaginado(params: {
   statuses?: StatusFiltro[];
   ordenarPor?: CampoOrdenacaoExtrato;
   direcao?: DirecaoOrdenacao;
-}) {
+}, signal?: AbortSignal) {
   const categoriaIds = normalizarLista([
     ...(params.categoriaIds ?? []),
     ...(params.categoriaId ? [params.categoriaId] : []),
@@ -114,7 +116,7 @@ export async function getExtratoMensalPaginado(params: {
 
     const { data } = await api.get<PagedResponse<ExtratoMensalItem>>(
       '/api/transacoes/extrato-mensal/paginado',
-      { params: requestParams },
+      { params: requestParams, signal },
     );
 
     return data;
@@ -127,6 +129,8 @@ export async function getExtratoMensalPaginado(params: {
       params.mes,
       params.ano,
       params.apenasDivididas,
+      'todos',
+      signal,
     );
     const direcao = params.direcao ?? 'desc';
     const multiplicador = direcao === 'desc' ? -1 : 1;
@@ -186,15 +190,16 @@ export async function getExtratoMensalPaginado(params: {
   }
 }
 
-export async function getFaturasDoMes(mes: number, ano: number) {
+export async function getFaturasDoMes(mes: number, ano: number, signal?: AbortSignal) {
   const { data } = await api.get<FaturaConsolidada[]>('/api/transacoes/faturas-mes', {
     params: { mes, ano },
+    signal,
   });
 
   return data;
 }
 
-export async function getRelatorioGraficos(params: RelatorioGraficosParams) {
+export async function getRelatorioGraficos(params: RelatorioGraficosParams, signal?: AbortSignal) {
   const { data } = await api.get<RelatorioGraficos>('/api/relatorios/graficos', {
     params: {
       dataInicial: params.dataInicial,
@@ -214,12 +219,16 @@ export async function getRelatorioGraficos(params: RelatorioGraficosParams) {
       somenteRecorrentes: params.somenteRecorrentes || undefined,
       somenteParceladas: params.somenteParceladas || undefined,
     },
+    signal,
   });
 
   return data;
 }
 
-export async function getDashboardInicio(params: DashboardInicioParams = {}) {
+export async function getDashboardInicio(
+  params: DashboardInicioParams = {},
+  signal?: AbortSignal,
+) {
   const tipo = params.tipoTransacao === "receita"
     ? 1
     : params.tipoTransacao === "despesa"
@@ -241,6 +250,7 @@ export async function getDashboardInicio(params: DashboardInicioParams = {}) {
 
   const { data } = await api.get<DashboardInicio>('/api/dashboard/inicio', {
     params: requestParams,
+    signal,
   });
   return data;
 }
@@ -399,8 +409,8 @@ export async function excluirCompraParceladaProjetada(id: string, numeroParcela:
   });
 }
 
-export async function listarCategorias() {
-  const { data } = await api.get<Categoria[]>('/api/categorias');
+export async function listarCategorias(signal?: AbortSignal) {
+  const { data } = await api.get<Categoria[]>('/api/categorias', { signal });
   return data;
 }
 
@@ -418,8 +428,8 @@ export async function excluirCategoria(id: string) {
   await api.delete(`/api/categorias/${id}`);
 }
 
-export async function listarCartoesCredito() {
-  const { data } = await api.get<CartaoCredito[]>('/api/cartoes-credito');
+export async function listarCartoesCredito(signal?: AbortSignal) {
+  const { data } = await api.get<CartaoCredito[]>('/api/cartoes-credito', { signal });
   return data;
 }
 
@@ -459,13 +469,16 @@ export async function arquivarCartaoCredito(id: string) {
   return data;
 }
 
-export async function listarContasBancarias() {
-  const { data } = await api.get<ContaBancaria[]>('/api/contas');
+export async function listarContasBancarias(signal?: AbortSignal) {
+  const { data } = await api.get<ContaBancaria[]>('/api/contas', { signal });
   return data;
 }
 
-export async function obterDistribuicaoContas() {
-  const { data } = await api.get<ContaDistribuicao[]>('/api/contas/distribuicao');
+export async function obterDistribuicaoContas(signal?: AbortSignal) {
+  const { data } = await api.get<ContaDistribuicao[]>(
+    '/api/contas/distribuicao',
+    { signal },
+  );
   return data;
 }
 

@@ -27,6 +27,7 @@ let isRedirectingToLogin = false;
 type AuthenticatedRequestConfig = InternalAxiosRequestConfig & {
   __isRetryRequest?: boolean;
   __authToken?: string;
+  __requestStartedAt?: number;
 };
 
 function redirectToLogin() {
@@ -93,6 +94,10 @@ async function renovarSessaoAtual() {
 }
 
 api.interceptors.request.use(async (config) => {
+  if (import.meta.env.DEV) {
+    (config as AuthenticatedRequestConfig).__requestStartedAt = performance.now();
+  }
+
   let auth = getStoredAuth();
 
   if (auth?.accessToken && tokenExpiraEmBreve(auth.accessTokenExpiraEm)) {
@@ -108,9 +113,13 @@ api.interceptors.request.use(async (config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    logRequestTiming(response.config as AuthenticatedRequestConfig, response.status);
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config as AuthenticatedRequestConfig | undefined;
+    logRequestTiming(originalRequest, error.response?.status);
 
     if (isPublicAuthRequest(originalRequest?.url)) {
       return Promise.reject(error);
@@ -152,3 +161,18 @@ api.interceptors.response.use(
     return Promise.reject(error);
   },
 );
+
+function logRequestTiming(
+  config: AuthenticatedRequestConfig | undefined,
+  status: number | undefined,
+) {
+  if (!import.meta.env.DEV || !config?.__requestStartedAt) {
+    return;
+  }
+
+  const durationMs = Math.round(performance.now() - config.__requestStartedAt);
+  const method = config.method?.toUpperCase() ?? "GET";
+  const url = config.url ?? "";
+
+  console.debug(`[api] ${method} ${url} ${status ?? "ERR"} ${durationMs}ms`);
+}

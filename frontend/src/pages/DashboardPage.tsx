@@ -233,13 +233,13 @@ export function DashboardPage() {
 
   async function invalidarDadosFinanceiros() {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["extrato"] }),
-      queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
-      queryClient.invalidateQueries({ queryKey: ["faturas"] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.faturasScope }),
       queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
       queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
       queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),
     ]);
   }
 
@@ -268,9 +268,9 @@ export function DashboardPage() {
 
       const nextStatus = !item.isPaga;
       await Promise.all([
-        queryClient.cancelQueries({ queryKey: ["faturas"] }),
-        queryClient.cancelQueries({ queryKey: ["extrato"] }),
-        queryClient.cancelQueries({ queryKey: ["extrato-paginado"] }),
+        queryClient.cancelQueries({ queryKey: queryKeys.faturasScope }),
+        queryClient.cancelQueries({ queryKey: queryKeys.extratoScope }),
+        queryClient.cancelQueries({ queryKey: queryKeys.extratoPaginadoScope }),
       ]);
 
       atualizarStatusFaturaLocal(
@@ -312,13 +312,13 @@ export function DashboardPage() {
 
       setFaturaChequeEspecial(null);
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["faturas"] }),
-        queryClient.invalidateQueries({ queryKey: ["extrato"] }),
-        queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.faturasScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
         queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
         queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
         queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),
       ]);
     },
   });
@@ -570,7 +570,7 @@ export function DashboardPage() {
     isPaga: boolean,
     contaBancariaId?: string | null,
   ) {
-    queryClient.getQueriesData<ExtratoMensal>({ queryKey: ["extrato"] })
+    queryClient.getQueriesData<ExtratoMensal>({ queryKey: queryKeys.extratoScope })
       .forEach(([queryKey, current]) => {
         if (!current) {
           return;
@@ -589,7 +589,7 @@ export function DashboardPage() {
       });
 
     queryClient.getQueriesData<PagedResponse<ExtratoMensalItem>>({
-      queryKey: ["extrato-paginado"],
+      queryKey: queryKeys.extratoPaginadoScope,
     }).forEach(([queryKey, current]) => {
       if (!current) {
         return;
@@ -627,7 +627,7 @@ export function DashboardPage() {
     const impacto = item.valor * multiplicador;
 
     queryClient.setQueriesData<ExtratoMensal>(
-      { queryKey: ["extrato"] },
+      { queryKey: queryKeys.extratoScope },
       (current) =>
         current
           ? {
@@ -663,7 +663,7 @@ export function DashboardPage() {
     }
 
     queryClient.setQueriesData<ExtratoMensal>(
-      { queryKey: ["extrato"] },
+      { queryKey: queryKeys.extratoScope },
       (current) =>
         current
           ? {
@@ -689,7 +689,7 @@ export function DashboardPage() {
       isPaga,
     );
     queryClient.setQueriesData<FaturaConsolidada[]>(
-      { queryKey: ["faturas"] },
+      { queryKey: queryKeys.faturasScope },
       (current) =>
         current?.map((fatura) =>
           fatura.cartaoCreditoId === cartaoCreditoId &&
@@ -822,11 +822,11 @@ export function DashboardPage() {
         contaBancariaId,
       );
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["extrato"] }),
-        queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
         queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
         queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),
       ]);
     } catch {
       atualizarStatusPagamentoLocal(item.id, item.isPaga, dataOcorrenciaStatus);

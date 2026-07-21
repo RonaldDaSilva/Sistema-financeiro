@@ -37,9 +37,6 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
   async function handleMarcarComoLidas() {
     await notificationService.marcarTodasComoLidas();
     queryClient.setQueryData(queryKeys.notificacoesNaoLidas, []);
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.notificacoesNaoLidas,
-    });
     setIsOpen(false);
   }
 

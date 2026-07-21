@@ -97,31 +97,9 @@ export function CardsPage() {
           "Cartão",
       };
 
-      const cartaoSalvo = editingId
-        ? await financeService.atualizarCartaoCredito(editingId, request)
-        : await financeService.criarCartaoCredito(request);
-      const cartaoAtualizado = {
-        ...cartaoSalvo,
-        contaBancariaId: cartaoSalvo.contaBancariaId ?? request.contaBancariaId ?? null,
-      };
-
-      queryClient.setQueryData<CartaoCredito[]>(queryKeys.cartoes, (current) => {
-        const cartoesAtuais = current ?? [];
-        const existeNoCache = cartoesAtuais.some(
-          (cartao) => cartao.id === cartaoAtualizado.id,
-        );
-        const proximosCartoes = existeNoCache
-          ? cartoesAtuais.map((cartao) =>
-              cartao.id === cartaoAtualizado.id ? cartaoAtualizado : cartao,
-            )
-          : [...cartoesAtuais, cartaoAtualizado];
-
-        return proximosCartoes.sort((a, b) =>
-          a.apelidoCartao.localeCompare(b.apelidoCartao, "pt-BR", {
-            sensitivity: "base",
-          }),
-        );
-      });
+      await (editingId
+        ? financeService.atualizarCartaoCredito(editingId, request)
+        : financeService.criarCartaoCredito(request));
 
       fecharModal();
       await queryClient.invalidateQueries({
@@ -229,13 +207,13 @@ export function CardsPage() {
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
-        queryClient.invalidateQueries({ queryKey: ["faturas"] }),
-        queryClient.invalidateQueries({ queryKey: ["extrato"] }),
-        queryClient.invalidateQueries({ queryKey: ["extrato-paginado"] }),
-        queryClient.invalidateQueries({ queryKey: ["contas"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.faturasScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
         queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
-        queryClient.invalidateQueries({ queryKey: ["relatorios"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.relatoriosScope }),
         queryClient.invalidateQueries({ queryKey: queryKeys.notificacoesNaoLidas }),
       ]);
 

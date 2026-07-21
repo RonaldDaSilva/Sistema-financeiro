@@ -5,6 +5,7 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import * as financeService from "../../services/financeService";
+import { queryKeys } from "../queries/queryKeys";
 import type {
   CriarTransacaoRequest,
   ExtratoMensal,
@@ -87,16 +88,16 @@ export function useEditTransacao() {
 
 async function snapshotAndCancel(queryClient: QueryClient): Promise<CacheSnapshot> {
   await Promise.all([
-    queryClient.cancelQueries({ queryKey: ["extrato"] }),
-    queryClient.cancelQueries({ queryKey: ["extrato-paginado"] }),
+    queryClient.cancelQueries({ queryKey: queryKeys.extratoScope }),
+    queryClient.cancelQueries({ queryKey: queryKeys.extratoPaginadoScope }),
   ]);
 
   return {
     extratos: queryClient.getQueriesData<ExtratoMensal>({
-      queryKey: ["extrato"],
+      queryKey: queryKeys.extratoScope,
     }),
     paginas: queryClient.getQueriesData<PagedResponse<ExtratoMensalItem>>({
-      queryKey: ["extrato-paginado"],
+      queryKey: queryKeys.extratoPaginadoScope,
     }),
   };
 }
@@ -108,7 +109,7 @@ function restoreSnapshot(queryClient: QueryClient, snapshot: CacheSnapshot) {
 
 function addOptimisticItem(queryClient: QueryClient, item: ExtratoMensalItem) {
   queryClient
-    .getQueriesData<ExtratoMensal>({ queryKey: ["extrato"] })
+    .getQueriesData<ExtratoMensal>({ queryKey: queryKeys.extratoScope })
     .forEach(([key, current]) => {
       if (!current || !matchesExtratoFilter(key, item)) {
         return;
@@ -119,7 +120,7 @@ function addOptimisticItem(queryClient: QueryClient, item: ExtratoMensalItem) {
 
   queryClient
     .getQueriesData<PagedResponse<ExtratoMensalItem>>({
-      queryKey: ["extrato-paginado"],
+      queryKey: queryKeys.extratoPaginadoScope,
     })
     .forEach(([key, current]) => {
       if (!current || !matchesPagedFilter(key, item)) {
@@ -146,7 +147,7 @@ function replaceOptimisticItem(
   item: ExtratoMensalItem,
 ) {
   queryClient
-    .getQueriesData<ExtratoMensal>({ queryKey: ["extrato"] })
+    .getQueriesData<ExtratoMensal>({ queryKey: queryKeys.extratoScope })
     .forEach(([key, current]) => {
       if (!current) {
         return;
@@ -165,7 +166,7 @@ function replaceOptimisticItem(
 
   queryClient
     .getQueriesData<PagedResponse<ExtratoMensalItem>>({
-      queryKey: ["extrato-paginado"],
+      queryKey: queryKeys.extratoPaginadoScope,
     })
     .forEach(([key, current]) => {
       if (!current) {
@@ -199,7 +200,7 @@ function replaceOptimisticItem(
 
 function replaceItemId(queryClient: QueryClient, oldId: string, newId: string) {
   queryClient.setQueriesData<ExtratoMensal>(
-    { queryKey: ["extrato"] },
+    { queryKey: queryKeys.extratoScope },
     (current) =>
       current
         ? {
@@ -211,7 +212,7 @@ function replaceItemId(queryClient: QueryClient, oldId: string, newId: string) {
         : current,
   );
   queryClient.setQueriesData<PagedResponse<ExtratoMensalItem>>(
-    { queryKey: ["extrato-paginado"] },
+    { queryKey: queryKeys.extratoPaginadoScope },
     (current) =>
       current
         ? {
@@ -375,25 +376,25 @@ function reconcileDerivedData(
 
   void (async () => {
     if (needsDerivedRefresh) {
-      await queryClient.refetchQueries({ queryKey: ["faturas"], type: "active" });
-      await queryClient.refetchQueries({ queryKey: ["extrato"], type: "active" });
+      await queryClient.refetchQueries({ queryKey: queryKeys.faturasScope, type: "active" });
+      await queryClient.refetchQueries({ queryKey: queryKeys.extratoScope, type: "active" });
       await queryClient.refetchQueries({
-        queryKey: ["extrato-paginado"],
+        queryKey: queryKeys.extratoPaginadoScope,
         type: "active",
       });
     }
 
     if (request.cartaoCreditoId) {
-      await queryClient.refetchQueries({ queryKey: ["cartoes"], type: "active" });
+      await queryClient.refetchQueries({ queryKey: queryKeys.cartoes, type: "active" });
     }
 
     if (request.contaBancariaId) {
       await queryClient.refetchQueries({
-        queryKey: ["distribuicao-contas"],
+        queryKey: queryKeys.distribuicaoContas,
         type: "active",
       });
     }
 
-    await queryClient.refetchQueries({ queryKey: ["dashboard"], type: "active" });
+    await queryClient.refetchQueries({ queryKey: queryKeys.dashboardScope, type: "active" });
   })();
 }

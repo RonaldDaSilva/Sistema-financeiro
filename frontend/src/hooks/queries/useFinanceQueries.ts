@@ -28,8 +28,8 @@ export function useExtratoMensal(
 
   return useQuery({
     queryKey: queryKeys.extrato(mes, ano, apenasDivididas, status),
-    queryFn: () =>
-      financeService.getExtratoMensal(mes, ano, apenasDivididas, status),
+    queryFn: ({ signal }) =>
+      financeService.getExtratoMensal(mes, ano, apenasDivididas, status, signal),
     enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
   });
 }
@@ -89,7 +89,7 @@ export function useExtratoMensalPaginado({
       ordenarPor,
       direcao,
     ),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       financeService.getExtratoMensalPaginado({
         mes,
         ano,
@@ -104,7 +104,7 @@ export function useExtratoMensalPaginado({
         statuses,
         ordenarPor,
         direcao,
-      }),
+      }, signal),
     enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
@@ -117,7 +117,8 @@ export function useExtratosMensais(meses: MesAno[], apenasDivididas = false) {
   return useQueries({
     queries: meses.map(({ mes, ano }) => ({
       queryKey: queryKeys.extrato(mes, ano, apenasDivididas),
-      queryFn: () => financeService.getExtratoMensal(mes, ano, apenasDivididas),
+      queryFn: ({ signal }: { signal?: AbortSignal }) =>
+        financeService.getExtratoMensal(mes, ano, apenasDivididas, "todos", signal),
       enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
     })),
   });
@@ -128,7 +129,7 @@ export function useFaturaMes(mes: number, ano: number, enabled = true) {
 
   return useQuery({
     queryKey: queryKeys.faturas(mes, ano),
-    queryFn: () => financeService.getFaturasDoMes(mes, ano),
+    queryFn: ({ signal }) => financeService.getFaturasDoMes(mes, ano, signal),
     enabled: enabled && canFetch && mes >= 1 && mes <= 12 && ano > 0,
   });
 }
@@ -150,8 +151,8 @@ export function useRelatorioGraficos(
       params.somenteRecorrentes ?? false,
       params.somenteParceladas ?? false,
     ),
-    queryFn: () =>
-      financeService.getRelatorioGraficos(params),
+    queryFn: ({ signal }) =>
+      financeService.getRelatorioGraficos(params, signal),
     enabled: canFetch && Boolean(params.dataInicial) && Boolean(params.dataFinal),
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
@@ -171,7 +172,7 @@ export function useDashboardInicio(params: DashboardInicioParams = {}, enabled =
       categoriaIds,
       statuses,
     ),
-    queryFn: () => financeService.getDashboardInicio(params),
+    queryFn: ({ signal }) => financeService.getDashboardInicio(params, signal),
     enabled: enabled && canFetch,
     placeholderData: keepPreviousData,
     staleTime: 2 * 60 * 1000,
@@ -184,7 +185,8 @@ export function useFaturasMensais(meses: MesAno[]) {
   return useQueries({
     queries: meses.map(({ mes, ano }) => ({
       queryKey: queryKeys.faturas(mes, ano),
-      queryFn: () => financeService.getFaturasDoMes(mes, ano),
+      queryFn: ({ signal }: { signal?: AbortSignal }) =>
+        financeService.getFaturasDoMes(mes, ano, signal),
       enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
     })),
   });
@@ -195,7 +197,7 @@ export function useCategorias() {
 
   return useQuery({
     queryKey: queryKeys.categorias,
-    queryFn: financeService.listarCategorias,
+    queryFn: ({ signal }) => financeService.listarCategorias(signal),
     enabled: canFetch,
     staleTime: 10 * 60 * 1000,
   });
@@ -206,7 +208,7 @@ export function useCartoes(enabled = true) {
 
   return useQuery({
     queryKey: queryKeys.cartoes,
-    queryFn: financeService.listarCartoesCredito,
+    queryFn: ({ signal }) => financeService.listarCartoesCredito(signal),
     enabled: enabled && canFetch,
     staleTime: 10 * 60 * 1000,
   });
@@ -217,7 +219,7 @@ export function useContas(enabled = true) {
 
   return useQuery({
     queryKey: queryKeys.contas,
-    queryFn: financeService.listarContasBancarias,
+    queryFn: ({ signal }) => financeService.listarContasBancarias(signal),
     enabled: enabled && canFetch,
     staleTime: 10 * 60 * 1000,
     retry: false,
@@ -229,7 +231,7 @@ export function useDistribuicaoContas(enabled = true) {
 
   return useQuery({
     queryKey: queryKeys.distribuicaoContas,
-    queryFn: financeService.obterDistribuicaoContas,
+    queryFn: ({ signal }) => financeService.obterDistribuicaoContas(signal),
     enabled: enabled && canFetch,
     staleTime: 5 * 60 * 1000,
     retry: false,

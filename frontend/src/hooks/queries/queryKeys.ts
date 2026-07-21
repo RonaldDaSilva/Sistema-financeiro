@@ -1,10 +1,12 @@
 export const queryKeys = {
+  extratoScope: ["extrato"] as const,
   extrato: (
     mes: number,
     ano: number,
     apenasDivididas = false,
     status = "todos",
   ) => ["extrato", mes, ano, apenasDivididas, status] as const,
+  extratoPaginadoScope: ["extrato-paginado"] as const,
   extratoPaginado: (
     mes: number,
     ano: number,
@@ -34,12 +36,14 @@ export const queryKeys = {
       ordenarPor,
       direcao,
     ] as const,
+  faturasScope: ["faturas"] as const,
   faturas: (mes: number, ano: number) => ["faturas", mes, ano] as const,
   notificacoesNaoLidas: ["notificacoes", "nao-lidas"] as const,
   categorias: ["categorias"] as const,
   cartoes: ["cartoes"] as const,
   contas: ["contas"] as const,
   distribuicaoContas: ["distribuicao-contas"] as const,
+  dashboardScope: ["dashboard"] as const,
   dashboardInicio: (
     dataInicial = "",
     dataFinal = "",
@@ -56,6 +60,7 @@ export const queryKeys = {
       normalizeKeyList(categoriaIds),
       normalizeKeyList(statuses),
     ] as const,
+  relatoriosScope: ["relatorios"] as const,
   relatorios: (
     dataInicial: string,
     dataFinal: string,
