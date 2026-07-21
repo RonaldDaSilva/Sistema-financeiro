@@ -286,12 +286,12 @@ export function AppLayout({ children }: AppLayoutProps) {
         </aside>
 
         <div className="min-w-0 md:h-screen md:flex-1 md:overflow-y-auto">
-          <div className="pb-24 md:pb-0">{children}</div>
+          <div className="pb-28 md:pb-0">{children}</div>
         </div>
       </div>
 
-      <nav className="fixed inset-x-3 bottom-4 z-40 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)]/95 p-2 shadow-2xl shadow-slate-900/15 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95 md:hidden">
-        <div className="grid grid-cols-5 gap-1">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color:var(--app-card-border)] bg-[var(--app-card)]/95 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_42px_rgba(15,23,42,0.12)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95 md:hidden">
+        <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
           {navItems.map(({ to, label, Icon }) => (
             <NavLink
               className={({ isActive }) =>

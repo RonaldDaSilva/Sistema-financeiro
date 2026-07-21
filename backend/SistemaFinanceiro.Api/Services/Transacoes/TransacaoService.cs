@@ -2243,6 +2243,9 @@ public sealed class TransacaoService : ITransacaoService
         IReadOnlyDictionary<(Guid TransacaoFixaId, DateOnly DataOcorrencia), bool> pagamentosFixas)
     {
         var dataProjetada = CriarDataNoMes(inicioMes, transacao.DataOcorrencia.Day);
+        var isPaga = pagamentosFixas.TryGetValue((transacao.Id, dataProjetada), out var pagamentoRegistrado)
+            ? pagamentoRegistrado
+            : dataProjetada == transacao.DataOcorrencia && transacao.IsPaga;
 
         return new ExtratoMensalItemResponse
         {
@@ -2260,7 +2263,7 @@ public sealed class TransacaoService : ITransacaoService
             ContaBancariaId = transacao.ContaBancariaId,
             CartaoCreditoApelido = transacao.CartaoCredito?.ApelidoCartao,
             IsFixa = true,
-            IsPaga = pagamentosFixas.GetValueOrDefault((transacao.Id, dataProjetada)),
+            IsPaga = isPaga,
             IsDividida = transacao.IsDividida,
             ValorTotalOriginal = transacao.ValorTotalOriginal,
             PercentualDivisao = transacao.PercentualDivisao,

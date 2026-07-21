@@ -591,7 +591,7 @@ function KpiGrid({
           <>
             <Skeleton className="h-32" />
             <Skeleton className="h-32" />
-            <Skeleton className="h-52 md:col-span-2 xl:col-span-1" />
+            <Skeleton className="h-52 md:col-span-2" />
           </>
         ) : (
           <>
@@ -660,7 +660,7 @@ function KpiSection({ title, children }: { title: string; children: ReactNode })
       <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {title}
       </h2>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{children}</div>
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">{children}</div>
     </section>
   );
 }
@@ -686,7 +686,7 @@ function DisponivelCompromissosCard({
 }) {
   const dataLimiteText = dataLimite ? formatDate(dataLimite) : "o fim do período";
   return (
-    <article className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5 md:col-span-2 xl:col-span-2">
+    <article className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5 md:col-span-2">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex min-w-0 items-start justify-between gap-3">
@@ -697,7 +697,7 @@ function DisponivelCompromissosCard({
               Saldo atual descontando as obrigações e investimentos ainda pendentes até a data final selecionada.
             </InfoTooltip>
           </div>
-          <p className="mt-3 break-words text-3xl font-black leading-tight text-[var(--app-primary)] [overflow-wrap:anywhere] sm:text-4xl">
+          <p className="mt-3 max-w-full whitespace-nowrap text-[clamp(2rem,4vw,2.75rem)] font-black leading-tight text-[var(--app-primary)]">
             {formatCurrency(disponivel?.disponivelAposCompromissos ?? 0)}
           </p>
           <p className="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -765,7 +765,7 @@ function MetricDetail({
         <span className="min-w-0 break-words">{label}</span>
         {tooltip && <InfoTooltip label={label}>{tooltip}</InfoTooltip>}
       </dt>
-      <dd className={`mt-1 break-words text-base font-black [overflow-wrap:anywhere] ${strong ? "text-[var(--app-primary)] dark:text-blue-200" : "text-slate-900 dark:text-white"}`}>
+      <dd className={`mt-1 max-w-full whitespace-nowrap text-base font-black ${strong ? "text-[var(--app-primary)] dark:text-blue-200" : "text-slate-900 dark:text-white"}`}>
         {value}
       </dd>
     </div>
@@ -810,7 +810,7 @@ function CompromissosFuturosSection({
                     Obrigações futuras
                   </p>
                 </div>
-                <p className="break-words text-xl font-black text-red-600 [overflow-wrap:anywhere]">
+                <p className="max-w-full whitespace-nowrap text-xl font-black text-red-600">
                   {formatCurrency(item.obrigacoesFuturas)}
                 </p>
               </div>
@@ -875,7 +875,7 @@ function MetricCard({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-bold text-slate-500 dark:text-slate-400">{title}</p>
-          <p className="mt-3 break-words text-2xl font-black leading-tight text-slate-900 [overflow-wrap:anywhere] dark:text-white sm:text-3xl">
+          <p className="mt-3 max-w-full whitespace-nowrap text-[clamp(1.875rem,3vw,2.25rem)] font-black leading-tight text-slate-900 dark:text-white">
             {value}
           </p>
         </div>
@@ -909,7 +909,7 @@ function KpiCard({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-bold text-slate-500 dark:text-slate-400">{title}</p>
-          <p className={`mt-3 break-words text-2xl font-black leading-tight [overflow-wrap:anywhere] sm:text-3xl ${colorClass}`}>
+          <p className={`mt-3 max-w-full whitespace-nowrap text-[clamp(1.875rem,3vw,2.25rem)] font-black leading-tight ${colorClass}`}>
             {formatKpiValue(value, isPercent)}
           </p>
         </div>

@@ -671,13 +671,24 @@ public sealed class RelatorioService : IRelatorioService
                 transacao.OrigemId,
                 transacao.NumeroParcela,
                 transacao.Competencia,
-                transacao.Origem,
+                Origem = NormalizarOrigemParaDeduplicacao(transacao),
                 transacao.ImpactaConsumo,
                 transacao.ImpactaSaldo
             })
-            .Select(grupo => grupo.First())
+            .Select(grupo => grupo
+                .OrderBy(transacao => transacao.Origem == "Transacao" ? 0 : 1)
+                .ThenByDescending(transacao => transacao.IsPaga)
+                .First())
             .OrderBy(transacao => transacao.DataOcorrencia)
             .ToList();
+    }
+
+    private static string NormalizarOrigemParaDeduplicacao(TransacaoRelatorio transacao)
+    {
+        return transacao.IsFixa &&
+            transacao.Origem is "Transacao" or "ReceitaFixa" or "DespesaFixa" or "InvestimentoFixo"
+                ? "TransacaoFixa"
+                : transacao.Origem;
     }
 
     private static IReadOnlyList<RelatorioCategoriaResponse> CalcularDespesasPorCategoria(

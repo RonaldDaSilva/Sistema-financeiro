@@ -400,6 +400,120 @@ public sealed class RelatorioServiceTests
     }
 
     [Fact]
+    public async Task GetGraficosAsync_ReceitaFixaOriginalRecebida_NaoDuplicaComoVencida()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var conta = CriarConta(usuarioId, "Conta principal");
+        var categoria = CriarCategoria(usuarioId, "Geral");
+        var receitaFixa = CriarTransacao(
+            usuarioId,
+            TipoTransacao.Receita,
+            1000m,
+            new DateOnly(2026, 1, 5),
+            categoria,
+            conta,
+            null,
+            isPaga: true,
+            isFixa: true);
+        database.Context.AddRange(conta, categoria, receitaFixa);
+        await database.Context.SaveChangesAsync();
+
+        database.Context.TransacoesFixasPagamentos.AddRange(
+            new TransacaoFixaPagamento
+            {
+                UsuarioId = usuarioId,
+                TransacaoFixaId = receitaFixa.Id,
+                DataOcorrencia = new DateOnly(2026, 2, 5),
+                IsPaga = true
+            },
+            new TransacaoFixaPagamento
+            {
+                UsuarioId = usuarioId,
+                TransacaoFixaId = receitaFixa.Id,
+                DataOcorrencia = new DateOnly(2026, 3, 5),
+                IsPaga = true
+            });
+        await database.Context.SaveChangesAsync();
+
+        var service = new RelatorioService(
+            database.Context,
+            new ContaBancariaServiceParaTeste(database.Context),
+            new TransacaoServiceCompromissosFake(
+                new Dictionary<(int Ano, int Mes), ExtratoMensalResponse>
+                {
+                    [(2026, 1)] = new()
+                    {
+                        Itens =
+                        [
+                            CriarItemExtrato(
+                                TipoTransacao.Receita,
+                                1000m,
+                                new DateOnly(2026, 1, 5),
+                                categoria,
+                                isFixa: true,
+                                id: receitaFixa.Id,
+                                isPaga: true,
+                                origem: "Transacao",
+                                isProjetada: false),
+                            CriarItemExtrato(
+                                TipoTransacao.Receita,
+                                1000m,
+                                new DateOnly(2026, 1, 5),
+                                categoria,
+                                isFixa: true,
+                                id: receitaFixa.Id,
+                                isPaga: false,
+                                origem: "ReceitaFixa")
+                        ]
+                    },
+                    [(2026, 2)] = new()
+                    {
+                        Itens =
+                        [
+                            CriarItemExtrato(
+                                TipoTransacao.Receita,
+                                1000m,
+                                new DateOnly(2026, 2, 5),
+                                categoria,
+                                isFixa: true,
+                                id: receitaFixa.Id,
+                                isPaga: true,
+                                origem: "ReceitaFixa")
+                        ]
+                    },
+                    [(2026, 3)] = new()
+                    {
+                        Itens =
+                        [
+                            CriarItemExtrato(
+                                TipoTransacao.Receita,
+                                1000m,
+                                new DateOnly(2026, 3, 5),
+                                categoria,
+                                isFixa: true,
+                                id: receitaFixa.Id,
+                                isPaga: true,
+                                origem: "ReceitaFixa")
+                        ]
+                    }
+                },
+                new Dictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>>()));
+
+        var response = await service.GetGraficosAsync(
+            new DateOnly(2026, 1, 1),
+            new DateOnly(2026, 3, 31),
+            usuarioId);
+
+        Assert.Equal(3000m, response.Kpis.Receitas.ValorAtual);
+        Assert.Equal(3000m, response.ResumoAuditavel.ReceitasRealizadas);
+        Assert.Equal(0m, response.ResumoAuditavel.ReceitasVencidas);
+        Assert.Equal(0m, response.ResumoAuditavel.ReceitasPrevistas);
+    }
+
+    [Fact]
     public async Task AlternarStatusPagamentoAsync_Receita_MarcaComoRecebidaEAtualizaSaldoSemDuplicar()
     {
         var usuarioId = Guid.NewGuid();
@@ -576,11 +690,15 @@ public sealed class RelatorioServiceTests
         DateOnly data,
         Categoria categoria,
         bool isFixa = false,
-        Guid? compraParceladaId = null)
+        Guid? compraParceladaId = null,
+        Guid? id = null,
+        bool isPaga = false,
+        string? origem = null,
+        bool? isProjetada = null)
     {
         return new ExtratoMensalItemResponse
         {
-            Id = Guid.NewGuid(),
+            Id = id ?? Guid.NewGuid(),
             Tipo = tipo,
             Valor = valor,
             DataOcorrencia = data,
@@ -590,9 +708,10 @@ public sealed class RelatorioServiceTests
             CategoriaCorHexa = categoria.CorHexa,
             FormaPagamento = compraParceladaId.HasValue ? "Carnê/Crediário" : "Pix",
             IsFixa = isFixa,
-            IsPaga = false,
+            IsPaga = isPaga,
             Origem = tipo switch
             {
+                _ when !string.IsNullOrWhiteSpace(origem) => origem,
                 TipoTransacao.Receita => "ReceitaFixa",
                 _ when isFixa => "DespesaFixa",
                 _ when compraParceladaId.HasValue => "Carne",
@@ -602,7 +721,7 @@ public sealed class RelatorioServiceTests
             CompraParceladaId = compraParceladaId,
             NumeroParcela = compraParceladaId.HasValue ? 2 : null,
             QuantidadeParcelas = compraParceladaId.HasValue ? 3 : null,
-            IsProjetada = isFixa || compraParceladaId.HasValue
+            IsProjetada = isProjetada ?? (isFixa || compraParceladaId.HasValue)
         };
     }
 
