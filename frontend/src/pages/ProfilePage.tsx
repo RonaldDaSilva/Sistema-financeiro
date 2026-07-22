@@ -1,14 +1,18 @@
 import { FormEvent, type InputHTMLAttributes, useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import { useAuth } from "../contexts/useAuth";
-import { hasUsableStoredAuth } from "../services/authStorage";
+import { queryKeys } from "../hooks/queries/queryKeys";
+import { usePerfilUsuario } from "../hooks/queries/useFinanceQueries";
 import * as userService from "../services/userService";
 import { maskCpf } from "../utils/cpf";
 
 export function ProfilePage() {
   const { updateUser } = useAuth();
+  const queryClient = useQueryClient();
   const { confirm, dialog } = useConfirmDialog();
+  const perfilQuery = usePerfilUsuario();
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [telefone, setTelefone] = useState("");
@@ -16,43 +20,59 @@ export function ProfilePage() {
   const [senhaAtual, setSenhaAtual] = useState("");
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmarNovaSenha, setConfirmarNovaSenha] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function carregarPerfil() {
-      if (!hasUsableStoredAuth()) {
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const perfil = await userService.obterPerfil();
-        setNome(perfil.nome);
-        setEmail(perfil.email);
-        setTelefone(perfil.telefone ?? "");
-        setCpf(maskCpf(perfil.cpf ?? ""));
-        updateUser(perfil);
-      } catch {
-        setError("Não foi possível carregar seus dados.");
-      } finally {
-        setIsLoading(false);
-      }
+    if (!perfilQuery.data) {
+      return;
     }
 
-    carregarPerfil();
-  }, [updateUser]);
+    setNome(perfilQuery.data.nome);
+    setEmail(perfilQuery.data.email);
+    setTelefone(perfilQuery.data.telefone ?? "");
+    setCpf(maskCpf(perfilQuery.data.cpf ?? ""));
+    updateUser(perfilQuery.data);
+  }, [perfilQuery.data, updateUser]);
+
+  const atualizarPerfilMutation = useMutation({
+    mutationFn: userService.atualizarPerfil,
+    onSuccess: (perfil) => {
+      queryClient.setQueryData(queryKeys.perfilUsuario, perfil);
+      updateUser(perfil);
+      setMessage("Dados atualizados com sucesso.");
+    },
+    onError: (requestError) => {
+      setError(extractMessage(requestError, "Não foi possível atualizar seus dados."));
+    },
+  });
+
+  const alterarSenhaMutation = useMutation({
+    mutationFn: userService.alterarSenha,
+    onSuccess: () => {
+      setSenhaAtual("");
+      setNovaSenha("");
+      setConfirmarNovaSenha("");
+      setMessage("Senha alterada com sucesso.");
+    },
+    onError: (requestError) => {
+      setError(extractMessage(requestError, "Não foi possível alterar sua senha."));
+    },
+  });
 
   async function handleSalvarPerfil(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (atualizarPerfilMutation.isPending) {
+      return;
+    }
+
     setMessage(null);
     setError(null);
+
+    if (!nome.trim() || !email.trim()) {
+      setError("Informe nome e e-mail.");
+      return;
+    }
 
     const confirmed = await confirm({
       title: "Salvar alterações",
@@ -64,32 +84,31 @@ export function ProfilePage() {
       return;
     }
 
-    setIsSavingProfile(true);
-    try {
-      const perfil = await userService.atualizarPerfil({
-        nome,
-        email,
-        telefone: telefone || null,
-        cpf: cpf || null,
-        confirmarAlteracao: true,
-      });
-
-      updateUser(perfil);
-      setMessage("Dados atualizados com sucesso.");
-    } catch (requestError) {
-      setError(extractMessage(requestError, "Não foi possível atualizar seus dados."));
-    } finally {
-      setIsSavingProfile(false);
-    }
+    atualizarPerfilMutation.mutate({
+      nome: nome.trim(),
+      email: email.trim(),
+      telefone: telefone || null,
+      cpf: cpf || null,
+      confirmarAlteracao: true,
+    });
   }
 
   async function handleAlterarSenha(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (alterarSenhaMutation.isPending) {
+      return;
+    }
+
     setMessage(null);
     setError(null);
 
     if (novaSenha !== confirmarNovaSenha) {
       setError("A confirmação da nova senha não confere.");
+      return;
+    }
+
+    if (novaSenha.length < 8) {
+      setError("A nova senha deve ter pelo menos 8 caracteres.");
       return;
     }
 
@@ -103,24 +122,14 @@ export function ProfilePage() {
       return;
     }
 
-    setIsChangingPassword(true);
-    try {
-      await userService.alterarSenha({
-        senhaAtual,
-        novaSenha,
-        confirmarAlteracao: true,
-      });
-
-      setSenhaAtual("");
-      setNovaSenha("");
-      setConfirmarNovaSenha("");
-      setMessage("Senha alterada com sucesso.");
-    } catch (requestError) {
-      setError(extractMessage(requestError, "Não foi possível alterar sua senha."));
-    } finally {
-      setIsChangingPassword(false);
-    }
+    alterarSenhaMutation.mutate({
+      senhaAtual,
+      novaSenha,
+      confirmarAlteracao: true,
+    });
   }
+
+  const isLoading = perfilQuery.isLoading;
 
   return (
     <AppLayout>
@@ -135,13 +144,22 @@ export function ProfilePage() {
         </div>
 
         {message && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200" role="status">
             {message}
           </div>
         )}
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
+        {(error || perfilQuery.isError) && (
+          <div className="flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200 sm:flex-row sm:items-center sm:justify-between" role="alert">
+            <span>{error ?? "Não foi possível carregar seus dados."}</span>
+            {perfilQuery.isError && (
+              <button
+                className="rounded-xl bg-red-100 px-3 py-2 font-bold text-red-700 dark:bg-red-900/50 dark:text-red-100"
+                type="button"
+                onClick={() => perfilQuery.refetch()}
+              >
+                Tentar novamente
+              </button>
+            )}
           </div>
         )}
 
@@ -180,10 +198,10 @@ export function ProfilePage() {
           <div className="mt-5 flex justify-end">
             <button
               className="rounded-xl bg-[var(--app-accent)] px-6 py-2.5 font-medium text-[var(--app-accent-contrast)] shadow-sm disabled:opacity-60 dark:bg-white dark:text-slate-950"
-              disabled={isSavingProfile || isLoading}
+              disabled={atualizarPerfilMutation.isPending || isLoading}
               type="submit"
             >
-              {isSavingProfile ? "Salvando..." : "Salvar alterações"}
+              {atualizarPerfilMutation.isPending ? "Salvando..." : "Salvar alterações"}
             </button>
           </div>
         </form>
@@ -209,10 +227,10 @@ export function ProfilePage() {
           <div className="mt-5 flex justify-end">
             <button
               className="rounded-xl border-2 border-red-100 bg-white px-6 py-2.5 font-bold text-red-600 shadow-sm disabled:opacity-60 dark:border-red-900 dark:bg-slate-900 dark:text-red-300"
-              disabled={isChangingPassword}
+              disabled={alterarSenhaMutation.isPending}
               type="submit"
             >
-              {isChangingPassword ? "Alterando..." : "Alterar senha"}
+              {alterarSenhaMutation.isPending ? "Alterando..." : "Alterar senha"}
             </button>
           </div>
         </form>

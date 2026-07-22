@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import { useAuth } from "../contexts/useAuth";
-import { hasUsableStoredAuth } from "../services/authStorage";
+import { queryKeys } from "../hooks/queries/queryKeys";
+import { useConfiguracoesNotificacao } from "../hooks/queries/useNotificationQueries";
 import * as notificationService from "../services/notificationService";
 import * as userService from "../services/userService";
 import type { ConfiguracoesNotificacao } from "../types/notification";
@@ -17,7 +19,9 @@ import {
 export function SettingsPage() {
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { confirm, dialog } = useConfirmDialog();
+  const configuracoesQuery = useConfiguracoesNotificacao();
   const [selectedPalette, setSelectedPalette] = useState<AppPaletteId>(() =>
     getStoredPaletteId(),
   );
@@ -29,7 +33,6 @@ export function SettingsPage() {
       diasAntecedenciaVencimento: 2,
       percentualPadraoDivisao: 50,
     });
-  const [isSavingNotifications, setIsSavingNotifications] = useState(false);
   const [diasAntecedenciaInput, setDiasAntecedenciaInput] = useState("2");
   const [percentualDivisaoInput, setPercentualDivisaoInput] = useState("50");
   const [senhaExclusao, setSenhaExclusao] = useState("");
@@ -39,25 +42,41 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!hasUsableStoredAuth()) {
+    if (!configuracoesQuery.data) {
       return;
     }
 
-    notificationService
-      .obterConfiguracoes()
-      .then((configuracoes) => {
-        setNotificationConfig(configuracoes);
-        setDiasAntecedenciaInput(
-          String(configuracoes.diasAntecedenciaVencimento),
-        );
-        setPercentualDivisaoInput(
-          formatarPercentualInput(configuracoes.percentualPadraoDivisao),
-        );
-      })
-      .catch(() =>
-        setError("Não foi possível carregar as configurações de notificações."),
+    setNotificationConfig(configuracoesQuery.data);
+    setDiasAntecedenciaInput(
+      String(configuracoesQuery.data.diasAntecedenciaVencimento),
+    );
+    setPercentualDivisaoInput(
+      formatarPercentualInput(configuracoesQuery.data.percentualPadraoDivisao),
+    );
+  }, [configuracoesQuery.data]);
+
+  const salvarNotificacoesMutation = useMutation({
+    mutationFn: notificationService.atualizarConfiguracoes,
+    onSuccess: (nextConfig) => {
+      queryClient.setQueryData(queryKeys.configuracoesNotificacao, nextConfig);
+      setNotificationConfig(nextConfig);
+      setDiasAntecedenciaInput(String(nextConfig.diasAntecedenciaVencimento));
+      setPercentualDivisaoInput(
+        formatarPercentualInput(nextConfig.percentualPadraoDivisao),
       );
-  }, []);
+      setMessage("Configurações de notificações atualizadas.");
+    },
+    onError: (requestError) => {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : extractMessage(
+              requestError,
+              "Não foi possível salvar as configurações de notificações.",
+            ),
+      );
+    },
+  });
 
   function handleSelectPalette(paletteId: AppPaletteId) {
     setSelectedPalette(paletteId);
@@ -68,9 +87,12 @@ export function SettingsPage() {
 
   async function handleSalvarNotificacoes(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (salvarNotificacoesMutation.isPending) {
+      return;
+    }
+
     setMessage(null);
     setError(null);
-    setIsSavingNotifications(true);
 
     try {
       const diasAntecedencia = Number(diasAntecedenciaInput);
@@ -94,22 +116,11 @@ export function SettingsPage() {
         throw new Error("Informe o percentual padrão entre 0,01% e 100%.");
       }
 
-      const nextConfig = await notificationService.atualizarConfiguracoes(
-        {
-          ...notificationConfig,
-          diasAntecedenciaVencimento: diasAntecedencia,
-          percentualPadraoDivisao: percentualDivisao,
-        },
-      );
-
-      setNotificationConfig(nextConfig);
-      setDiasAntecedenciaInput(
-        String(nextConfig.diasAntecedenciaVencimento),
-      );
-      setPercentualDivisaoInput(
-        formatarPercentualInput(nextConfig.percentualPadraoDivisao),
-      );
-      setMessage("Configurações de notificações atualizadas.");
+      salvarNotificacoesMutation.mutate({
+        ...notificationConfig,
+        diasAntecedenciaVencimento: diasAntecedencia,
+        percentualPadraoDivisao: percentualDivisao,
+      });
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -119,8 +130,6 @@ export function SettingsPage() {
               "Não foi possível salvar as configurações de notificações.",
             ),
       );
-    } finally {
-      setIsSavingNotifications(false);
     }
   }
 
@@ -169,13 +178,22 @@ export function SettingsPage() {
         </div>
 
         {message && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200" role="status">
             {message}
           </div>
         )}
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {error}
+        {(error || configuracoesQuery.isError) && (
+          <div className="flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200 sm:flex-row sm:items-center sm:justify-between" role="alert">
+            <span>{error ?? "Não foi possível carregar as configurações de notificações."}</span>
+            {configuracoesQuery.isError && (
+              <button
+                className="rounded-xl bg-red-100 px-3 py-2 font-bold text-red-700 dark:bg-red-900/50 dark:text-red-100"
+                type="button"
+                onClick={() => configuracoesQuery.refetch()}
+              >
+                Tentar novamente
+              </button>
+            )}
           </div>
         )}
 
@@ -223,8 +241,9 @@ export function SettingsPage() {
             Notificações
           </h3>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <ToggleField
+              <ToggleField
               checked={notificationConfig.receberNotificacoes}
+              disabled={configuracoesQuery.isLoading}
               label="Receber notificações"
               onChange={(checked) =>
                 setNotificationConfig((current) => ({
@@ -235,7 +254,7 @@ export function SettingsPage() {
             />
             <ToggleField
               checked={notificationConfig.avisarVencimento}
-              disabled={!notificationConfig.receberNotificacoes}
+              disabled={configuracoesQuery.isLoading || !notificationConfig.receberNotificacoes}
               label="Avisar vencimentos"
               onChange={(checked) =>
                 setNotificationConfig((current) => ({
@@ -246,7 +265,7 @@ export function SettingsPage() {
             />
             <ToggleField
               checked={notificationConfig.avisarMelhorDia}
-              disabled={!notificationConfig.receberNotificacoes}
+              disabled={configuracoesQuery.isLoading || !notificationConfig.receberNotificacoes}
               label="Avisar melhor dia de compra"
               onChange={(checked) =>
                 setNotificationConfig((current) => ({
@@ -257,7 +276,7 @@ export function SettingsPage() {
             />
             <label
               className={`block ${
-                !notificationConfig.receberNotificacoes
+                configuracoesQuery.isLoading || !notificationConfig.receberNotificacoes
                   ? "pointer-events-none opacity-50"
                   : ""
               }`}
@@ -268,7 +287,7 @@ export function SettingsPage() {
               <input
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                 type="number"
-                disabled={!notificationConfig.receberNotificacoes}
+                disabled={configuracoesQuery.isLoading || !notificationConfig.receberNotificacoes}
                 min={0}
                 max={30}
                 value={diasAntecedenciaInput}
@@ -307,10 +326,10 @@ export function SettingsPage() {
           <div className="mt-5 flex justify-end">
             <button
               className="rounded-xl bg-[var(--app-accent)] px-6 py-2.5 font-medium text-[var(--app-accent-contrast)] shadow-sm disabled:opacity-60 dark:bg-white dark:text-slate-950"
-              disabled={isSavingNotifications}
+              disabled={salvarNotificacoesMutation.isPending || configuracoesQuery.isLoading}
               type="submit"
             >
-              {isSavingNotifications ? "Salvando..." : "Salvar configurações"}
+              {salvarNotificacoesMutation.isPending ? "Salvando..." : "Salvar configurações"}
             </button>
           </div>
         </form>

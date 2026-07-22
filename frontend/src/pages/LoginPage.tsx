@@ -16,26 +16,37 @@ export function LoginPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) {
+      return;
+    }
+
     setErro(null);
+    const emailNormalizado = email.trim().toLowerCase();
+
+    if (!emailNormalizado || !senha) {
+      setErro("Informe e-mail e senha.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      await login({ email, senha });
+      await login({ email: emailNormalizado, senha });
       const redirectParam = new URLSearchParams(location.search).get("redirect");
       const redirectTo = redirectParam || location.state?.from?.pathname || "/";
       navigate(redirectTo, { replace: true });
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 401) {
-        setErro("E-mail ou senha invalidos.");
+        setErro("E-mail ou senha inválidos.");
         return;
       }
 
       if (axios.isAxiosError(error) && !error.response) {
-        setErro("Nao foi possivel conectar ao backend local. Verifique se a API esta rodando em http://localhost:5000.");
+        setErro("Não foi possível conectar ao backend local. Verifique se a API está rodando em http://localhost:5000.");
         return;
       }
 
-      setErro("Nao foi possivel entrar agora. Tente novamente em instantes.");
+      setErro("Não foi possível entrar agora. Tente novamente em instantes.");
     } finally {
       setIsSubmitting(false);
     }
@@ -119,7 +130,7 @@ export function LoginPage() {
           </div> */}
 
           {erro && (
-            <p className="mt-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
+            <p className="mt-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600" role="alert">
               {erro}
             </p>
           )}

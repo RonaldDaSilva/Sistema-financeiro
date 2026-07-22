@@ -6,8 +6,8 @@ import type {
   UserProfile,
 } from '../types/auth';
 
-export async function obterPerfil() {
-  const { data } = await api.get<UserProfile>('/api/usuarios/me');
+export async function obterPerfil(signal?: AbortSignal) {
+  const { data } = await api.get<UserProfile>('/api/usuarios/me', { signal });
   return data;
 }
 

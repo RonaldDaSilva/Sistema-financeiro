@@ -1,8 +1,9 @@
 import { FormEvent, Suspense, lazy, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { EmojiClickData } from "emoji-picker-react";
 import { Folder, Pencil, Plus, Trash2 } from "lucide-react";
 import { AppLayout } from "../components/AppLayout";
+import { useConfirmDialog } from "../components/ConfirmDialog";
 import { useCategorias } from "../hooks/queries/useFinanceQueries";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import * as financeService from "../services/financeService";
@@ -20,6 +21,7 @@ const emptyForm: CategoryForm = {
 
 export function CategoriesPage() {
   const queryClient = useQueryClient();
+  const { confirm, dialog } = useConfirmDialog();
   const categoriasQuery = useCategorias();
   const categorias = categoriasQuery.data ?? [];
   const [form, setForm] = useState<CategoryForm>(emptyForm);
@@ -27,23 +29,46 @@ export function CategoriesPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setErro(null);
-
-    try {
-      if (editingId) {
-        await financeService.atualizarCategoria(editingId, form);
-      } else {
-        await financeService.criarCategoria(form);
-      }
-
+  const salvarCategoriaMutation = useMutation({
+    mutationFn: (request: CategoryForm & { id?: string }) =>
+      request.id
+        ? financeService.atualizarCategoria(request.id, { nome: request.nome })
+        : financeService.criarCategoria({ nome: request.nome }),
+    onSuccess: async () => {
       setForm(emptyForm);
       setEditingId(null);
       await queryClient.invalidateQueries({ queryKey: queryKeys.categorias });
-    } catch {
-      setErro("Nao foi possivel salvar a categoria.");
+    },
+    onError: () => {
+      setErro("Não foi possível salvar a categoria.");
+    },
+  });
+
+  const excluirCategoriaMutation = useMutation({
+    mutationFn: financeService.excluirCategoria,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.categorias });
+    },
+    onError: () => {
+      setErro("Não foi possível excluir a categoria.");
+    },
+  });
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (salvarCategoriaMutation.isPending) {
+      return;
     }
+
+    setErro(null);
+    const nome = form.nome.trim();
+
+    if (!nome) {
+      setErro("Informe o nome da categoria.");
+      return;
+    }
+
+    salvarCategoriaMutation.mutate({ id: editingId ?? undefined, nome });
   }
 
   function editar(categoria: Categoria) {
@@ -58,16 +83,23 @@ export function CategoriesPage() {
 
   async function excluir(categoria: Categoria) {
     if (categoria.isDefault) {
-      setErro("Categorias padrao nao podem ser excluidas.");
+      setErro("Categorias padrão não podem ser excluídas.");
       return;
     }
 
-    try {
-      await financeService.excluirCategoria(categoria.id);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.categorias });
-    } catch {
-      setErro("Nao foi possivel excluir a categoria.");
+    const confirmed = await confirm({
+      title: "Excluir categoria",
+      message: `Excluir a categoria "${categoria.nome}"? Esta ação não remove lançamentos já cadastrados.`,
+      confirmLabel: "Excluir",
+      variant: "danger",
+    });
+
+    if (!confirmed) {
+      return;
     }
+
+    setErro(null);
+    excluirCategoriaMutation.mutate(categoria.id);
   }
 
   return (
@@ -93,6 +125,7 @@ export function CategoriesPage() {
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 pr-12 text-sm text-slate-900 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                   value={form.nome}
                   onChange={(event) => setForm({ nome: event.target.value })}
+                  disabled={salvarCategoriaMutation.isPending}
                   required
                 />
                 <button
@@ -129,8 +162,9 @@ export function CategoriesPage() {
             <button
               className="rounded-lg bg-[var(--app-accent)] px-4 py-2 font-medium text-[var(--app-accent-contrast)] shadow-sm transition-colors hover:opacity-90 dark:bg-white dark:text-slate-950"
               type="submit"
+              disabled={salvarCategoriaMutation.isPending}
             >
-              Salvar
+              {salvarCategoriaMutation.isPending ? "Salvando..." : "Salvar"}
             </button>
             {editingId && (
               <button
@@ -145,7 +179,7 @@ export function CategoriesPage() {
               </button>
             )}
           </div>
-          {erro && <p className="mt-4 text-sm text-red-600">{erro}</p>}
+          {erro && <p className="mt-4 text-sm text-red-600 dark:text-red-300" role="alert">{erro}</p>}
         </form>
 
         <div className="space-y-4">
@@ -156,12 +190,28 @@ export function CategoriesPage() {
             </h2>
           </div>
           {categoriasQuery.isLoading ? (
-            <div className="rounded-2xl bg-[var(--app-card)] p-6 text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
-              Carregando categorias...
+            <div className="space-y-3 rounded-2xl bg-[var(--app-card)] p-6 shadow-sm dark:bg-slate-900">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div
+                  className="h-14 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-950"
+                  key={index}
+                />
+              ))}
             </div>
           ) : categoriasQuery.isError ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
-              Não foi possível carregar as categorias.
+            <div className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200 sm:flex-row sm:items-center sm:justify-between" role="alert">
+              <span>Não foi possível carregar as categorias.</span>
+              <button
+                className="rounded-xl bg-red-100 px-3 py-2 text-sm font-bold text-red-700 dark:bg-red-900/50 dark:text-red-100"
+                type="button"
+                onClick={() => categoriasQuery.refetch()}
+              >
+                Tentar novamente
+              </button>
+            </div>
+          ) : categorias.length === 0 ? (
+            <div className="rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-6 text-sm font-semibold text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+              Nenhuma categoria cadastrada. Crie a primeira usando o formulário ao lado.
             </div>
           ) : (
             <div className="overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -202,6 +252,7 @@ export function CategoriesPage() {
                       type="button"
                       disabled={categoria.isDefault}
                       onClick={() => excluir(categoria)}
+                      aria-label={`Excluir categoria ${categoria.nome}`}
                       title="Excluir categoria"
                     >
                       <Trash2 size={18} />
@@ -213,6 +264,7 @@ export function CategoriesPage() {
           )}
         </div>
       </section>
+      {dialog}
     </AppLayout>
   );
 }

@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import axios from 'axios';
 import { Eye, EyeOff, IdCard, LockKeyhole, Mail, Phone, User, WalletCards } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/useAuth';
@@ -36,20 +37,37 @@ export function RegisterPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) {
+      return;
+    }
+
     setErro(null);
+    const nomeNormalizado = nome.trim();
+    const emailNormalizado = email.trim().toLowerCase();
+
+    if (!nomeNormalizado || !emailNormalizado || senha.length < 8) {
+      setErro('Informe nome, e-mail e uma senha com pelo menos 8 caracteres.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       await register({
-        nome,
-        email,
+        nome: nomeNormalizado,
+        email: emailNormalizado,
         telefone: telefone || undefined,
         cpf: cpf || undefined,
         senha,
       });
       navigate('/', { replace: true });
-    } catch {
-      setErro('Nao foi possivel criar sua conta.');
+    } catch (error) {
+      if (axios.isAxiosError(error) && !error.response) {
+        setErro('Não foi possível conectar ao backend local. Verifique se a API está rodando em http://localhost:5000.');
+        return;
+      }
+
+      setErro(extractMessage(error, 'Não foi possível criar sua conta.'));
     } finally {
       setIsSubmitting(false);
     }
@@ -168,7 +186,7 @@ export function RegisterPage() {
           </div>
 
           {erro && (
-            <p className="mt-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600">
+            <p className="mt-5 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-600" role="alert">
               {erro}
             </p>
           )}
@@ -191,5 +209,24 @@ export function RegisterPage() {
       </section>
     </main>
   );
+}
+
+function extractMessage(error: unknown, fallback: string) {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'response' in error &&
+    typeof error.response === 'object' &&
+    error.response !== null &&
+    'data' in error.response &&
+    typeof error.response.data === 'object' &&
+    error.response.data !== null &&
+    'message' in error.response.data &&
+    typeof error.response.data.message === 'string'
+  ) {
+    return error.response.data.message;
+  }
+
+  return fallback;
 }
 

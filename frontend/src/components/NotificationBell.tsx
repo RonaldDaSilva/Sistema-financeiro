@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import * as notificationService from "../services/notificationService";
 import { useNotificacoesNaoLidas } from "../hooks/queries/useNotificationQueries";
@@ -13,10 +13,22 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
   const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
   const [canLoadNotifications, setCanLoadNotifications] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { data: notificacoes = [], isLoading } = useNotificacoesNaoLidas(
     canLoadNotifications || isOpen,
   );
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const marcarComoLidasMutation = useMutation({
+    mutationFn: notificationService.marcarTodasComoLidas,
+    onSuccess: () => {
+      queryClient.setQueryData(queryKeys.notificacoesNaoLidas, []);
+      setError(null);
+      setIsOpen(false);
+    },
+    onError: () => {
+      setError("Não foi possível marcar as notificações como lidas.");
+    },
+  });
 
   useEffect(() => {
     const timer = window.setTimeout(() => setCanLoadNotifications(true), 2500);
@@ -35,9 +47,11 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
   }, []);
 
   async function handleMarcarComoLidas() {
-    await notificationService.marcarTodasComoLidas();
-    queryClient.setQueryData(queryKeys.notificacoesNaoLidas, []);
-    setIsOpen(false);
+    if (marcarComoLidasMutation.isPending || notificacoes.length === 0) {
+      return;
+    }
+
+    marcarComoLidasMutation.mutate();
   }
 
   const dropdownClass =
@@ -51,6 +65,8 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
         className="relative flex h-10 w-10 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
         type="button"
         aria-label="Notificações"
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
         onClick={() => setIsOpen((current) => !current)}
       >
         <Bell size={20} />
@@ -70,14 +86,19 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
             <button
               className="shrink-0 text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50 dark:text-slate-300 dark:hover:text-white"
               type="button"
-              disabled={notificacoes.length === 0}
+              disabled={notificacoes.length === 0 || marcarComoLidasMutation.isPending}
               onClick={handleMarcarComoLidas}
             >
-              Marcar todas como lidas
+              {marcarComoLidasMutation.isPending ? "Marcando..." : "Marcar todas como lidas"}
             </button>
           </div>
 
           <div className="max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto">
+            {error && (
+              <p className="border-b border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200" role="alert">
+                {error}
+              </p>
+            )}
             {isLoading && notificacoes.length === 0 ? (
               <p className="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">
                 Carregando...

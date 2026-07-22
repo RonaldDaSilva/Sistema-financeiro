@@ -1,5 +1,6 @@
 import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
 import * as financeService from "../../services/financeService";
+import * as userService from "../../services/userService";
 import { hasUsableStoredAuth } from "../../services/authStorage";
 import { queryKeys } from "./queryKeys";
 import type {
@@ -191,6 +192,17 @@ export function useDashboardInicio(params: DashboardInicioParams = {}, enabled =
     enabled: enabled && canFetch,
     placeholderData: keepPreviousData,
     staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function usePerfilUsuario(enabled = true) {
+  const canFetch = hasUsableStoredAuth();
+
+  return useQuery({
+    queryKey: queryKeys.perfilUsuario,
+    queryFn: ({ signal }) => userService.obterPerfil(signal),
+    enabled: enabled && canFetch,
+    staleTime: 10 * 60 * 1000,
   });
 }
 

@@ -87,6 +87,17 @@ export function AppLayout({ children }: AppLayoutProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   return (
     <main
       className="min-h-screen min-h-dvh w-full font-sans text-slate-800 selection:bg-slate-900 selection:text-white dark:bg-slate-950 dark:text-slate-100"
@@ -116,7 +127,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             </h1>
           </NavLink>
 
-          <nav className="hidden items-center space-x-2 rounded-2xl bg-slate-100/60 p-1 dark:bg-slate-800/70 md:flex">
+          <nav className="hidden items-center space-x-2 rounded-2xl bg-slate-100/60 p-1 dark:bg-slate-800/70 md:flex" aria-label="Navegação principal">
             {navItems.map((item) => (
               <NavLink
                 className={({ isActive }) =>
@@ -205,7 +216,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               )}
             </NavLink>
 
-            <nav className="flex flex-1 flex-col gap-2">
+            <nav className="flex flex-1 flex-col gap-2" aria-label="Navegação principal">
               {navItems.map(({ to, label, Icon }) => (
                 <NavLink
                   className={({ isActive }) =>
@@ -290,7 +301,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         </div>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color:var(--app-card-border)] bg-[var(--app-card)]/95 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_42px_rgba(15,23,42,0.12)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95 md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color:var(--app-card-border)] bg-[var(--app-card)]/95 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_42px_rgba(15,23,42,0.12)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95 md:hidden" aria-label="Navegação principal mobile">
         <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
           {navItems.map(({ to, label, Icon }) => (
             <NavLink
