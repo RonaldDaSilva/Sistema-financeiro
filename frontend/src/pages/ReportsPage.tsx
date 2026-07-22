@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Bar,
@@ -51,6 +51,13 @@ import {
 type TabRelatorio = "projecao" | "previsto" | "evolucao" | "compromissos" | "categorias";
 
 const chartTick = { fill: "currentColor", fontSize: 12 };
+const TAB_SECOES: Record<TabRelatorio, Array<"projecao" | "previsto" | "evolucao" | "compromissos" | "categorias">> = {
+  projecao: ["projecao"],
+  previsto: ["previsto"],
+  evolucao: ["evolucao"],
+  compromissos: ["compromissos"],
+  categorias: ["categorias"],
+};
 
 export function ReportsPage() {
   const navigate = useNavigate();
@@ -78,7 +85,8 @@ export function ReportsPage() {
   const contasQuery = useContas();
   const cartoesQuery = useCartoes();
   const categoriasQuery = useCategorias();
-  const relatoriosQuery = useRelatorioGraficos({
+  const relatorioParams = useMemo(
+    () => ({
     dataInicial: periodo.dataInicial,
     dataFinal: periodo.dataFinal,
     contaBancariaId: contaBancariaId || null,
@@ -88,40 +96,74 @@ export function ReportsPage() {
     status,
     somenteRecorrentes,
     somenteParceladas,
-  });
+    }),
+    [
+      cartaoCreditoId,
+      categoriaIds,
+      contaBancariaId,
+      periodo.dataFinal,
+      periodo.dataInicial,
+      somenteParceladas,
+      somenteRecorrentes,
+      status,
+      tipoTransacao,
+    ],
+  );
 
-  const relatorio = relatoriosQuery.data;
+  const resumoQuery = useRelatorioGraficos(relatorioParams, ["resumo"]);
+  const abaQuery = useRelatorioGraficos(
+    relatorioParams,
+    TAB_SECOES[tab],
+    resumoQuery.isSuccess,
+  );
+
+  const relatorioResumo = resumoQuery.data;
+  const relatorioAba = abaQuery.data;
   const chartData = useMemo(
     () =>
-      (relatorio?.projecaoDiaria ?? []).map((item) => ({
+      (relatorioAba?.projecaoDiaria ?? []).map((item) => ({
         ...item,
         dataReferencia: item.data,
         saidasNegativas: -Math.abs(item.saidas),
       })),
-    [relatorio?.projecaoDiaria],
+    [relatorioAba?.projecaoDiaria],
   );
   const periodosNegativos = useMemo(
     () => getNegativeRanges(chartData),
     [chartData],
   );
-  const totalCategorias = (relatorio?.despesasPorCategoria ?? []).reduce(
-    (total, item) => total + item.valor,
-    0,
+  const totalCategorias = useMemo(
+    () =>
+      (relatorioAba?.despesasPorCategoria ?? []).reduce(
+        (total, item) => total + item.valor,
+        0,
+      ),
+    [relatorioAba?.despesasPorCategoria],
   );
 
-  function updateFilters(partial: Partial<ReportFilters>) {
-    setSearchParams(buildReportSearchParams({ ...filtros, ...partial }));
-  }
+  const isAbaLoading =
+    resumoQuery.isSuccess &&
+    (abaQuery.isLoading || (abaQuery.isFetching && !abaQuery.data));
 
-  function toggleCategoria(id: string) {
-    updateFilters(
+  const updateFilters = useCallback(
+    (partial: Partial<ReportFilters>) => {
+      setSearchParams(buildReportSearchParams({ ...filtros, ...partial }));
+    },
+    [filtros, setSearchParams],
+  );
+
+  const toggleCategoria = useCallback(
+    (id: string) => {
+      updateFilters(
       categoriaIds.includes(id)
         ? { categoriaIds: categoriaIds.filter((categoriaId) => categoriaId !== id) }
         : { categoriaIds: [...categoriaIds, id] },
-    );
-  }
+      );
+    },
+    [categoriaIds, updateFilters],
+  );
 
-  function limparFiltros() {
+  const limparFiltros = useCallback(() => {
     updateFilters({
       contaBancariaId: "",
       cartaoCreditoId: "",
@@ -131,9 +173,9 @@ export function ReportsPage() {
       somenteRecorrentes: false,
       somenteParceladas: false,
     });
-  }
+  }, [updateFilters]);
 
-  function abrirExtratoDaCategoria(categoriaId: string | null) {
+  const abrirExtratoDaCategoria = useCallback((categoriaId: string | null) => {
     if (!categoriaId) {
       return;
     }
@@ -148,7 +190,7 @@ export function ReportsPage() {
     }
 
     navigate(`/?${params.toString()}#movimentacoes-recentes`);
-  }
+  }, [contaBancariaId, navigate, periodo.dataFinal, periodo.dataInicial]);
 
   return (
     <AppLayout>
@@ -294,13 +336,13 @@ export function ReportsPage() {
           </div>
         </div>
 
-        {relatoriosQuery.isError && (
+        {resumoQuery.isError && (
           <div className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200 sm:flex-row sm:items-center sm:justify-between">
             Não foi possível carregar os relatórios.
             <button
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-100 px-3 py-2 font-black text-red-700 dark:bg-red-900/40 dark:text-red-100"
               type="button"
-              onClick={() => relatoriosQuery.refetch()}
+              onClick={() => resumoQuery.refetch()}
             >
               <RefreshCw size={16} />
               Tentar novamente
@@ -308,7 +350,7 @@ export function ReportsPage() {
           </div>
         )}
 
-        <KpiGrid relatorio={relatorio} isLoading={relatoriosQuery.isLoading} />
+        <KpiGrid relatorio={relatorioResumo} isLoading={resumoQuery.isLoading} />
 
         <div className="flex gap-2 overflow-x-auto rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-2 dark:border-slate-800 dark:bg-slate-900" aria-label="Abas de relatórios">
           {[
@@ -347,7 +389,7 @@ export function ReportsPage() {
               </div>
             )}
             <div className="mt-5 h-[340px] min-h-[300px] min-w-0 overflow-hidden md:h-[460px]">
-              {relatoriosQuery.isLoading ? (
+              {isAbaLoading ? (
                 <Skeleton className="h-full" />
               ) : chartData.length === 0 ? (
                 <EmptyState message="Sem dados para projetar neste período." />
@@ -445,14 +487,14 @@ export function ReportsPage() {
               badge={formatCurrency(totalCategorias)}
             />
             <div className="mt-5 space-y-4">
-              {relatoriosQuery.isLoading ? (
+              {isAbaLoading ? (
                 Array.from({ length: 5 }).map((_, index) => (
                   <Skeleton key={index} className="h-14" />
                 ))
-              ) : (relatorio?.despesasPorCategoria ?? []).length === 0 ? (
+              ) : (relatorioAba?.despesasPorCategoria ?? []).length === 0 ? (
                 <EmptyState message="Nenhuma despesa encontrada para o filtro selecionado." />
               ) : (
-                relatorio!.despesasPorCategoria.map((item, index) => {
+                relatorioAba!.despesasPorCategoria.map((item, index) => {
                   const percentual = totalCategorias <= 0 ? 0 : (item.valor / totalCategorias) * 100;
                   return (
                     <button
@@ -501,11 +543,11 @@ export function ReportsPage() {
           <SimpleListSection
             title="Previsto versus realizado"
             subtitle="Visão de consumo por competência; pagamento de fatura impacta apenas caixa"
-            rows={(relatorio?.previstoVersusRealizado ?? []).map((item) => ({
+            rows={(relatorioAba?.previstoVersusRealizado ?? []).map((item) => ({
               label: item.nome,
               value: `${formatCurrency(item.realizado)} / ${formatCurrency(item.previsto)}`,
             }))}
-            loading={relatoriosQuery.isLoading}
+            loading={isAbaLoading}
           />
         )}
 
@@ -513,20 +555,34 @@ export function ReportsPage() {
           <SimpleListSection
             title="Evolução mensal"
             subtitle="Consumo por competência, sem duplicar pagamento de fatura"
-            rows={(relatorio?.evolucaoMensal ?? []).map((item) => ({
+            rows={(relatorioAba?.evolucaoMensal ?? []).map((item) => ({
               label: `${String(item.mes).padStart(2, "0")}/${item.ano}`,
               value: `Resultado ${formatCurrency(item.saldo)}`,
               detail: `R ${formatCurrency(item.receitas)} · D ${formatCurrency(item.despesas)} · I ${formatCurrency(item.investimentos)}`,
             }))}
-            loading={relatoriosQuery.isLoading}
+            loading={isAbaLoading}
           />
         )}
 
         {tab === "compromissos" && (
           <CompromissosFuturosSection
-            compromissos={relatorio?.compromissosFuturos ?? []}
-            loading={relatoriosQuery.isLoading}
+            compromissos={relatorioAba?.compromissosFuturos ?? []}
+            loading={isAbaLoading}
           />
+        )}
+
+        {abaQuery.isError && resumoQuery.isSuccess && (
+          <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between">
+            Não foi possível carregar esta aba. Os indicadores acima foram preservados.
+            <button
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-100 px-3 py-2 font-black text-amber-800 dark:bg-amber-900/40 dark:text-amber-100"
+              type="button"
+              onClick={() => abaQuery.refetch()}
+            >
+              <RefreshCw size={16} />
+              Tentar novamente
+            </button>
+          </div>
         )}
       </section>
     </AppLayout>

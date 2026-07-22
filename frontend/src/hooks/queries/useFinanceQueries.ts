@@ -10,6 +10,7 @@ import type {
 } from "../../types/finance";
 import type {
   DashboardInicioParams,
+  RelatorioGraficosSecao,
   RelatorioGraficosParams,
 } from "../../services/financeService";
 
@@ -136,8 +137,11 @@ export function useFaturaMes(mes: number, ano: number, enabled = true) {
 
 export function useRelatorioGraficos(
   params: RelatorioGraficosParams,
+  secoes: RelatorioGraficosSecao[] = [],
+  enabled = true,
 ) {
   const canFetch = hasUsableStoredAuth();
+  const secoesNormalizadas = normalizarSecoesRelatorio(secoes);
 
   return useQuery({
     queryKey: queryKeys.relatorios(
@@ -150,13 +154,24 @@ export function useRelatorioGraficos(
       params.status ?? "todos",
       params.somenteRecorrentes ?? false,
       params.somenteParceladas ?? false,
+      secoesNormalizadas,
     ),
     queryFn: ({ signal }) =>
-      financeService.getRelatorioGraficos(params, signal),
-    enabled: canFetch && Boolean(params.dataInicial) && Boolean(params.dataFinal),
-    placeholderData: keepPreviousData,
+      financeService.getRelatorioGraficos(
+        {
+          ...params,
+          secoes: secoesNormalizadas,
+        },
+        signal,
+      ),
+    enabled: enabled && canFetch && Boolean(params.dataInicial) && Boolean(params.dataFinal),
     staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
   });
+}
+
+function normalizarSecoesRelatorio(secoes: RelatorioGraficosSecao[]) {
+  return [...new Set(secoes)].sort();
 }
 
 export function useDashboardInicio(params: DashboardInicioParams = {}, enabled = true) {

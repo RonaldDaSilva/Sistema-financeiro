@@ -71,9 +71,11 @@ export const queryKeys = {
     status = "todos",
     somenteRecorrentes = false,
     somenteParceladas = false,
+    secoes: string[] = [],
   ) =>
     [
       "relatorios",
+      normalizeKeyList(secoes),
       dataInicial,
       dataFinal,
       contaBancariaId,

@@ -41,7 +41,16 @@ export type RelatorioGraficosParams = {
   status?: 'todos' | 'realizado' | 'pendente';
   somenteRecorrentes?: boolean;
   somenteParceladas?: boolean;
+  secoes?: RelatorioGraficosSecao[];
 };
+
+export type RelatorioGraficosSecao =
+  | 'resumo'
+  | 'projecao'
+  | 'previsto'
+  | 'evolucao'
+  | 'compromissos'
+  | 'categorias';
 
 export type DashboardInicioParams = {
   dataInicial?: string;
@@ -218,6 +227,7 @@ export async function getRelatorioGraficos(params: RelatorioGraficosParams, sign
       status: params.status && params.status !== 'todos' ? params.status : undefined,
       somenteRecorrentes: params.somenteRecorrentes || undefined,
       somenteParceladas: params.somenteParceladas || undefined,
+      secoes: params.secoes?.length ? params.secoes : undefined,
     },
     signal,
   });
