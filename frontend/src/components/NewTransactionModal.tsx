@@ -339,7 +339,7 @@ export function NewTransactionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
       <form
         className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-[var(--app-card)] shadow-2xl dark:bg-slate-900"
         onSubmit={handleSubmit}

@@ -642,7 +642,10 @@ function KpiGrid({
         )}
       </KpiSection>
 
-      <KpiSection title="Posição financeira">
+      <KpiSection
+        title="Posição financeira"
+        gridClassName="grid grid-cols-1 items-start gap-4 md:grid-cols-2"
+      >
         {isLoading ? (
           <>
             <Skeleton className="h-32" />
@@ -673,9 +676,13 @@ function KpiGrid({
         )}
       </KpiSection>
 
-      <KpiSection title="Indicadores secundários">
+      <KpiSection
+        title="Indicadores secundários"
+        description={<ComparisonPeriodNote comparisonPeriod={comparisonPeriod} />}
+        gridClassName="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+      >
         {isLoading ? (
-          <SkeletonGrid count={4} />
+          <SkeletonGrid count={3} />
         ) : (
           <>
             <KpiCard
@@ -684,12 +691,6 @@ function KpiGrid({
               colorClass="text-purple-600 dark:text-purple-300"
               tooltip="Percentual das receitas realizadas que não foi consumido pelas despesas do período."
               comparisonPeriod={comparisonPeriod}
-            />
-            <MetricCard
-              title="Comparação"
-              value={comparisonPeriod ?? "Sem período anterior"}
-              helper="Base dos percentuais exibidos nos cards."
-              tooltip="Variação em relação ao período imediatamente anterior de mesma duração."
             />
             <MetricCard
               title="Receitas previstas"
@@ -710,14 +711,53 @@ function KpiGrid({
   );
 }
 
-function KpiSection({ title, children }: { title: string; children: ReactNode }) {
+function KpiSection({
+  title,
+  description,
+  children,
+  gridClassName = "grid gap-4 md:grid-cols-2 2xl:grid-cols-4",
+}: {
+  title: string;
+  description?: ReactNode;
+  children: ReactNode;
+  gridClassName?: string;
+}) {
   return (
     <section className="space-y-3">
-      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        {title}
-      </h2>
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">{children}</div>
+      <div className="space-y-1">
+        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          {title}
+        </h2>
+        {description}
+      </div>
+      <div className={gridClassName}>{children}</div>
     </section>
+  );
+}
+
+function ComparisonPeriodNote({ comparisonPeriod }: { comparisonPeriod: string | null }) {
+  if (!comparisonPeriod) {
+    return (
+      <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+        Comparações sem base de período anterior.
+      </p>
+    );
+  }
+
+  return (
+    <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-semibold text-slate-500 dark:text-slate-400">
+      <span className="min-w-0 break-words">
+        Comparações com o período de{" "}
+        <span className="font-black text-slate-700 dark:text-slate-200">
+          {comparisonPeriod}
+        </span>
+      </span>
+      <span className="shrink-0">
+        <InfoTooltip label="Comparação com período anterior">
+          Variação em relação ao período imediatamente anterior de mesma duração.
+        </InfoTooltip>
+      </span>
+    </p>
   );
 }
 
@@ -743,17 +783,19 @@ function DisponivelCompromissosCard({
   const dataLimiteText = dataLimite ? formatDate(dataLimite) : "o fim do período";
   return (
     <article className="min-w-0 rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5 md:col-span-2">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(280px,1.2fr)] xl:items-start">
+        <div className="min-w-0 overflow-hidden">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <p className="min-w-0 text-sm font-bold text-slate-500 dark:text-slate-400">
               Disponível após compromissos
             </p>
-            <InfoTooltip label="Disponível após compromissos">
-              Saldo atual descontando as obrigações e investimentos ainda pendentes até a data final selecionada.
-            </InfoTooltip>
+            <span className="shrink-0">
+              <InfoTooltip label="Disponível após compromissos">
+                Saldo atual descontando as obrigações e investimentos ainda pendentes até a data final selecionada.
+              </InfoTooltip>
+            </span>
           </div>
-          <p className="mt-3 max-w-full whitespace-nowrap text-[clamp(2rem,4vw,2.75rem)] font-black leading-tight text-[var(--app-primary)]">
+          <p className="mt-3 max-w-full whitespace-nowrap text-[clamp(1.7rem,2.6vw,3rem)] font-black leading-tight text-[var(--app-primary)]">
             {formatCurrency(disponivel?.disponivelAposCompromissos ?? 0)}
           </p>
           <p className="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -765,7 +807,7 @@ function DisponivelCompromissosCard({
             </p>
           )}
         </div>
-        <dl className="grid min-w-0 gap-2 lg:min-w-[360px]">
+        <dl className="min-w-0 divide-y divide-[color:var(--app-card-border)] overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] px-3 dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-950/70 sm:px-4">
           <MetricDetail
             label="Saldo atual"
             value={formatCurrency(disponivel?.saldoAtual ?? 0)}
@@ -816,12 +858,16 @@ function MetricDetail({
   strong?: boolean;
 }) {
   return (
-    <div className={`min-w-0 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-3 dark:border-slate-700 dark:bg-slate-950/80 ${strong ? "ring-1 ring-[var(--app-primary)]/30" : ""}`}>
-      <dt className="flex min-w-0 items-center justify-between gap-2 text-xs font-bold text-slate-600 dark:text-slate-300">
+    <div className={`flex min-w-0 flex-col gap-1 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-4 ${strong ? "bg-[var(--app-primary)]/5 -mx-3 px-3 dark:bg-blue-400/10 sm:-mx-4 sm:px-4" : ""}`}>
+      <dt className="flex min-w-0 items-start gap-2 text-xs font-bold text-slate-600 dark:text-slate-300 sm:max-w-[60%]">
         <span className="min-w-0 break-words">{label}</span>
-        {tooltip && <InfoTooltip label={label}>{tooltip}</InfoTooltip>}
+        {tooltip && (
+          <span className="shrink-0">
+            <InfoTooltip label={label}>{tooltip}</InfoTooltip>
+          </span>
+        )}
       </dt>
-      <dd className={`mt-1 max-w-full whitespace-nowrap text-base font-black ${strong ? "text-[var(--app-primary)] dark:text-blue-200" : "text-slate-900 dark:text-white"}`}>
+      <dd className={`max-w-full whitespace-nowrap text-left text-sm font-black leading-tight sm:text-right sm:text-base ${strong ? "text-[var(--app-primary)] dark:text-blue-200" : "text-slate-900 dark:text-white"}`}>
         {value}
       </dd>
     </div>
@@ -931,7 +977,7 @@ function MetricCard({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-bold text-slate-500 dark:text-slate-400">{title}</p>
-          <p className="mt-3 max-w-full whitespace-nowrap text-[clamp(1.875rem,3vw,2.25rem)] font-black leading-tight text-slate-900 dark:text-white">
+          <p className="mt-3 max-w-full whitespace-nowrap text-[clamp(1.55rem,2.2vw,2.15rem)] font-black leading-tight text-slate-900 dark:text-white">
             {value}
           </p>
         </div>
@@ -965,7 +1011,7 @@ function KpiCard({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-bold text-slate-500 dark:text-slate-400">{title}</p>
-          <p className={`mt-3 max-w-full whitespace-nowrap text-[clamp(1.875rem,3vw,2.25rem)] font-black leading-tight ${colorClass}`}>
+          <p className={`mt-3 max-w-full whitespace-nowrap text-[clamp(1.55rem,2.2vw,2.15rem)] font-black leading-tight ${colorClass}`}>
             {formatKpiValue(value, isPercent)}
           </p>
         </div>
@@ -989,7 +1035,7 @@ function KpiCard({
       </p>
       {comparisonPeriod && (
         <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
-          Comparado a {comparisonPeriod}
+          Comparado ao período de {comparisonPeriod}
         </p>
       )}
     </article>
@@ -1189,7 +1235,7 @@ function formatComparisonPeriod(relatorio: RelatorioGraficos | undefined) {
     return null;
   }
 
-  return `${formatDate(relatorio.dataInicialPeriodoAnterior)}-${formatDate(
+  return `${formatDate(relatorio.dataInicialPeriodoAnterior)} a ${formatDate(
     relatorio.dataFinalPeriodoAnterior,
   )}`;
 }
