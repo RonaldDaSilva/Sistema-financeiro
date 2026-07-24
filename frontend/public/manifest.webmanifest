@@ -1,0 +1,34 @@
+{
+  "name": "Sistema Financeiro",
+  "short_name": "Financeiro",
+  "description": "Controle financeiro pessoal com acesso rápido para nova transação.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/icons/financeiro-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nova transação",
+      "short_name": "Nova transação",
+      "description": "Abrir o formulário rápido de nova transação.",
+      "url": "/transacoes/nova?origem=pwa-shortcut",
+      "icons": [
+        {
+          "src": "/icons/financeiro-shortcut.svg",
+          "sizes": "any",
+          "type": "image/svg+xml",
+          "purpose": "any maskable"
+        }
+      ]
+    }
+  ]
+}

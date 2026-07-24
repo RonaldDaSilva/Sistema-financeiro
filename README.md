@@ -74,6 +74,31 @@ npm run dev -- --host 127.0.0.1
 - Frontend: `http://127.0.0.1:5173`
 - Backend: `http://localhost:5000`
 - Health check: `http://localhost:5000/health`
+- Rota rapida de nova transacao: `/transacoes/nova`
+
+## Atalho no iPhone
+
+A rota `/transacoes/nova?origem=atalho` abre um formulario minimo para cadastrar uma transacao sem carregar a tela inicial completa. Em producao, use a URL HTTPS publica do ambiente:
+
+```text
+https://DOMINIO/transacoes/nova?origem=atalho
+```
+
+Para criar um atalho no iPhone:
+
+1. Abra o app Atalhos.
+2. Crie um novo atalho.
+3. Adicione a acao `URL`.
+4. Informe a URL publica acima.
+5. Adicione a acao `Abrir URLs`.
+6. Nomeie como `Nova transacao`.
+7. Abra `Ajustes > Acessibilidade > Toque > Tocar Atras`.
+8. Escolha `Tocar Tres Vezes`.
+9. Selecione o atalho `Nova transacao`.
+
+Alternativa: nos detalhes do atalho, use `Adicionar a Tela de Inicio` para criar um segundo icone chamado `Nova transacao`.
+
+O iOS pode abrir a URL no Safari ou no contexto standalone da PWA, conforme o comportamento do sistema. A aplicacao nao passa tokens pela URL e a rota continua protegida por autenticacao.
 
 ## Seguranca
 
@@ -93,4 +118,3 @@ dotnet ef database update
 npm run build
 npm run dev
 ```
-

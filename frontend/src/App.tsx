@@ -11,6 +11,7 @@ const CategoriesPage = lazy(() => import('./pages/CategoriesPage').then((module)
 const AccountsPage = lazy(() => import('./pages/AccountsPage').then((module) => ({ default: module.AccountsPage })));
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })));
+const QuickTransactionPage = lazy(() => import('./pages/QuickTransactionPage').then((module) => ({ default: module.QuickTransactionPage })));
 
 export function App() {
   return (
@@ -23,6 +24,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <DashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/transacoes/nova"
+          element={
+            <ProtectedRoute>
+              <QuickTransactionPage />
             </ProtectedRoute>
           }
         />
