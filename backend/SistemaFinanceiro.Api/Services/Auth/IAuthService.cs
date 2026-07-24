@@ -7,4 +7,5 @@ public interface IAuthService
     Task<AuthResponse> CadastrarAsync(CadastrarUsuarioRequest request, CancellationToken cancellationToken);
     Task<AuthResponse?> LoginAsync(LoginRequest request, CancellationToken cancellationToken);
     Task<AuthResponse?> RenovarSessaoAsync(RefreshTokenRequest request, CancellationToken cancellationToken);
+    Task LogoutAsync(RefreshTokenRequest request, CancellationToken cancellationToken);
 }

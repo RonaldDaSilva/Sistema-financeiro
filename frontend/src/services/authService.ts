@@ -22,3 +22,9 @@ export async function refreshSession(refreshToken: string) {
 
   return data;
 }
+
+export async function logout(refreshToken: string) {
+  await publicApi.post('/api/auth/logout', {
+    refreshToken,
+  });
+}

@@ -58,4 +58,13 @@ public sealed class AuthController : ControllerBase
 
         return Ok(response);
     }
+
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout(
+        RefreshTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _authService.LogoutAsync(request, cancellationToken);
+        return NoContent();
+    }
 }

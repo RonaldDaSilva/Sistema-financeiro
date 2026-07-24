@@ -3,9 +3,11 @@ import type { AuthResponse } from '../types/auth';
 import {
   clearStoredAuth,
   getStoredAuth,
-  isSessionIdle,
+  isAccessTokenUsable,
+  isSessionUsable,
   setStoredAuth,
 } from './authStorage';
+import { sanitizeInternalRedirect } from '../utils/redirect';
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:5000',
@@ -37,7 +39,7 @@ function redirectToLogin() {
 
   isRedirectingToLogin = true;
   const currentUrl = `${window.location.pathname}${window.location.search}`;
-  window.location.href = `/login?redirect=${encodeURIComponent(currentUrl)}`;
+  window.location.href = `/login?redirect=${encodeURIComponent(sanitizeInternalRedirect(currentUrl))}`;
   return true;
 }
 
@@ -64,7 +66,7 @@ async function renovarSessaoAtual() {
 
   const auth = getStoredAuth();
 
-  if (!auth || isSessionIdle(auth)) {
+  if (!auth || !isSessionUsable(auth)) {
     clearStoredAuth();
     return null;
   }
@@ -76,7 +78,7 @@ async function renovarSessaoAtual() {
     .then((response) => {
       const nextSession = {
         ...response.data,
-        lastActivityAt: auth.lastActivityAt ?? new Date().toISOString(),
+        lastActivityAt: new Date().toISOString(),
       };
 
       setStoredAuth(nextSession);
@@ -100,7 +102,7 @@ api.interceptors.request.use(async (config) => {
 
   let auth = getStoredAuth();
 
-  if (auth?.accessToken && tokenExpiraEmBreve(auth.accessTokenExpiraEm)) {
+  if (auth?.accessToken && (!isAccessTokenUsable(auth) || tokenExpiraEmBreve(auth.accessTokenExpiraEm))) {
     auth = await renovarSessaoAtual();
   }
 

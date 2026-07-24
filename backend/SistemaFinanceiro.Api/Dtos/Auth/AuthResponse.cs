@@ -11,4 +11,6 @@ public sealed class AuthResponse
     public DateTimeOffset AccessTokenExpiraEm { get; set; }
     public string RefreshToken { get; set; } = string.Empty;
     public DateTimeOffset RefreshTokenExpiraEm { get; set; }
+    public DateTimeOffset SessaoExpiraEm { get; set; }
+    public DateTimeOffset UltimaAtividadeEm { get; set; }
 }

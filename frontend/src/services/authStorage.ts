@@ -2,7 +2,6 @@ import type { AuthSession } from '../types/auth';
 
 const AUTH_STORAGE_KEY = 'sistema_financeiro_auth';
 export const AUTH_STORAGE_EVENT = 'sistema-financeiro-auth-updated';
-export const SESSION_IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 
 export function getStoredAuth(): AuthSession | null {
   const raw = localStorage.getItem(AUTH_STORAGE_KEY);
@@ -14,7 +13,7 @@ export function getStoredAuth(): AuthSession | null {
   try {
     const auth = JSON.parse(raw) as AuthSession;
 
-    if (isSessionIdle(auth)) {
+    if (!isSessionUsable(auth)) {
       clearStoredAuth();
       return null;
     }
@@ -59,14 +58,21 @@ export function touchSessionActivity() {
 }
 
 export function isSessionIdle(auth: AuthSession) {
-  if (!auth.lastActivityAt) {
-    return false;
-  }
+  return !isSessionUsable(auth);
+}
 
-  return Date.now() - new Date(auth.lastActivityAt).getTime() > SESSION_IDLE_TIMEOUT_MS;
+export function isSessionUsable(auth: AuthSession) {
+  return (
+    Date.parse(auth.refreshTokenExpiraEm) > Date.now() &&
+    Date.parse(auth.sessaoExpiraEm) > Date.now()
+  );
+}
+
+export function isAccessTokenUsable(auth: AuthSession, skewMs = 60_000) {
+  return Date.parse(auth.accessTokenExpiraEm) - Date.now() > skewMs;
 }
 
 export function hasUsableStoredAuth() {
   const auth = getStoredAuth();
-  return Boolean(auth?.accessToken && !isSessionIdle(auth));
+  return Boolean(auth?.accessToken && auth && isSessionUsable(auth));
 }

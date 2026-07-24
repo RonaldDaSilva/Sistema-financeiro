@@ -5,10 +5,11 @@ export type AuthContextValue = {
   user: AuthUser | null;
   session: AuthSession | null;
   isAuthenticated: boolean;
+  isAuthRestoring: boolean;
   login: (request: LoginRequest) => Promise<void>;
   register: (request: RegisterRequest) => Promise<void>;
   updateUser: (user: Partial<AuthUser>) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 };
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

@@ -551,6 +551,14 @@ public sealed class AppDbContext : DbContext
                 .HasColumnName("expira_em")
                 .IsRequired();
 
+            entity.Property(refreshToken => refreshToken.SessaoExpiraEm)
+                .HasColumnName("sessao_expira_em")
+                .IsRequired();
+
+            entity.Property(refreshToken => refreshToken.UltimaAtividadeEm)
+                .HasColumnName("ultima_atividade_em")
+                .IsRequired();
+
             entity.Property(refreshToken => refreshToken.CriadoEm)
                 .HasColumnName("criado_em")
                 .HasDefaultValueSql("now()")
@@ -558,6 +566,9 @@ public sealed class AppDbContext : DbContext
 
             entity.Property(refreshToken => refreshToken.RevogadoEm)
                 .HasColumnName("revogado_em");
+
+            entity.Property(refreshToken => refreshToken.ReutilizadoEm)
+                .HasColumnName("reutilizado_em");
 
             entity.Ignore(refreshToken => refreshToken.EstaAtivo);
 

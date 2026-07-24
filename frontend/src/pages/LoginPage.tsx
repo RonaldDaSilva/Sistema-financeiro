@@ -3,6 +3,7 @@ import axios from "axios";
 import { Eye, EyeOff, LockKeyhole, Mail, WalletCards } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/useAuth";
+import { sanitizeInternalRedirect } from "../utils/redirect";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -33,7 +34,10 @@ export function LoginPage() {
     try {
       await login({ email: emailNormalizado, senha });
       const redirectParam = new URLSearchParams(location.search).get("redirect");
-      const redirectTo = redirectParam || location.state?.from?.pathname || "/";
+      const stateRedirect = location.state?.from
+        ? `${location.state.from.pathname ?? ""}${location.state.from.search ?? ""}`
+        : null;
+      const redirectTo = sanitizeInternalRedirect(redirectParam || stateRedirect);
       navigate(redirectTo, { replace: true });
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 401) {

@@ -19,15 +19,18 @@ public sealed class AuthService : IAuthService
     private readonly AppDbContext _dbContext;
     private readonly PasswordHasher<Usuario> _passwordHasher;
     private readonly JwtOptions _jwtOptions;
+    private readonly IAuthClock _clock;
 
     public AuthService(
         AppDbContext dbContext,
         PasswordHasher<Usuario> passwordHasher,
-        IOptions<JwtOptions> jwtOptions)
+        IOptions<JwtOptions> jwtOptions,
+        IAuthClock clock)
     {
         _dbContext = dbContext;
         _passwordHasher = passwordHasher;
         _jwtOptions = jwtOptions.Value;
+        _clock = clock;
     }
 
     public async Task<AuthResponse> CadastrarAsync(CadastrarUsuarioRequest request, CancellationToken cancellationToken)
@@ -86,7 +89,9 @@ public sealed class AuthService : IAuthService
         {
             UsuarioId = usuario.Id,
             TokenHash = CalcularHashToken(authResponse.RefreshToken),
-            ExpiraEm = authResponse.RefreshTokenExpiraEm
+            ExpiraEm = authResponse.RefreshTokenExpiraEm,
+            SessaoExpiraEm = authResponse.SessaoExpiraEm,
+            UltimaAtividadeEm = authResponse.UltimaAtividadeEm
         });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -123,7 +128,9 @@ public sealed class AuthService : IAuthService
         {
             UsuarioId = usuario.Id,
             TokenHash = CalcularHashToken(authResponse.RefreshToken),
-            ExpiraEm = authResponse.RefreshTokenExpiraEm
+            ExpiraEm = authResponse.RefreshTokenExpiraEm,
+            SessaoExpiraEm = authResponse.SessaoExpiraEm,
+            UltimaAtividadeEm = authResponse.UltimaAtividadeEm
         });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -147,19 +154,39 @@ public sealed class AuthService : IAuthService
                 token => token.TokenHash == tokenHash,
                 cancellationToken);
 
-        if (refreshToken is null || !refreshToken.EstaAtivo)
+        if (refreshToken is null)
         {
             return null;
         }
 
-        refreshToken.RevogadoEm = DateTimeOffset.UtcNow;
+        var agora = _clock.UtcNow;
 
-        var authResponse = CriarCredenciais(refreshToken.Usuario);
+        if (refreshToken.RevogadoEm is not null || refreshToken.ReutilizadoEm is not null)
+        {
+            refreshToken.ReutilizadoEm ??= agora;
+            await RevogarSessoesAtivasAsync(refreshToken.UsuarioId, agora, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return null;
+        }
+
+        if (refreshToken.ExpiraEm <= agora || refreshToken.SessaoExpiraEm <= agora)
+        {
+            refreshToken.RevogadoEm = agora;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return null;
+        }
+
+        refreshToken.RevogadoEm = agora;
+        refreshToken.UltimaAtividadeEm = agora;
+
+        var authResponse = CriarCredenciais(refreshToken.Usuario, refreshToken.SessaoExpiraEm);
         _dbContext.Set<RefreshToken>().Add(new RefreshToken
         {
             UsuarioId = refreshToken.UsuarioId,
             TokenHash = CalcularHashToken(authResponse.RefreshToken),
-            ExpiraEm = authResponse.RefreshTokenExpiraEm
+            ExpiraEm = authResponse.RefreshTokenExpiraEm,
+            SessaoExpiraEm = authResponse.SessaoExpiraEm,
+            UltimaAtividadeEm = authResponse.UltimaAtividadeEm
         });
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -167,13 +194,34 @@ public sealed class AuthService : IAuthService
         return authResponse;
     }
 
-    private AuthResponse CriarCredenciais(Usuario usuario)
+    public async Task LogoutAsync(RefreshTokenRequest request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.RefreshToken))
+        {
+            return;
+        }
+
+        var tokenHash = CalcularHashToken(request.RefreshToken);
+        var refreshToken = await _dbContext.Set<RefreshToken>()
+            .SingleOrDefaultAsync(token => token.TokenHash == tokenHash, cancellationToken);
+
+        if (refreshToken is null || refreshToken.RevogadoEm is not null)
+        {
+            return;
+        }
+
+        refreshToken.RevogadoEm = _clock.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private AuthResponse CriarCredenciais(Usuario usuario, DateTimeOffset? sessaoExpiraEm = null)
     {
         ValidarConfiguracaoJwt();
 
-        var agora = DateTimeOffset.UtcNow;
+        var agora = _clock.UtcNow;
         var accessTokenExpiraEm = agora.AddMinutes(_jwtOptions.AccessTokenMinutes);
-        var refreshTokenExpiraEm = agora.AddHours(_jwtOptions.RefreshTokenIdleHours);
+        var sessaoExpira = sessaoExpiraEm ?? agora.AddDays(_jwtOptions.SessionAbsoluteDays);
+        var refreshTokenExpiraEm = Min(agora.AddDays(_jwtOptions.RefreshTokenIdleDays), sessaoExpira);
 
         return new AuthResponse
         {
@@ -185,7 +233,9 @@ public sealed class AuthService : IAuthService
             AccessToken = GerarJwt(usuario, accessTokenExpiraEm),
             AccessTokenExpiraEm = accessTokenExpiraEm,
             RefreshToken = GerarRefreshToken(),
-            RefreshTokenExpiraEm = refreshTokenExpiraEm
+            RefreshTokenExpiraEm = refreshTokenExpiraEm,
+            SessaoExpiraEm = sessaoExpira,
+            UltimaAtividadeEm = agora
         };
     }
 
@@ -207,7 +257,7 @@ public sealed class AuthService : IAuthService
             issuer: _jwtOptions.Issuer,
             audience: _jwtOptions.Audience,
             claims: claims,
-            notBefore: DateTime.UtcNow,
+            notBefore: _clock.UtcNow.UtcDateTime,
             expires: expiraEm.UtcDateTime,
             signingCredentials: credenciais);
 
@@ -226,6 +276,29 @@ public sealed class AuthService : IAuthService
         return Convert.ToHexString(hash);
     }
 
+    private static DateTimeOffset Min(DateTimeOffset left, DateTimeOffset right)
+    {
+        return left <= right ? left : right;
+    }
+
+    private async Task RevogarSessoesAtivasAsync(
+        Guid usuarioId,
+        DateTimeOffset agora,
+        CancellationToken cancellationToken)
+    {
+        var tokensAtivos = await _dbContext.Set<RefreshToken>()
+            .Where(token =>
+                token.UsuarioId == usuarioId &&
+                token.RevogadoEm == null &&
+                token.ReutilizadoEm == null)
+            .ToListAsync(cancellationToken);
+
+        foreach (var token in tokensAtivos)
+        {
+            token.RevogadoEm = agora;
+        }
+    }
+
     private static string NormalizarEmail(string email)
     {
         return email.Trim().ToLowerInvariant();
@@ -239,10 +312,15 @@ public sealed class AuthService : IAuthService
         }
 
         if (_jwtOptions.AccessTokenMinutes <= 0 ||
-            _jwtOptions.RefreshTokenDays <= 0 ||
-            _jwtOptions.RefreshTokenIdleHours <= 0)
+            _jwtOptions.RefreshTokenIdleDays <= 0 ||
+            _jwtOptions.SessionAbsoluteDays <= 0)
         {
             throw new InvalidOperationException("Os tempos de expiração do JWT devem ser maiores que zero.");
+        }
+
+        if (_jwtOptions.RefreshTokenIdleDays > _jwtOptions.SessionAbsoluteDays)
+        {
+            throw new InvalidOperationException("A janela de inatividade do refresh token não pode superar a validade absoluta da sessão.");
         }
     }
 }

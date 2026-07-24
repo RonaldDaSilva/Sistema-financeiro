@@ -12,6 +12,8 @@ import {
   AUTH_STORAGE_EVENT,
   clearStoredAuth,
   getStoredAuth,
+  isAccessTokenUsable,
+  isSessionUsable,
   setStoredAuth,
   touchSessionActivity,
 } from '../services/authStorage';
@@ -25,6 +27,7 @@ type AuthProviderProps = {
 export function AuthProvider({ children }: AuthProviderProps) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<AuthSession | null>(() => getStoredAuth());
+  const [isAuthRestoring, setIsAuthRestoring] = useState(true);
   const lastActivitySyncRef = useRef(0);
 
   const persistSession = useCallback((nextSession: AuthSession) => {
@@ -53,11 +56,81 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [persistSession],
   );
 
-  const logout = useCallback(() => {
+  const clearLocalSession = useCallback(() => {
     clearStoredAuth();
     queryClient.clear();
     setSession(null);
   }, [queryClient]);
+
+  const logout = useCallback(async () => {
+    const refreshToken = getStoredAuth()?.refreshToken;
+    clearLocalSession();
+
+    if (refreshToken) {
+      try {
+        await authService.logout(refreshToken);
+      } catch {
+        // Logout local já foi aplicado; falha de rede não deve manter a sessão aberta no cliente.
+      }
+    }
+  }, [clearLocalSession]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function restoreSession() {
+      const storedSession = getStoredAuth();
+
+      if (!storedSession) {
+        if (isMounted) {
+          setSession(null);
+          setIsAuthRestoring(false);
+        }
+        return;
+      }
+
+      if (isAccessTokenUsable(storedSession)) {
+        if (isMounted) {
+          setSession(storedSession);
+          setIsAuthRestoring(false);
+        }
+        return;
+      }
+
+      if (!isSessionUsable(storedSession)) {
+        clearLocalSession();
+        if (isMounted) {
+          setIsAuthRestoring(false);
+        }
+        return;
+      }
+
+      try {
+        const restoredSession = await authService.refreshSession(storedSession.refreshToken);
+        const sessionWithActivity = {
+          ...restoredSession,
+          lastActivityAt: new Date().toISOString(),
+        };
+
+        setStoredAuth(sessionWithActivity);
+        if (isMounted) {
+          setSession(sessionWithActivity);
+        }
+      } catch {
+        clearLocalSession();
+      } finally {
+        if (isMounted) {
+          setIsAuthRestoring(false);
+        }
+      }
+    }
+
+    restoreSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [clearLocalSession]);
 
   useEffect(() => {
     function syncSessionFromStorage() {
@@ -99,7 +172,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     function handleIdleCheck() {
       const storedSession = getStoredAuth();
       if (!storedSession) {
-        logout();
+        void logout();
       }
     }
 
@@ -162,12 +235,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       user,
       session,
       isAuthenticated: Boolean(session?.accessToken),
+      isAuthRestoring,
       login: handleLogin,
       register: handleRegister,
       updateUser,
       logout,
     }),
-    [handleLogin, handleRegister, logout, session, updateUser, user],
+    [handleLogin, handleRegister, isAuthRestoring, logout, session, updateUser, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

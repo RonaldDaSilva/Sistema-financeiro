@@ -86,6 +86,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddScoped<ITenantProvider, HttpContextTenantProvider>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddSingleton<IAuthClock, SystemAuthClock>();
 builder.Services.AddScoped<ICategoriaService, CategoriaService>();
 builder.Services.AddScoped<ICartaoCreditoService, CartaoCreditoService>();
 builder.Services.AddScoped<ICompraParceladaService, CompraParceladaService>();
@@ -141,9 +142,17 @@ static void ValidarConfiguracaoJwt(JwtOptions jwtOptions)
         throw new InvalidOperationException("Jwt__Secret deve ter pelo menos 32 bytes.");
     }
 
-    if (jwtOptions.AccessTokenMinutes <= 0 || jwtOptions.RefreshTokenIdleHours <= 0)
+    if (jwtOptions.AccessTokenMinutes <= 0 ||
+        jwtOptions.RefreshTokenIdleDays <= 0 ||
+        jwtOptions.SessionAbsoluteDays <= 0)
     {
         throw new InvalidOperationException(
-            "Jwt__AccessTokenMinutes e Jwt__RefreshTokenIdleHours devem ser maiores que zero.");
+            "Jwt__AccessTokenMinutes, Jwt__RefreshTokenIdleDays e Jwt__SessionAbsoluteDays devem ser maiores que zero.");
+    }
+
+    if (jwtOptions.RefreshTokenIdleDays > jwtOptions.SessionAbsoluteDays)
+    {
+        throw new InvalidOperationException(
+            "Jwt__RefreshTokenIdleDays não pode ser maior que Jwt__SessionAbsoluteDays.");
     }
 }
