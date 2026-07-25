@@ -288,7 +288,7 @@ export function AccountsPage() {
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             <button
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] px-5 py-3 font-bold text-slate-700 shadow-sm transition hover:bg-[var(--app-card-muted)] dark:text-slate-100"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] px-5 py-3 font-bold text-slate-700 shadow-sm transition hover:bg-[var(--app-card-muted)] disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 dark:disabled:border-slate-800 dark:disabled:bg-slate-900/60 dark:disabled:text-slate-500"
               type="button"
               onClick={abrirTransferencia}
               disabled={contas.length < 2}
