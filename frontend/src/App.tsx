@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { LoadingState } from './components/LoadingState';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -15,7 +16,7 @@ const QuickTransactionPage = lazy(() => import('./pages/QuickTransactionPage').t
 
 export function App() {
   return (
-    <Suspense fallback={<div className="p-6 text-slate-600">Carregando...</div>}>
+    <Suspense fallback={<LoadingState fullScreen label="Carregando página" />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/cadastro" element={<RegisterPage />} />

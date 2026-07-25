@@ -9,15 +9,19 @@ import {
 } from './authStorage';
 import { sanitizeInternalRedirect } from '../utils/redirect';
 
+const apiBaseUrl =
+  import.meta.env.VITE_API_URL ??
+  (import.meta.env.DEV ? 'http://localhost:5000' : window.location.origin);
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:5000',
+  baseURL: apiBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
 export const publicApi = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:5000',
+  baseURL: apiBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },

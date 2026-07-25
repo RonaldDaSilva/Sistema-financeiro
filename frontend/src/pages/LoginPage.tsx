@@ -3,6 +3,7 @@ import axios from "axios";
 import { Eye, EyeOff, LockKeyhole, Mail, WalletCards } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/useAuth";
+import { serverConnectionErrorMessage } from "../utils/errors";
 import { sanitizeInternalRedirect } from "../utils/redirect";
 
 export function LoginPage() {
@@ -46,7 +47,7 @@ export function LoginPage() {
       }
 
       if (axios.isAxiosError(error) && !error.response) {
-        setErro("Não foi possível conectar ao backend local. Verifique se a API está rodando em http://localhost:5000.");
+        setErro(serverConnectionErrorMessage);
         return;
       }
 

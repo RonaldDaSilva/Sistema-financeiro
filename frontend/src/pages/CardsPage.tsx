@@ -16,6 +16,7 @@ import {
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import { Dialog } from "../components/Dialog";
+import { LoadingState } from "../components/LoadingState";
 import { useCartoes, useContas, useFaturaMes } from "../hooks/queries/useFinanceQueries";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import * as financeService from "../services/financeService";
@@ -286,9 +287,7 @@ export function CardsPage() {
         )}
 
         {isLoading ? (
-          <div className="rounded-2xl bg-[var(--app-card)] p-6 text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
-            Carregando cartões...
-          </div>
+          <LoadingState label="Carregando cartões" />
         ) : cartoesQuery.isError ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
             Não foi possível carregar os cartões.
@@ -694,9 +693,7 @@ function FaturaDetalheModal({
 
         <div className="overflow-y-auto p-5 sm:p-6">
           {faturasQuery.isLoading ? (
-            <div className="rounded-2xl bg-[var(--app-card-muted)] p-6 text-sm font-semibold text-slate-500 dark:bg-slate-900 dark:text-slate-300">
-              Carregando fatura...
-            </div>
+            <LoadingState label="Carregando fatura" />
           ) : faturasQuery.isError ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
               Não foi possível carregar esta fatura.

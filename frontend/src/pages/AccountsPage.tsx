@@ -14,6 +14,7 @@ import { AppLayout } from "../components/AppLayout";
 import { BankBadge } from "../components/BankBadge";
 import { useConfirmDialog } from "../components/ConfirmDialog";
 import { Dialog } from "../components/Dialog";
+import { LoadingState } from "../components/LoadingState";
 import { principaisBancos } from "../constants/banks";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import { useContas, useDistribuicaoContas } from "../hooks/queries/useFinanceQueries";
@@ -323,9 +324,7 @@ export function AccountsPage() {
         )}
 
         {contasQuery.isLoading || distribuicaoQuery.isLoading ? (
-          <div className="rounded-2xl bg-[var(--app-card)] p-6 text-slate-500">
-            Carregando contas...
-          </div>
+          <LoadingState label="Carregando contas" />
         ) : contasQuery.isError || distribuicaoQuery.isError ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
             Não foi possível carregar as contas.

@@ -40,7 +40,7 @@ describe("ProtectedRoute", () => {
   it("mostra restauração e não redireciona prematuramente", () => {
     renderRoute({ isAuthRestoring: true });
 
-    expect(screen.getByText("Restaurando sessão...")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Restaurando sessão" })).toBeInTheDocument();
     expect(screen.queryByText("Login")).not.toBeInTheDocument();
   });
 

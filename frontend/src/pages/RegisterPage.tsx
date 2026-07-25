@@ -4,6 +4,7 @@ import { Eye, EyeOff, IdCard, LockKeyhole, Mail, Phone, User, WalletCards } from
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/useAuth';
 import { maskCpf } from '../utils/cpf';
+import { serverConnectionErrorMessage } from '../utils/errors';
 
 function maskPhone(value: string) {
   const digits = value.replace(/\D/g, '').slice(0, 11);
@@ -63,7 +64,7 @@ export function RegisterPage() {
       navigate('/', { replace: true });
     } catch (error) {
       if (axios.isAxiosError(error) && !error.response) {
-        setErro('Não foi possível conectar ao backend local. Verifique se a API está rodando em http://localhost:5000.');
+        setErro(serverConnectionErrorMessage);
         return;
       }
 

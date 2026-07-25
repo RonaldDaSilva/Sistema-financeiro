@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/useAuth';
+import { LoadingState } from './LoadingState';
 import { sanitizeInternalRedirect } from '../utils/redirect';
 
 type ProtectedRouteProps = {
@@ -11,11 +12,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const location = useLocation();
 
   if (isAuthRestoring) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 text-center text-sm font-semibold text-slate-600 dark:bg-slate-950 dark:text-slate-300">
-        Restaurando sessão...
-      </div>
-    );
+    return <LoadingState fullScreen label="Restaurando sessão" />;
   }
 
   if (!isAuthenticated) {
