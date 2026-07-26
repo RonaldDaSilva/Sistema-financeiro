@@ -145,22 +145,24 @@ public sealed class RelatorioServiceTests
         using var database = new SqliteTestDatabase(usuarioId);
         await SeedUsuarioAsync(database.Context, usuarioId);
 
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var dataFinal = hoje.AddDays(10);
         var conta = CriarConta(usuarioId, "Conta principal");
         conta.SaldoInicial = 1000m;
         var categoria = CriarCategoria(usuarioId, "Geral");
         database.Context.AddRange(conta, categoria);
         database.Context.Transacoes.AddRange(
-            CriarTransacao(usuarioId, TipoTransacao.Despesa, 100m, new DateOnly(2026, 7, 1), categoria, conta, null, isPaga: true),
-            CriarTransacao(usuarioId, TipoTransacao.Despesa, 200m, new DateOnly(2026, 7, 20), categoria, conta, null, isPaga: false),
-            CriarTransacao(usuarioId, TipoTransacao.Investimento, 50m, new DateOnly(2026, 7, 21), categoria, conta, null, isPaga: false),
-            CriarTransacao(usuarioId, TipoTransacao.Receita, 300m, new DateOnly(2026, 7, 25), categoria, conta, null, isPaga: false));
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 100m, hoje, categoria, conta, null, isPaga: true),
+            CriarTransacao(usuarioId, TipoTransacao.Despesa, 200m, hoje.AddDays(1), categoria, conta, null, isPaga: false),
+            CriarTransacao(usuarioId, TipoTransacao.Investimento, 50m, hoje.AddDays(2), categoria, conta, null, isPaga: false),
+            CriarTransacao(usuarioId, TipoTransacao.Receita, 300m, hoje.AddDays(3), categoria, conta, null, isPaga: false));
         await database.Context.SaveChangesAsync();
 
         var service = CriarService(database.Context);
 
         var response = await service.GetGraficosAsync(
-            new DateOnly(2026, 7, 1),
-            new DateOnly(2026, 7, 31),
+            hoje,
+            dataFinal,
             usuarioId,
             conta.Id);
 
@@ -310,6 +312,88 @@ public sealed class RelatorioServiceTests
         Assert.Equal(
             compromissoProximo.ReceitasPrevistas - compromissoProximo.ObrigacoesFuturas,
             compromissoProximo.ImpactoLiquido);
+    }
+
+    [Fact]
+    public async Task GetGraficosAsync_CompraDivididaNoCartao_ConsumoUsaMinhaParteEFaturaNaoDuplica()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var conta = CriarConta(usuarioId, "Conta principal");
+        var cartao = CriarCartao(usuarioId);
+        cartao.DiaVencimento = 31;
+        cartao.MelhorDiaCompra = 10;
+        cartao.ContaBancaria = conta;
+        var categoria = CriarCategoria(usuarioId, "Restaurante");
+        database.Context.AddRange(conta, cartao, categoria);
+        database.Context.Transacoes.Add(new Transacao
+        {
+            UsuarioId = usuarioId,
+            CodigoExibicao = 10,
+            Tipo = TipoTransacao.Despesa,
+            Descricao = "Jantar dividido",
+            Valor = 120m,
+            ValorTotalOriginal = 200m,
+            PercentualDivisao = 60m,
+            IsDividida = true,
+            DataOcorrencia = new DateOnly(2026, 7, 5),
+            Categoria = categoria,
+            CartaoCredito = cartao,
+            FormaPagamento = "Cartão de crédito",
+            IsPaga = false
+        });
+        await database.Context.SaveChangesAsync();
+
+        var service = CriarServiceConsolidado(database.Context);
+
+        var response = await service.GetGraficosAsync(
+            new DateOnly(2026, 7, 1),
+            new DateOnly(2026, 7, 31),
+            usuarioId);
+
+        Assert.Equal(120m, response.Kpis.Despesas.ValorAtual);
+        var categoriaDespesa = Assert.Single(response.DespesasPorCategoria);
+        Assert.Equal(120m, categoriaDespesa.Valor);
+        Assert.Equal(200m, response.SerieFluxo.Sum(item => item.Despesas));
+    }
+
+    [Fact]
+    public async Task GetGraficosAsync_ReembolsoDivisao_AumentaCaixaSemInflarReceitaComum()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var conta = CriarConta(usuarioId, "Conta principal");
+        database.Context.ContasBancarias.Add(conta);
+        database.Context.Transacoes.Add(new Transacao
+        {
+            UsuarioId = usuarioId,
+            CodigoExibicao = 11,
+            Tipo = TipoTransacao.Receita,
+            Descricao = "Reembolso do jantar",
+            Valor = 80m,
+            DataOcorrencia = new DateOnly(2026, 7, 20),
+            FormaPagamento = "Pix",
+            ContaBancaria = conta,
+            IsPaga = true,
+            OrigemTransacao = OrigemTransacao.ReembolsoDivisao
+        });
+        await database.Context.SaveChangesAsync();
+
+        var service = CriarServiceConsolidado(database.Context);
+
+        var response = await service.GetGraficosAsync(
+            new DateOnly(2026, 7, 1),
+            new DateOnly(2026, 7, 31),
+            usuarioId);
+
+        Assert.Equal(0m, response.Kpis.Receitas.ValorAtual);
+        Assert.Equal(0m, response.ResumoAuditavel.ReceitasRealizadas);
+        Assert.Equal(80m, response.ProjecaoDiaria.Sum(item => item.Entradas));
+        Assert.Equal(80m, response.SerieFluxo.Sum(item => item.Receitas));
     }
 
     [Fact]
@@ -820,6 +904,14 @@ public sealed class RelatorioServiceTests
         return new RelatorioService(context, new ContaBancariaServiceParaTeste(context));
     }
 
+    private static RelatorioService CriarServiceConsolidado(AppDbContext context)
+    {
+        return new RelatorioService(
+            context,
+            new ContaBancariaServiceParaTeste(context),
+            new TransacaoService(context));
+    }
+
     private sealed class TransacaoServiceCompromissosFake : ITransacaoService
     {
         private readonly IReadOnlyDictionary<(int Ano, int Mes), ExtratoMensalResponse> _extratos;
@@ -1010,7 +1102,9 @@ public sealed class RelatorioServiceTests
                 {
                     ContaBancariaId = transacao.ContaBancariaId!.Value,
                     transacao.Tipo,
-                    transacao.Valor
+                    Valor = transacao.IsDividida && transacao.ValorTotalOriginal.HasValue
+                        ? transacao.ValorTotalOriginal.Value
+                        : transacao.Valor
                 })
                 .ToListAsync(cancellationToken);
 

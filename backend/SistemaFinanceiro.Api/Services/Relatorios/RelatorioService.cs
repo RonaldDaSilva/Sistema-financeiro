@@ -340,7 +340,8 @@ public sealed class RelatorioService : IRelatorioService
             .AsNoTracking()
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
-                transacao.OrigemTransacao == OrigemTransacao.Lancamento &&
+                transacao.OrigemTransacao != OrigemTransacao.AjusteSaldo &&
+                transacao.OrigemTransacao != OrigemTransacao.Transferencia &&
                 transacao.DataOcorrencia >= dataInicial &&
                 transacao.DataOcorrencia <= dataFinal);
 
@@ -399,7 +400,12 @@ public sealed class RelatorioService : IRelatorioService
             .Select(transacao => new TransacaoRelatorio(
                 transacao.DataOcorrencia,
                 transacao.Tipo,
-                transacao.Valor,
+                visao == VisaoRelatorio.Caixa &&
+                    transacao.Tipo != TipoTransacao.Receita &&
+                    transacao.IsDividida &&
+                    transacao.ValorTotalOriginal.HasValue
+                        ? transacao.ValorTotalOriginal.Value
+                        : transacao.Valor,
                 transacao.IsPaga,
                 transacao.CategoriaId,
                 transacao.Categoria == null ? "Sem categoria" : transacao.Categoria.Nome,
@@ -414,7 +420,9 @@ public sealed class RelatorioService : IRelatorioService
                 transacao.CompraParceladaId,
                 transacao.NumeroParcelaQuitada,
                 transacao.DataOcorrencia,
-                transacao.FormaPagamento == FormaPagamentoFaturaCartao
+                transacao.OrigemTransacao == OrigemTransacao.ReembolsoDivisao
+                    ? "ReembolsoDivisao"
+                    : transacao.FormaPagamento == FormaPagamentoFaturaCartao
                     ? "PagamentoFatura"
                     : transacao.CartaoCreditoId.HasValue
                         ? "CompraCartao"
@@ -423,7 +431,8 @@ public sealed class RelatorioService : IRelatorioService
                             : transacao.IsFixa
                                 ? "Recorrencia"
                                 : "Lancamento",
-                transacao.FormaPagamento != FormaPagamentoFaturaCartao,
+                transacao.OrigemTransacao == OrigemTransacao.Lancamento &&
+                    transacao.FormaPagamento != FormaPagamentoFaturaCartao,
                 !transacao.CartaoCreditoId.HasValue ||
                     transacao.FormaPagamento == FormaPagamentoFaturaCartao,
                 !transacao.IsPaga &&
@@ -488,7 +497,7 @@ public sealed class RelatorioService : IRelatorioService
                     continue;
                 }
 
-                ocorrencias.Add(MapearItemExtratoRelatorio(item, contasPorCartao));
+                ocorrencias.Add(MapearItemExtratoRelatorio(item, contasPorCartao, visao));
             }
 
             if (visao != VisaoRelatorio.Consumo)
@@ -676,7 +685,8 @@ public sealed class RelatorioService : IRelatorioService
 
     private static TransacaoRelatorio MapearItemExtratoRelatorio(
         ExtratoMensalItemResponse item,
-        IReadOnlyDictionary<Guid, Guid?> contasPorCartao)
+        IReadOnlyDictionary<Guid, Guid?> contasPorCartao,
+        VisaoRelatorio visao)
     {
         var isFatura = item.Origem == "FaturaCartao";
         var isPagamentoFatura = item.FormaPagamento == FormaPagamentoFaturaCartao;
@@ -694,7 +704,12 @@ public sealed class RelatorioService : IRelatorioService
         return new TransacaoRelatorio(
             item.DataOcorrencia,
             item.Tipo,
-            item.Valor,
+            visao == VisaoRelatorio.Caixa &&
+                item.Tipo != TipoTransacao.Receita &&
+                item.IsDividida &&
+                item.ValorTotalOriginal.HasValue
+                    ? item.ValorTotalOriginal.Value
+                    : item.Valor,
             item.IsPaga,
             item.CategoriaId,
             item.CategoriaNome,
@@ -709,10 +724,13 @@ public sealed class RelatorioService : IRelatorioService
             item.CompraParceladaId,
             item.NumeroParcela,
             item.DataOcorrencia,
-            isPagamentoFatura ? "PagamentoFatura" : item.Origem,
+            item.OrigemTransacao == OrigemTransacao.ReembolsoDivisao
+                ? "ReembolsoDivisao"
+                : isPagamentoFatura ? "PagamentoFatura" : item.Origem,
             item.OrigemTransacao == OrigemTransacao.Lancamento && !isFatura && !isPagamentoFatura,
-            item.OrigemTransacao == OrigemTransacao.Lancamento &&
-                (!item.CartaoCreditoId.HasValue || isFatura || isPagamentoFatura),
+            item.OrigemTransacao == OrigemTransacao.ReembolsoDivisao ||
+                (item.OrigemTransacao == OrigemTransacao.Lancamento &&
+                    (!item.CartaoCreditoId.HasValue || isFatura || isPagamentoFatura)),
             !item.IsPaga && (isFatura || (!item.CartaoCreditoId.HasValue && item.Tipo != TipoTransacao.Receita)));
     }
 
@@ -822,7 +840,8 @@ public sealed class RelatorioService : IRelatorioService
                     var receitas = grupo
                         .Where(transacao =>
                             transacao.Tipo == TipoTransacao.Receita &&
-                            transacao.Realizada)
+                            transacao.Realizada &&
+                            (fluxoCaixa || !transacao.EhReembolsoDivisao))
                         .Sum(transacao => transacao.Valor);
                     var despesas = grupo
                         .Where(transacao =>
@@ -915,7 +934,9 @@ public sealed class RelatorioService : IRelatorioService
             transacoes.Where(item => predicate(item) && item.Pendente && item.DataOcorrencia >= hoje)
                 .Sum(item => item.Valor);
 
-        var receitasPrevistas = Previsto(item => item.Tipo == TipoTransacao.Receita);
+        var receitasPrevistas = Previsto(item =>
+            item.Tipo == TipoTransacao.Receita &&
+            !item.EhReembolsoDivisao);
         var despesasPrevistas = transacoes
             .Where(item =>
                 item.Tipo == TipoTransacao.Despesa &&
@@ -927,7 +948,9 @@ public sealed class RelatorioService : IRelatorioService
                 item.Tipo == TipoTransacao.Investimento &&
                 item.Pendente)
             .Sum(item => item.Valor);
-        var receitasRealizadas = Realizado(item => item.Tipo == TipoTransacao.Receita);
+        var receitasRealizadas = Realizado(item =>
+            item.Tipo == TipoTransacao.Receita &&
+            !item.EhReembolsoDivisao);
         var despesasRealizadas = transacoes
             .Where(item =>
                 item.Tipo == TipoTransacao.Despesa &&
@@ -1029,7 +1052,7 @@ public sealed class RelatorioService : IRelatorioService
                         somenteRecorrentes,
                         somenteParceladas))
                     .ToList();
-                var valor = detalhesFiltrados.Sum(detalhe => detalhe.Valor);
+                var valor = detalhesFiltrados.Sum(ObterValorCobranca);
                 if (valor <= 0)
                 {
                     continue;
@@ -1403,6 +1426,7 @@ public sealed class RelatorioService : IRelatorioService
         var receitasPrevistas = transacoesPeriodo
             .Where(transacao =>
                 transacao.Tipo == TipoTransacao.Receita &&
+                !transacao.EhReembolsoDivisao &&
                 transacao.Pendente &&
                 transacao.DataOcorrencia >= hoje &&
                 transacao.DataOcorrencia <= dataLimite)
@@ -1435,7 +1459,8 @@ public sealed class RelatorioService : IRelatorioService
         var receitas = transacoes
             .Where(transacao =>
                 transacao.Tipo == TipoTransacao.Receita &&
-                transacao.Realizada)
+                transacao.Realizada &&
+                !transacao.EhReembolsoDivisao)
             .Sum(transacao => transacao.Valor);
         var despesas = transacoes
             .Where(transacao =>
@@ -1459,11 +1484,15 @@ public sealed class RelatorioService : IRelatorioService
         DateOnly hoje)
     {
         var receitasRealizadas = transacoesConsumo
-            .Where(item => item.Tipo == TipoTransacao.Receita && item.Realizada)
+            .Where(item =>
+                item.Tipo == TipoTransacao.Receita &&
+                item.Realizada &&
+                !item.EhReembolsoDivisao)
             .Sum(item => item.Valor);
         var receitasPrevistas = transacoesConsumo
             .Where(item =>
                 item.Tipo == TipoTransacao.Receita &&
+                !item.EhReembolsoDivisao &&
                 item.Pendente &&
                 item.DataOcorrencia >= hoje &&
                 item.DataOcorrencia <= dataLimite)
@@ -1471,6 +1500,7 @@ public sealed class RelatorioService : IRelatorioService
         var receitasVencidas = transacoesConsumo
             .Where(item =>
                 item.Tipo == TipoTransacao.Receita &&
+                !item.EhReembolsoDivisao &&
                 item.Pendente &&
                 item.DataOcorrencia < hoje)
             .Sum(item => item.Valor);
@@ -1625,6 +1655,13 @@ public sealed class RelatorioService : IRelatorioService
         }
     }
 
+    private static decimal ObterValorCobranca(FaturaDetalheResponse detalhe)
+    {
+        return detalhe.IsDividida && detalhe.ValorTotalOriginal.HasValue
+            ? detalhe.ValorTotalOriginal.Value
+            : detalhe.Valor;
+    }
+
     private static DateOnly MenorData(params DateOnly[] datas) =>
         datas.MinBy(data => data.DayNumber);
 
@@ -1663,6 +1700,7 @@ public sealed class RelatorioService : IRelatorioService
         public bool Realizada => IsPaga;
         public bool Pendente => !IsPaga;
         public bool Projetada => !IsPaga && DataOcorrencia > DateOnly.FromDateTime(DateTime.Today);
+        public bool EhReembolsoDivisao => Origem == "ReembolsoDivisao";
         public string Competencia => $"{DataCompetencia.Year:D4}-{DataCompetencia.Month:D2}";
     }
 

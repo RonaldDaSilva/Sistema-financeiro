@@ -30,6 +30,8 @@ public sealed class AppDbContext : DbContext
     public DbSet<ConfiguracoesUsuario> ConfiguracoesUsuarios => Set<ConfiguracoesUsuario>();
     public DbSet<FechamentoMensalSaldo> FechamentosMensaisSaldo => Set<FechamentoMensalSaldo>();
     public DbSet<FechamentoMensalConta> FechamentosMensaisConta => Set<FechamentoMensalConta>();
+    public DbSet<DivisaoTransacao> DivisoesTransacoes => Set<DivisaoTransacao>();
+    public DbSet<DivisaoTransacaoParticipante> DivisoesTransacoesParticipantes => Set<DivisaoTransacaoParticipante>();
 
     public Guid? TenantId => _tenantProvider.UsuarioId;
 
@@ -51,6 +53,8 @@ public sealed class AppDbContext : DbContext
         ConfigureConfiguracoesUsuario(modelBuilder);
         ConfigureFechamentoMensalSaldo(modelBuilder);
         ConfigureFechamentoMensalConta(modelBuilder);
+        ConfigureDivisaoTransacao(modelBuilder);
+        ConfigureDivisaoTransacaoParticipante(modelBuilder);
         ConfigureTenantFilters(modelBuilder);
     }
 
@@ -924,6 +928,171 @@ public sealed class AppDbContext : DbContext
 
             entity.HasIndex(fechamento => new { fechamento.FechamentoMensalSaldoId, fechamento.ContaBancariaId })
                 .IsUnique();
+        });
+    }
+
+    private static void ConfigureDivisaoTransacao(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DivisaoTransacao>(entity =>
+        {
+            entity.ToTable("divisoes_transacoes");
+
+            entity.HasKey(divisao => divisao.Id);
+
+            entity.Property(divisao => divisao.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(divisao => divisao.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+
+            entity.Property(divisao => divisao.UsuarioCriadorId)
+                .HasColumnName("id_usuario_criador")
+                .IsRequired();
+
+            entity.Property(divisao => divisao.TransacaoOrigemId)
+                .HasColumnName("id_transacao_origem");
+
+            entity.Property(divisao => divisao.CompraParceladaId)
+                .HasColumnName("id_compra_parcelada");
+
+            entity.Property(divisao => divisao.SerieId)
+                .HasColumnName("id_serie");
+
+            entity.Property(divisao => divisao.ValorTotal)
+                .HasColumnName("valor_total")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(divisao => divisao.Status)
+                .HasColumnName("status")
+                .HasConversion<string>()
+                .HasMaxLength(40)
+                .IsRequired();
+
+            entity.Property(divisao => divisao.VersaoAtual)
+                .HasColumnName("versao_atual")
+                .HasDefaultValue(1)
+                .IsRequired();
+
+            entity.Property(divisao => divisao.CriadoEm)
+                .HasColumnName("criado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.Property(divisao => divisao.AtualizadoEm)
+                .HasColumnName("atualizado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.HasOne(divisao => divisao.UsuarioCriador)
+                .WithMany()
+                .HasForeignKey(divisao => divisao.UsuarioCriadorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(divisao => divisao.TransacaoOrigem)
+                .WithMany()
+                .HasForeignKey(divisao => divisao.TransacaoOrigemId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(divisao => divisao.CompraParcelada)
+                .WithMany()
+                .HasForeignKey(divisao => divisao.CompraParceladaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(divisao => divisao.UsuarioId);
+            entity.HasIndex(divisao => divisao.UsuarioCriadorId);
+            entity.HasIndex(divisao => divisao.TransacaoOrigemId);
+            entity.HasIndex(divisao => divisao.CompraParceladaId);
+            entity.HasIndex(divisao => divisao.SerieId);
+        });
+    }
+
+    private static void ConfigureDivisaoTransacaoParticipante(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DivisaoTransacaoParticipante>(entity =>
+        {
+            entity.ToTable("divisoes_transacoes_participantes");
+
+            entity.HasKey(participante => participante.Id);
+
+            entity.Property(participante => participante.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(participante => participante.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+
+            entity.Property(participante => participante.DivisaoTransacaoId)
+                .HasColumnName("id_divisao_transacao")
+                .IsRequired();
+
+            entity.Property(participante => participante.ParticipanteUsuarioId)
+                .HasColumnName("id_usuario_participante");
+
+            entity.Property(participante => participante.TipoParticipante)
+                .HasColumnName("tipo_participante")
+                .HasConversion<string>()
+                .HasMaxLength(30)
+                .IsRequired();
+
+            entity.Property(participante => participante.Percentual)
+                .HasColumnName("percentual")
+                .HasPrecision(5, 2)
+                .IsRequired();
+
+            entity.Property(participante => participante.Valor)
+                .HasColumnName("valor")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(participante => participante.Status)
+                .HasColumnName("status")
+                .HasConversion<string>()
+                .HasMaxLength(30)
+                .IsRequired();
+
+            entity.Property(participante => participante.TransacaoGeradaId)
+                .HasColumnName("id_transacao_gerada");
+
+            entity.Property(participante => participante.RespondidoEm)
+                .HasColumnName("respondido_em");
+
+            entity.Property(participante => participante.VersaoAceita)
+                .HasColumnName("versao_aceita");
+
+            entity.Property(participante => participante.Ativo)
+                .HasColumnName("ativo")
+                .HasDefaultValue(true)
+                .IsRequired();
+
+            entity.HasOne(participante => participante.DivisaoTransacao)
+                .WithMany(divisao => divisao.Participantes)
+                .HasForeignKey(participante => participante.DivisaoTransacaoId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(participante => participante.ParticipanteUsuario)
+                .WithMany()
+                .HasForeignKey(participante => participante.ParticipanteUsuarioId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(participante => participante.TransacaoGerada)
+                .WithMany()
+                .HasForeignKey(participante => participante.TransacaoGeradaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(participante => participante.UsuarioId);
+            entity.HasIndex(participante => participante.DivisaoTransacaoId);
+            entity.HasIndex(participante => participante.ParticipanteUsuarioId);
+            entity.HasIndex(participante => participante.TransacaoGeradaId);
+            entity.HasIndex(participante => new { participante.DivisaoTransacaoId, participante.TipoParticipante })
+                .IsUnique()
+                .HasFilter("tipo_participante = 'Criador' AND ativo = true");
+            entity.HasIndex(participante => new { participante.DivisaoTransacaoId, participante.ParticipanteUsuarioId })
+                .IsUnique()
+                .HasFilter("id_usuario_participante IS NOT NULL AND ativo = true");
         });
     }
 

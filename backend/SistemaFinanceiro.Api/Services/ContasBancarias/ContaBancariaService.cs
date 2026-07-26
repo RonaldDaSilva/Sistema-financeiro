@@ -334,7 +334,9 @@ public sealed class ContaBancariaService : IContaBancariaService
             {
                 ContaBancariaId = transacao.ContaBancariaId!.Value,
                 transacao.Tipo,
-                transacao.Valor
+                Valor = transacao.IsDividida && transacao.ValorTotalOriginal.HasValue
+                    ? transacao.ValorTotalOriginal.Value
+                    : transacao.Valor
             })
             .ToListAsync(cancellationToken);
         var movimentosPorConta = movimentos
@@ -400,7 +402,9 @@ public sealed class ContaBancariaService : IContaBancariaService
             .Select(transacao => new
             {
                 transacao.Tipo,
-                transacao.Valor
+                Valor = transacao.IsDividida && transacao.ValorTotalOriginal.HasValue
+                    ? transacao.ValorTotalOriginal.Value
+                    : transacao.Valor
             })
             .ToListAsync(cancellationToken);
 

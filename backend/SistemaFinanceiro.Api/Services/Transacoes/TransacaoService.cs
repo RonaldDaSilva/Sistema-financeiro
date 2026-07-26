@@ -628,11 +628,8 @@ public sealed class TransacaoService : ITransacaoService
                 {
                     CartaoCreditoId = cartao.Id,
                     NomeCartao = cartao.ApelidoCartao,
-                    ValorTotal = detalhesOrdenados.Sum(detalhe => detalhe.Valor),
-                    ValorTotalOriginal = detalhesOrdenados.Sum(detalhe =>
-                        detalhe.IsDividida && detalhe.ValorTotalOriginal.HasValue
-                            ? detalhe.ValorTotalOriginal.Value
-                            : detalhe.Valor),
+                    ValorTotal = detalhesOrdenados.Sum(ObterValorCobranca),
+                    ValorTotalOriginal = detalhesOrdenados.Sum(ObterValorCobranca),
                     DataVencimento = periodo.DataVencimento,
                     InicioCompetencia = periodo.InicioCompetencia,
                     FimCompetencia = periodo.FimCompetencia,
@@ -733,7 +730,7 @@ public sealed class TransacaoService : ITransacaoService
         DateOnly hoje,
         CancellationToken cancellationToken)
     {
-        var somas = await _dbContext.Transacoes
+        var transacoesSaldo = await _dbContext.Transacoes
             .AsNoTracking()
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
@@ -745,26 +742,22 @@ public sealed class TransacaoService : ITransacaoService
                     (transacao.Tipo == TipoTransacao.Receita && transacao.DataOcorrencia <= hoje) ||
                     (transacao.Tipo != TipoTransacao.Receita && transacao.IsPaga)
                 ))
-            .GroupBy(_ => 1)
-            .Select(grupo => new
+            .Select(transacao => new
             {
-                Receitas = grupo
-                    .Where(transacao => transacao.Tipo == TipoTransacao.Receita)
-                    .Sum(transacao => transacao.Valor),
-                Despesas = grupo
-                    .Where(transacao => transacao.Tipo == TipoTransacao.Despesa)
-                    .Sum(transacao => transacao.Valor),
-                Investimentos = grupo
-                    .Where(transacao => transacao.Tipo == TipoTransacao.Investimento)
-                    .Sum(transacao => transacao.Valor)
+                transacao.Tipo,
+                transacao.Valor,
+                transacao.IsDividida,
+                transacao.ValorTotalOriginal
             })
-            .SingleOrDefaultAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
 
-        var saldoTransacoesReais = somas is null
-            ? 0
-            : somas.Receitas - somas.Despesas - somas.Investimentos;
+        var saldoTransacoesReais = transacoesSaldo.Sum(transacao =>
+            CalcularImpactoSaldo(transacao.Tipo, ObterValorCobranca(
+                transacao.Valor,
+                transacao.IsDividida,
+                transacao.ValorTotalOriginal)));
 
-        var somasFixasPagas = await _dbContext.TransacoesFixasPagamentos
+        var transacoesFixasPagas = await _dbContext.TransacoesFixasPagamentos
             .AsNoTracking()
             .Where(pagamento =>
                 pagamento.UsuarioId == usuarioId &&
@@ -774,24 +767,20 @@ public sealed class TransacaoService : ITransacaoService
                     pagamento.DataOcorrencia <= hoje
                 ))
             .Select(pagamento => pagamento.TransacaoFixa)
-            .GroupBy(_ => 1)
-            .Select(grupo => new
+            .Select(transacao => new
             {
-                Receitas = grupo
-                    .Where(transacao => transacao.Tipo == TipoTransacao.Receita)
-                    .Sum(transacao => transacao.Valor),
-                Despesas = grupo
-                    .Where(transacao => transacao.Tipo == TipoTransacao.Despesa)
-                    .Sum(transacao => transacao.Valor),
-                Investimentos = grupo
-                    .Where(transacao => transacao.Tipo == TipoTransacao.Investimento)
-                    .Sum(transacao => transacao.Valor)
+                transacao.Tipo,
+                transacao.Valor,
+                transacao.IsDividida,
+                transacao.ValorTotalOriginal
             })
-            .SingleOrDefaultAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
 
-        var saldoFixasPagas = somasFixasPagas is null
-            ? 0
-            : somasFixasPagas.Receitas - somasFixasPagas.Despesas - somasFixasPagas.Investimentos;
+        var saldoFixasPagas = transacoesFixasPagas.Sum(transacao =>
+            CalcularImpactoSaldo(transacao.Tipo, ObterValorCobranca(
+                transacao.Valor,
+                transacao.IsDividida,
+                transacao.ValorTotalOriginal)));
 
         var totalFaturasPagas = await CalcularTotalFaturasPagasAsync(
             usuarioId,
@@ -950,21 +939,21 @@ public sealed class TransacaoService : ITransacaoService
                         transacao.CartaoCreditoId == cartao.Id &&
                         transacao.DataOcorrencia >= periodo.InicioCompetencia &&
                         transacao.DataOcorrencia <= periodo.FimCompetencia)
-                    .Sum(transacao => transacao.Valor);
+                    .Sum(ObterValorCobranca);
                 var valorFixasProjetadas = ProjetarTransacoesFixasCreditoParaFatura(
                         transacoesFixas,
                         cartao.Id,
                         periodo.InicioCompetencia,
                         periodo.FimCompetencia,
                         excecoesFixasSet)
-                    .Sum(detalhe => detalhe.Valor);
+                    .Sum(ObterValorCobranca);
                 var valorParcelas = ProjetarParcelasParaFatura(
                         comprasParceladas,
                         cartao.Id,
                         periodo.InicioCompetencia,
                         periodo.FimCompetencia,
                         parcelasQuitadasSet)
-                    .Sum(detalhe => detalhe.Valor);
+                    .Sum(ObterValorCobranca);
 
                 total += valorTransacoes + valorFixasProjetadas + valorParcelas;
             }
@@ -1026,7 +1015,10 @@ public sealed class TransacaoService : ITransacaoService
                 var dataVencimento = primeiroVencimento.AddMonths(numeroParcela - 1);
                 if (dataVencimento <= hoje)
                 {
-                    total += CalcularValorParcela(compra.ValorTotal, compra.QuantidadeParcelas, numeroParcela);
+                    var valorBase = compra.IsDividida && compra.ValorTotalOriginal.HasValue
+                        ? compra.ValorTotalOriginal.Value
+                        : compra.ValorTotal;
+                    total += CalcularValorParcela(valorBase, compra.QuantidadeParcelas, numeroParcela);
                 }
             }
         }
@@ -2319,6 +2311,37 @@ public sealed class TransacaoService : ITransacaoService
             yield return cursor;
             cursor = cursor.AddMonths(1);
         }
+    }
+
+    private static decimal ObterValorCobranca(Transacao transacao)
+    {
+        return ObterValorCobranca(
+            transacao.Valor,
+            transacao.IsDividida,
+            transacao.ValorTotalOriginal);
+    }
+
+    private static decimal ObterValorCobranca(decimal valor, bool isDividida, decimal? valorTotalOriginal)
+    {
+        return isDividida && valorTotalOriginal.HasValue
+            ? valorTotalOriginal.Value
+            : valor;
+    }
+
+    private static decimal ObterValorCobranca(FaturaDetalheResponse detalhe)
+    {
+        return detalhe.IsDividida && detalhe.ValorTotalOriginal.HasValue
+            ? detalhe.ValorTotalOriginal.Value
+            : detalhe.Valor;
+    }
+
+    private static decimal CalcularImpactoSaldo(TipoTransacao tipo, decimal valor)
+    {
+        return tipo == TipoTransacao.Receita
+            ? valor
+            : tipo is TipoTransacao.Despesa or TipoTransacao.Investimento
+                ? -valor
+                : 0m;
     }
 
     private static decimal CalcularValorParcela(decimal valorTotal, int quantidadeParcelas, int numeroParcela)

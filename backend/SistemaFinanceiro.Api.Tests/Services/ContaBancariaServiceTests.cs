@@ -58,6 +58,47 @@ public sealed class ContaBancariaServiceTests
         Assert.Equal(1100m, contaPrincipal.SaldoAtual);
     }
 
+    [Fact]
+    public async Task ObterDistribuicaoAsync_DespesaDivididaPagaNaConta_DebitaValorTotal()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var conta = new ContaBancaria
+        {
+            UsuarioId = usuarioId,
+            NomeCustomizado = "Conta principal",
+            CodigoBanco = "001",
+            SaldoInicial = 1000m
+        };
+
+        database.Context.ContasBancarias.Add(conta);
+        database.Context.Transacoes.Add(new Transacao
+        {
+            UsuarioId = usuarioId,
+            CodigoExibicao = 1,
+            Tipo = TipoTransacao.Despesa,
+            Valor = 120m,
+            ValorTotalOriginal = 200m,
+            PercentualDivisao = 60m,
+            IsDividida = true,
+            DataOcorrencia = new DateOnly(2026, 7, 18),
+            Descricao = "Jantar dividido",
+            FormaPagamento = "Pix",
+            ContaBancaria = conta,
+            IsPaga = true
+        });
+        await database.Context.SaveChangesAsync();
+
+        var service = new ContaBancariaService(database.Context);
+
+        var distribuicao = await service.ObterDistribuicaoAsync(usuarioId);
+
+        var contaPrincipal = Assert.Single(distribuicao);
+        Assert.Equal(800m, contaPrincipal.SaldoAtual);
+    }
+
     private static async Task SeedUsuarioAsync(AppDbContext context, Guid usuarioId)
     {
         context.Usuarios.Add(new Usuario

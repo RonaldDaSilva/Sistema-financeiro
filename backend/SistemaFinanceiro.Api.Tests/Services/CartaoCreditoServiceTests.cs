@@ -105,20 +105,21 @@ public sealed class CartaoCreditoServiceTests
             LimiteTotal = 1500m
         };
 
+        var periodoAtual = CalcularPeriodoFatura(cartao, hoje.Month, hoje.Year);
         database.Context.CartoesCredito.Add(cartao);
-        database.Context.ComprasParceladas.Add(new CompraParcelada
+        database.Context.Transacoes.Add(new Transacao
         {
             UsuarioId = usuarioId,
             CartaoCredito = cartao,
             CategoriaId = CategoriaCasaId,
             Descricao = "Compra dividida",
-            QuantidadeParcelas = 2,
-            ValorTotal = 500m,
-            ValorTotalOriginal = 1000m,
-            PercentualDivisao = 50m,
+            Tipo = TipoTransacao.Despesa,
+            Valor = 120m,
+            ValorTotalOriginal = 200m,
+            PercentualDivisao = 60m,
             IsDividida = true,
-            DataCompra = new DateOnly(hoje.Year, hoje.Month, 5),
-            FormaPagamento = FormaPagamentoCompraParcelada.CartaoCredito
+            DataOcorrencia = periodoAtual.InicioCompetencia,
+            FormaPagamento = "Cartão de crédito"
         });
         await database.Context.SaveChangesAsync();
 
@@ -126,7 +127,10 @@ public sealed class CartaoCreditoServiceTests
 
         var response = Assert.Single(await service.ListarAsync(usuarioId));
 
-        Assert.True(response.ValorUtilizado >= response.FaturaAtual);
+        Assert.Equal(200m, response.FaturaAtual);
+        Assert.Equal(200m, response.ValorFaturaAtual);
+        Assert.Equal(200m, response.ValorUtilizado);
+        Assert.Equal(1300m, response.LimiteDisponivel);
         AssertDecomposicao(response);
     }
 

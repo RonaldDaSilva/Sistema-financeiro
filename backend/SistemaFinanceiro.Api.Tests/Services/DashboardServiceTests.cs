@@ -22,13 +22,14 @@ public sealed class DashboardServiceTests
         await SeedUsuarioAsync(database.Context, usuarioId);
 
         var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var dataFinal = hoje.AddDays(10);
         var conta = CriarConta(usuarioId, 1000m);
         database.Context.ContasBancarias.Add(conta);
         var transacoes = new[]
         {
             CriarTransacao(usuarioId, conta.Id, TipoTransacao.Despesa, 100m, hoje, isPaga: true),
-            CriarTransacao(usuarioId, conta.Id, TipoTransacao.Receita, 500m, hoje.AddDays(5), isPaga: false),
-            CriarTransacao(usuarioId, conta.Id, TipoTransacao.Despesa, 200m, hoje.AddDays(6), isPaga: false)
+            CriarTransacao(usuarioId, conta.Id, TipoTransacao.Receita, 500m, hoje.AddDays(1), isPaga: false),
+            CriarTransacao(usuarioId, conta.Id, TipoTransacao.Despesa, 200m, hoje.AddDays(2), isPaga: false)
         };
         database.Context.Transacoes.AddRange(transacoes);
         await database.Context.SaveChangesAsync();
@@ -39,8 +40,8 @@ public sealed class DashboardServiceTests
             usuarioId,
             new DashboardInicioRequest
             {
-                DataInicial = new DateOnly(hoje.Year, hoje.Month, 1),
-                DataFinal = new DateOnly(hoje.Year, hoje.Month, 1).AddMonths(1).AddDays(-1)
+                DataInicial = hoje,
+                DataFinal = dataFinal
             });
 
         Assert.Equal(900m, response.SaldoAtual);
