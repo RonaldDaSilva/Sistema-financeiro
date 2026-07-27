@@ -738,10 +738,7 @@ public sealed class TransacaoService : ITransacaoService
                     transacao.CartaoCreditoId == null ||
                     (transacao.CompraParceladaId.HasValue && transacao.NumeroParcelaQuitada.HasValue)
                 ) &&
-                (
-                    (transacao.Tipo == TipoTransacao.Receita && transacao.DataOcorrencia <= hoje) ||
-                    (transacao.Tipo != TipoTransacao.Receita && transacao.IsPaga)
-                ))
+                transacao.IsPaga)
             .Select(transacao => new
             {
                 transacao.Tipo,
@@ -761,11 +758,7 @@ public sealed class TransacaoService : ITransacaoService
             .AsNoTracking()
             .Where(pagamento =>
                 pagamento.UsuarioId == usuarioId &&
-                pagamento.IsPaga &&
-                (
-                    pagamento.TransacaoFixa.Tipo != TipoTransacao.Receita ||
-                    pagamento.DataOcorrencia <= hoje
-                ))
+                pagamento.IsPaga)
             .Select(pagamento => pagamento.TransacaoFixa)
             .Select(transacao => new
             {
@@ -1543,7 +1536,21 @@ public sealed class TransacaoService : ITransacaoService
                         : 0m)
             .SumAsync(cancellationToken);
 
-        return saldoInicial.Value + movimentacaoPaga;
+        var movimentacaoFixaPaga = await _dbContext.TransacoesFixasPagamentos
+            .AsNoTracking()
+            .Where(pagamento =>
+                pagamento.UsuarioId == usuarioId &&
+                pagamento.IsPaga &&
+                pagamento.TransacaoFixa.ContaBancariaId == contaBancariaId)
+            .Select(pagamento =>
+                pagamento.TransacaoFixa.Tipo == TipoTransacao.Receita
+                    ? pagamento.TransacaoFixa.Valor
+                    : pagamento.TransacaoFixa.Tipo == TipoTransacao.Despesa
+                        ? -pagamento.TransacaoFixa.Valor
+                        : 0m)
+            .SumAsync(cancellationToken);
+
+        return saldoInicial.Value + movimentacaoPaga + movimentacaoFixaPaga;
     }
 
     public async Task<bool> ExcluirAsync(

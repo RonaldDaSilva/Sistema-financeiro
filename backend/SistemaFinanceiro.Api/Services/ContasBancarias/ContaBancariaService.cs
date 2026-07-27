@@ -330,15 +330,18 @@ public sealed class ContaBancariaService : IContaBancariaService
                 transacao.IsPaga &&
                 (!transacao.CartaoCreditoId.HasValue ||
                     transacao.FormaPagamento == FormaPagamentoFaturaCartao))
-            .Select(transacao => new
-            {
-                ContaBancariaId = transacao.ContaBancariaId!.Value,
+            .Select(transacao => new MovimentoConta(
+                transacao.ContaBancariaId!.Value,
                 transacao.Tipo,
-                Valor = transacao.IsDividida && transacao.ValorTotalOriginal.HasValue
+                transacao.IsDividida && transacao.ValorTotalOriginal.HasValue
                     ? transacao.ValorTotalOriginal.Value
-                    : transacao.Valor
-            })
+                    : transacao.Valor))
             .ToListAsync(cancellationToken);
+        var movimentosFixosLiquidados = await ObterMovimentosFixosLiquidadosAsync(
+            usuarioId,
+            cancellationToken);
+        movimentos.AddRange(movimentosFixosLiquidados);
+
         var movimentosPorConta = movimentos
             .GroupBy(transacao => transacao.ContaBancariaId)
             .ToDictionary(
@@ -399,17 +402,40 @@ public sealed class ContaBancariaService : IContaBancariaService
                 transacao.IsPaga &&
                 (!transacao.CartaoCreditoId.HasValue ||
                     transacao.FormaPagamento == FormaPagamentoFaturaCartao))
-            .Select(transacao => new
-            {
+            .Select(transacao => new MovimentoConta(
+                transacao.ContaBancariaId!.Value,
                 transacao.Tipo,
-                Valor = transacao.IsDividida && transacao.ValorTotalOriginal.HasValue
+                transacao.IsDividida && transacao.ValorTotalOriginal.HasValue
                     ? transacao.ValorTotalOriginal.Value
-                    : transacao.Valor
-            })
+                    : transacao.Valor))
             .ToListAsync(cancellationToken);
+        var movimentosFixosLiquidados = await ObterMovimentosFixosLiquidadosAsync(
+            usuarioId,
+            cancellationToken);
+        movimentos.AddRange(movimentosFixosLiquidados.Where(movimento => movimento.ContaBancariaId == contaId));
 
         return conta.SaldoInicial +
             movimentos.Sum(transacao => CalcularImpactoSaldo(transacao.Tipo, transacao.Valor));
+    }
+
+    private async Task<List<MovimentoConta>> ObterMovimentosFixosLiquidadosAsync(
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        return await _dbContext.TransacoesFixasPagamentos
+            .AsNoTracking()
+            .Where(pagamento =>
+                pagamento.UsuarioId == usuarioId &&
+                pagamento.IsPaga &&
+                pagamento.TransacaoFixa.ContaBancariaId.HasValue)
+            .Select(pagamento => new MovimentoConta(
+                pagamento.TransacaoFixa.ContaBancariaId!.Value,
+                pagamento.TransacaoFixa.Tipo,
+                pagamento.TransacaoFixa.IsDividida &&
+                    pagamento.TransacaoFixa.ValorTotalOriginal.HasValue
+                        ? pagamento.TransacaoFixa.ValorTotalOriginal.Value
+                        : pagamento.TransacaoFixa.Valor))
+            .ToListAsync(cancellationToken);
     }
 
     private static decimal CalcularImpactoSaldo(TipoTransacao tipo, decimal valor)
@@ -432,4 +458,9 @@ public sealed class ContaBancariaService : IContaBancariaService
 
         return (ultimoCodigo ?? 0) + 1;
     }
+
+    private sealed record MovimentoConta(
+        Guid ContaBancariaId,
+        TipoTransacao Tipo,
+        decimal Valor);
 }

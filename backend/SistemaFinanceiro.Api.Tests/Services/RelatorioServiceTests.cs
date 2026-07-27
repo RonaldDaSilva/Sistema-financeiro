@@ -700,6 +700,61 @@ public sealed class RelatorioServiceTests
     }
 
     [Fact]
+    public async Task AlternarStatusPagamentoAsync_ReceitaFixaProjetada_MarcaComoRecebidaEAtualizaSaldo()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var inicio = new DateOnly(hoje.Year, hoje.Month, 1);
+        var fim = inicio.AddMonths(1).AddDays(-1);
+        var dataBaseReceita = inicio.AddMonths(-1).AddDays(Math.Min(hoje.Day, 27) - 1);
+        var dataProjetada = new DateOnly(
+            hoje.Year,
+            hoje.Month,
+            Math.Min(dataBaseReceita.Day, DateTime.DaysInMonth(hoje.Year, hoje.Month)));
+
+        var conta = CriarConta(usuarioId, "Conta principal");
+        conta.SaldoInicial = 100m;
+        var categoria = CriarCategoria(usuarioId, "Geral");
+        var receitaFixa = CriarTransacao(
+            usuarioId,
+            TipoTransacao.Receita,
+            700m,
+            dataBaseReceita,
+            categoria,
+            conta,
+            null,
+            isPaga: false,
+            isFixa: true);
+        database.Context.AddRange(conta, categoria, receitaFixa);
+        await database.Context.SaveChangesAsync();
+
+        var transacaoService = new TransacaoService(database.Context);
+
+        var liquidada = await transacaoService.AlternarStatusPagamentoAsync(
+            receitaFixa.Id,
+            usuarioId,
+            dataProjetada,
+            new AlterarStatusPagamentoRequest
+            {
+                IsPaga = true,
+                ContaBancariaId = conta.Id
+            });
+        var service = CriarServiceConsolidado(database.Context);
+
+        var response = await service.GetGraficosAsync(inicio, fim, usuarioId, conta.Id);
+
+        Assert.True(liquidada);
+        Assert.Equal(700m, response.Kpis.Receitas.ValorAtual);
+        Assert.Equal(800m, response.DisponivelAposCompromissos.SaldoAtual);
+        Assert.Equal(800m, response.DisponivelAposCompromissos.DisponivelAposCompromissos);
+        Assert.False(receitaFixa.IsPaga);
+        Assert.Single(database.Context.TransacoesFixasPagamentos);
+    }
+
+    [Fact]
     public async Task GetGraficosAsync_DisponivelAposCompromissos_SemObrigacoesPendentesIgualSaldoAtual()
     {
         var usuarioId = Guid.NewGuid();
@@ -1107,6 +1162,23 @@ public sealed class RelatorioServiceTests
                         : transacao.Valor
                 })
                 .ToListAsync(cancellationToken);
+            var movimentosFixos = await _context.TransacoesFixasPagamentos
+                .AsNoTracking()
+                .Where(pagamento =>
+                    pagamento.UsuarioId == usuarioId &&
+                    pagamento.IsPaga &&
+                    pagamento.TransacaoFixa.ContaBancariaId.HasValue)
+                .Select(pagamento => new
+                {
+                    ContaBancariaId = pagamento.TransacaoFixa.ContaBancariaId!.Value,
+                    pagamento.TransacaoFixa.Tipo,
+                    Valor = pagamento.TransacaoFixa.IsDividida &&
+                        pagamento.TransacaoFixa.ValorTotalOriginal.HasValue
+                            ? pagamento.TransacaoFixa.ValorTotalOriginal.Value
+                            : pagamento.TransacaoFixa.Valor
+                })
+                .ToListAsync(cancellationToken);
+            movimentos.AddRange(movimentosFixos);
 
             return contas
                 .Select(conta => new ContaDistribuicaoResponse

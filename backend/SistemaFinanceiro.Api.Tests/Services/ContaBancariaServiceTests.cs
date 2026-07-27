@@ -99,6 +99,51 @@ public sealed class ContaBancariaServiceTests
         Assert.Equal(800m, contaPrincipal.SaldoAtual);
     }
 
+    [Fact]
+    public async Task ObterDistribuicaoAsync_ReceitaFixaProjetadaRecebidaCreditaConta()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var conta = new ContaBancaria
+        {
+            UsuarioId = usuarioId,
+            NomeCustomizado = "Conta principal",
+            CodigoBanco = "001",
+            SaldoInicial = 1000m
+        };
+        var receitaFixa = new Transacao
+        {
+            UsuarioId = usuarioId,
+            CodigoExibicao = 1,
+            Tipo = TipoTransacao.Receita,
+            Valor = 700m,
+            DataOcorrencia = DateOnly.FromDateTime(DateTime.Today).AddMonths(-1),
+            Descricao = "Salario",
+            FormaPagamento = "Pix",
+            ContaBancaria = conta,
+            IsFixa = true,
+            IsPaga = false
+        };
+        database.Context.AddRange(conta, receitaFixa);
+        database.Context.TransacoesFixasPagamentos.Add(new TransacaoFixaPagamento
+        {
+            UsuarioId = usuarioId,
+            TransacaoFixa = receitaFixa,
+            DataOcorrencia = DateOnly.FromDateTime(DateTime.Today).AddDays(10),
+            IsPaga = true
+        });
+        await database.Context.SaveChangesAsync();
+
+        var service = new ContaBancariaService(database.Context);
+
+        var distribuicao = await service.ObterDistribuicaoAsync(usuarioId);
+
+        var contaPrincipal = Assert.Single(distribuicao);
+        Assert.Equal(1700m, contaPrincipal.SaldoAtual);
+    }
+
     private static async Task SeedUsuarioAsync(AppDbContext context, Guid usuarioId)
     {
         context.Usuarios.Add(new Usuario

@@ -288,13 +288,31 @@ public sealed class DashboardService : IDashboardService
         }
 
         var movimentos = await query
-            .Select(transacao => new
-            {
-                ContaBancariaId = transacao.ContaBancariaId!.Value,
+            .Select(transacao => new MovimentoSaldoConta(
+                transacao.ContaBancariaId!.Value,
                 transacao.Tipo,
-                transacao.Valor
-            })
+                transacao.Valor))
             .ToListAsync(cancellationToken);
+        var queryFixasLiquidadas = _dbContext.TransacoesFixasPagamentos
+            .AsNoTracking()
+            .Where(pagamento =>
+                pagamento.UsuarioId == usuarioId &&
+                pagamento.IsPaga &&
+                pagamento.TransacaoFixa.ContaBancariaId.HasValue);
+
+        if (contextoPeriodo == "Passado")
+        {
+            queryFixasLiquidadas = queryFixasLiquidadas.Where(
+                pagamento => pagamento.DataOcorrencia <= dataReferencia);
+        }
+
+        var movimentosFixosLiquidados = await queryFixasLiquidadas
+            .Select(pagamento => new MovimentoSaldoConta(
+                pagamento.TransacaoFixa.ContaBancariaId!.Value,
+                pagamento.TransacaoFixa.Tipo,
+                pagamento.TransacaoFixa.Valor))
+            .ToListAsync(cancellationToken);
+        movimentos.AddRange(movimentosFixosLiquidados);
 
         var saldosMovimentos = movimentos
             .GroupBy(transacao => transacao.ContaBancariaId)
@@ -533,4 +551,6 @@ public sealed class DashboardService : IDashboardService
     }
 
     private sealed record SaldoContaCalculado(Guid ContaBancariaId, decimal Saldo);
+
+    private sealed record MovimentoSaldoConta(Guid ContaBancariaId, TipoTransacao Tipo, decimal Valor);
 }

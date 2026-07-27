@@ -51,6 +51,47 @@ public sealed class DashboardServiceTests
     }
 
     [Fact]
+    public async Task GetInicioAsync_SaldoAtualIncluiReceitaFixaProjetadaRecebida()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var conta = CriarConta(usuarioId, 1000m);
+        var receitaFixa = CriarTransacao(
+            usuarioId,
+            conta.Id,
+            TipoTransacao.Receita,
+            700m,
+            hoje.AddMonths(-1),
+            isPaga: false);
+        receitaFixa.IsFixa = true;
+        database.Context.ContasBancarias.Add(conta);
+        database.Context.Transacoes.Add(receitaFixa);
+        database.Context.TransacoesFixasPagamentos.Add(new TransacaoFixaPagamento
+        {
+            UsuarioId = usuarioId,
+            TransacaoFixa = receitaFixa,
+            DataOcorrencia = hoje.AddDays(10),
+            IsPaga = true
+        });
+        await database.Context.SaveChangesAsync();
+
+        var service = CriarService(database.Context, []);
+
+        var response = await service.GetInicioAsync(
+            usuarioId,
+            new DashboardInicioRequest
+            {
+                DataInicial = new DateOnly(hoje.Year, hoje.Month, 1),
+                DataFinal = new DateOnly(hoje.Year, hoje.Month, 1).AddMonths(1).AddDays(-1)
+            });
+
+        Assert.Equal(1700m, response.SaldoAtual);
+    }
+
+    [Fact]
     public async Task GetInicioAsync_MesPassadoCriaEReutilizaFechamentoMensal()
     {
         var usuarioId = Guid.NewGuid();
