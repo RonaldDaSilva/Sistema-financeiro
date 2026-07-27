@@ -30,7 +30,12 @@ public sealed class NotificacaoService : INotificacaoService
                 Mensagem = notificacao.Mensagem,
                 Lida = notificacao.Lida,
                 DataCriacao = notificacao.DataCriacao,
-                TipoNotificacao = notificacao.TipoNotificacao
+                TipoNotificacao = notificacao.TipoNotificacao,
+                Entidade = notificacao.Entidade,
+                EntidadeId = notificacao.EntidadeId,
+                Rota = notificacao.Rota,
+                AcaoPendente = notificacao.AcaoPendente,
+                Versao = notificacao.Versao
             })
             .ToListAsync(cancellationToken);
     }

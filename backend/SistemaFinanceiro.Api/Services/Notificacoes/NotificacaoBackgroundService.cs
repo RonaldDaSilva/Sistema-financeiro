@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Models;
+using SistemaFinanceiro.Api.Services.Divisoes;
 
 namespace SistemaFinanceiro.Api.Services.Notificacoes;
 
@@ -45,7 +46,9 @@ public sealed class NotificacaoBackgroundService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var divisaoService = scope.ServiceProvider.GetRequiredService<IDivisaoTransacaoService>();
         var hoje = DateOnly.FromDateTime(DateTime.Today);
+        await divisaoService.ProcessarExpiracoesAsync(DateTimeOffset.UtcNow, cancellationToken);
 
         var usuarios = await dbContext.Usuarios
             .AsNoTracking()

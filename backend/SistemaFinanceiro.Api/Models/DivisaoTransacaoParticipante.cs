@@ -12,9 +12,12 @@ public sealed class DivisaoTransacaoParticipante : IHasGuidId, IMustHaveTenant
     public decimal Percentual { get; set; }
     public decimal Valor { get; set; }
     public DivisaoTransacaoParticipanteStatus Status { get; set; } = DivisaoTransacaoParticipanteStatus.Pendente;
+    public DateTimeOffset? ExpiraEm { get; set; }
     public Guid? TransacaoGeradaId { get; set; }
     public DateTimeOffset? RespondidoEm { get; set; }
     public int? VersaoAceita { get; set; }
+    public int VersaoConvite { get; set; } = 1;
+    public string? MotivoResposta { get; set; }
     public bool Ativo { get; set; } = true;
 
     public DivisaoTransacao DivisaoTransacao { get; set; } = null!;

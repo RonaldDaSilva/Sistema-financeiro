@@ -4,6 +4,9 @@ namespace SistemaFinanceiro.Api.Services.Divisoes;
 
 public static class DivisaoTransacaoRules
 {
+    private const int PrazoMinimoConviteDias = 3;
+    private const int PrazoPadraoConviteDias = 7;
+
     public static IReadOnlyList<decimal> CalcularValores(decimal valorTotal, IReadOnlyList<decimal> percentuais)
     {
         if (valorTotal <= 0)
@@ -85,5 +88,20 @@ public static class DivisaoTransacaoRules
         {
             throw new InvalidOperationException("A soma dos valores da divisão deve fechar com o valor total.");
         }
+    }
+
+    public static DateTimeOffset CalcularExpiracaoConvite(
+        DateOnly dataOcorrencia,
+        DateTimeOffset agora)
+    {
+        var expiraPadrao = agora.AddDays(PrazoPadraoConviteDias);
+        var vencimento = new DateTimeOffset(
+            dataOcorrencia.ToDateTime(TimeOnly.MaxValue),
+            agora.Offset);
+        var expiraMinima = agora.AddDays(PrazoMinimoConviteDias);
+
+        return vencimento > expiraMinima && vencimento < expiraPadrao
+            ? vencimento
+            : expiraPadrao;
     }
 }

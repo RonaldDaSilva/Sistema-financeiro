@@ -1,0 +1,15 @@
+using SistemaFinanceiro.Api.Dtos.Divisoes;
+
+namespace SistemaFinanceiro.Api.Services.Divisoes;
+
+public interface IDivisaoTransacaoService
+{
+    Task<ResolverConvidadoDivisaoResponse> ResolverConvidadoAsync(Guid usuarioId, ResolverConvidadoDivisaoRequest request, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse> CriarConviteAsync(Guid usuarioId, CriarConviteDivisaoRequest request, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> AceitarAsync(Guid usuarioId, Guid participanteId, ClassificarAceiteDivisaoRequest? request = null, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> RecusarAsync(Guid usuarioId, Guid participanteId, RecusarDivisaoRequest request, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> AssumirValorAsync(Guid usuarioId, Guid divisaoId, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> ReenviarAsync(Guid usuarioId, Guid divisaoId, ReenviarDivisaoRequest request, CancellationToken cancellationToken = default);
+    Task<bool> ExcluirAsync(Guid usuarioId, Guid divisaoId, ExcluirDivisaoRequest request, CancellationToken cancellationToken = default);
+    Task<int> ProcessarExpiracoesAsync(DateTimeOffset agora, CancellationToken cancellationToken = default);
+}

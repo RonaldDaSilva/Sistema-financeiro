@@ -10,4 +10,9 @@ public sealed class NotificacaoResponse
     public bool Lida { get; set; }
     public DateTimeOffset DataCriacao { get; set; }
     public TipoNotificacao TipoNotificacao { get; set; }
+    public string? Entidade { get; set; }
+    public Guid? EntidadeId { get; set; }
+    public string? Rota { get; set; }
+    public string? AcaoPendente { get; set; }
+    public int? Versao { get; set; }
 }

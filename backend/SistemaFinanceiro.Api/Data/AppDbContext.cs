@@ -32,6 +32,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<FechamentoMensalConta> FechamentosMensaisConta => Set<FechamentoMensalConta>();
     public DbSet<DivisaoTransacao> DivisoesTransacoes => Set<DivisaoTransacao>();
     public DbSet<DivisaoTransacaoParticipante> DivisoesTransacoesParticipantes => Set<DivisaoTransacaoParticipante>();
+    public DbSet<ContatoDivisao> ContatosDivisao => Set<ContatoDivisao>();
 
     public Guid? TenantId => _tenantProvider.UsuarioId;
 
@@ -55,6 +56,7 @@ public sealed class AppDbContext : DbContext
         ConfigureFechamentoMensalConta(modelBuilder);
         ConfigureDivisaoTransacao(modelBuilder);
         ConfigureDivisaoTransacaoParticipante(modelBuilder);
+        ConfigureContatoDivisao(modelBuilder);
         ConfigureTenantFilters(modelBuilder);
     }
 
@@ -764,6 +766,24 @@ public sealed class AppDbContext : DbContext
                 .HasMaxLength(30)
                 .IsRequired();
 
+            entity.Property(notificacao => notificacao.Entidade)
+                .HasColumnName("entidade")
+                .HasMaxLength(60);
+
+            entity.Property(notificacao => notificacao.EntidadeId)
+                .HasColumnName("entidade_id");
+
+            entity.Property(notificacao => notificacao.Rota)
+                .HasColumnName("rota")
+                .HasMaxLength(240);
+
+            entity.Property(notificacao => notificacao.AcaoPendente)
+                .HasColumnName("acao_pendente")
+                .HasMaxLength(60);
+
+            entity.Property(notificacao => notificacao.Versao)
+                .HasColumnName("versao");
+
             entity.HasOne(notificacao => notificacao.Usuario)
                 .WithMany(usuario => usuario.Notificacoes)
                 .HasForeignKey(notificacao => notificacao.UsuarioId)
@@ -775,6 +795,14 @@ public sealed class AppDbContext : DbContext
                 notificacao.TipoNotificacao,
                 notificacao.Titulo,
                 notificacao.DataCriacao
+            });
+            entity.HasIndex(notificacao => new
+            {
+                notificacao.UsuarioId,
+                notificacao.Entidade,
+                notificacao.EntidadeId,
+                notificacao.TipoNotificacao,
+                notificacao.Versao
             });
         });
     }
@@ -976,6 +1004,11 @@ public sealed class AppDbContext : DbContext
                 .HasDefaultValue(1)
                 .IsRequired();
 
+            entity.Property(divisao => divisao.QuantidadeReenvios)
+                .HasColumnName("quantidade_reenvios")
+                .HasDefaultValue(0)
+                .IsRequired();
+
             entity.Property(divisao => divisao.CriadoEm)
                 .HasColumnName("criado_em")
                 .HasDefaultValueSql("now()")
@@ -985,6 +1018,9 @@ public sealed class AppDbContext : DbContext
                 .HasColumnName("atualizado_em")
                 .HasDefaultValueSql("now()")
                 .IsRequired();
+
+            entity.Property(divisao => divisao.EncerradoEm)
+                .HasColumnName("encerrado_em");
 
             entity.HasOne(divisao => divisao.UsuarioCriador)
                 .WithMany()
@@ -1054,6 +1090,9 @@ public sealed class AppDbContext : DbContext
                 .HasMaxLength(30)
                 .IsRequired();
 
+            entity.Property(participante => participante.ExpiraEm)
+                .HasColumnName("expira_em");
+
             entity.Property(participante => participante.TransacaoGeradaId)
                 .HasColumnName("id_transacao_gerada");
 
@@ -1062,6 +1101,15 @@ public sealed class AppDbContext : DbContext
 
             entity.Property(participante => participante.VersaoAceita)
                 .HasColumnName("versao_aceita");
+
+            entity.Property(participante => participante.VersaoConvite)
+                .HasColumnName("versao_convite")
+                .HasDefaultValue(1)
+                .IsRequired();
+
+            entity.Property(participante => participante.MotivoResposta)
+                .HasColumnName("motivo_resposta")
+                .HasMaxLength(500);
 
             entity.Property(participante => participante.Ativo)
                 .HasColumnName("ativo")
@@ -1093,6 +1141,60 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(participante => new { participante.DivisaoTransacaoId, participante.ParticipanteUsuarioId })
                 .IsUnique()
                 .HasFilter("id_usuario_participante IS NOT NULL AND ativo = true");
+        });
+    }
+
+    private static void ConfigureContatoDivisao(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ContatoDivisao>(entity =>
+        {
+            entity.ToTable("contatos_divisao");
+
+            entity.HasKey(contato => contato.Id);
+
+            entity.Property(contato => contato.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(contato => contato.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+
+            entity.Property(contato => contato.UsuarioContatoId)
+                .HasColumnName("id_usuario_contato")
+                .IsRequired();
+
+            entity.Property(contato => contato.Apelido)
+                .HasColumnName("apelido")
+                .HasMaxLength(120);
+
+            entity.Property(contato => contato.UltimoUsoEm)
+                .HasColumnName("ultimo_uso_em");
+
+            entity.Property(contato => contato.CriadoEm)
+                .HasColumnName("criado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.Property(contato => contato.Ativo)
+                .HasColumnName("ativo")
+                .HasDefaultValue(true)
+                .IsRequired();
+
+            entity.HasOne(contato => contato.UsuarioProprietario)
+                .WithMany()
+                .HasForeignKey(contato => contato.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(contato => contato.UsuarioContato)
+                .WithMany()
+                .HasForeignKey(contato => contato.UsuarioContatoId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(contato => contato.UsuarioId);
+            entity.HasIndex(contato => contato.UsuarioContatoId);
+            entity.HasIndex(contato => new { contato.UsuarioId, contato.UsuarioContatoId })
+                .IsUnique();
         });
     }
 
