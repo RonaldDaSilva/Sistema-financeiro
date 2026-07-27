@@ -4,6 +4,7 @@ namespace SistemaFinanceiro.Api.Services.Divisoes;
 
 public interface IDivisaoTransacaoService
 {
+    Task<DivisaoTransacaoResponse?> ObterAsync(Guid usuarioId, Guid divisaoId, CancellationToken cancellationToken = default);
     Task<ResolverConvidadoDivisaoResponse> ResolverConvidadoAsync(Guid usuarioId, ResolverConvidadoDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse> CriarConviteAsync(Guid usuarioId, CriarConviteDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> AceitarAsync(Guid usuarioId, Guid participanteId, ClassificarAceiteDivisaoRequest? request = null, CancellationToken cancellationToken = default);
@@ -17,6 +18,7 @@ public interface IDivisaoTransacaoService
     Task<DivisaoTransacaoResponse?> RecusarAlteracaoAsync(Guid usuarioId, Guid versaoId, ResponderAlteracaoDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> ReenviarAlteracaoAsync(Guid usuarioId, Guid versaoId, ReenviarAlteracaoDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> ManterVersaoAnteriorAsync(Guid usuarioId, Guid versaoId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ReembolsoDivisaoResponse>> ListarReembolsosPendentesAsync(Guid usuarioId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ReembolsoDivisaoResponse>> ListarReembolsosAsync(Guid usuarioId, Guid divisaoId, CancellationToken cancellationToken = default);
     Task<ReembolsoDivisaoResponse?> DispensarReembolsoAsync(Guid usuarioId, Guid reembolsoId, CancellationToken cancellationToken = default);
 }

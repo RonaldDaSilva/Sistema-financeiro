@@ -1,8 +1,18 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TransactionForm } from "./TransactionForm";
 import type { CartaoCredito, Categoria, ContaBancaria } from "../types/finance";
+
+const serviceMocks = vi.hoisted(() => ({
+  listarContatosDivisao: vi.fn(),
+  listarReembolsosPendentes: vi.fn(),
+  resolverConvidadoDivisao: vi.fn(),
+  criarConviteDivisao: vi.fn(),
+}));
+
+vi.mock("../services/financeService", () => serviceMocks);
 
 const categorias: Categoria[] = [
   {
@@ -62,22 +72,40 @@ const cartoes: CartaoCredito[] = [
 ];
 
 function renderForm(overrides = {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+
   return render(
-    <TransactionForm
-      variant="page"
-      categorias={categorias}
-      cartoes={cartoes}
-      contas={contas}
-      percentualPadraoDivisao={50}
-      onCancel={vi.fn()}
-      onCreateTransacao={vi.fn().mockResolvedValue(undefined)}
-      onCreateCompraParcelada={vi.fn().mockResolvedValue(undefined)}
-      {...overrides}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <TransactionForm
+        variant="page"
+        categorias={categorias}
+        cartoes={cartoes}
+        contas={contas}
+        percentualPadraoDivisao={50}
+        onCancel={vi.fn()}
+        onCreateTransacao={vi.fn().mockResolvedValue(undefined)}
+        onCreateCompraParcelada={vi.fn().mockResolvedValue(undefined)}
+        {...overrides}
+      />
+    </QueryClientProvider>,
   );
 }
 
 describe("TransactionForm", () => {
+  beforeEach(() => {
+    serviceMocks.listarContatosDivisao.mockResolvedValue([]);
+    serviceMocks.listarReembolsosPendentes.mockResolvedValue([]);
+    serviceMocks.resolverConvidadoDivisao.mockResolvedValue({
+      encontrado: true,
+      nomeExibicao: "Maria",
+      emailMascarado: "ma***@email.com",
+      identificador: "user-2",
+    });
+    serviceMocks.criarConviteDivisao.mockResolvedValue({ id: "div-1" });
+  });
+
   it("cria receita usando a mesma transformação de request do modal", async () => {
     const user = userEvent.setup();
     const onCreateTransacao = vi.fn().mockResolvedValue(undefined);
@@ -122,5 +150,97 @@ describe("TransactionForm", () => {
 
     expect(onCartaoNecessarioChange).toHaveBeenLastCalledWith(true);
     expect(screen.getByLabelText("Cartão")).toBeInTheDocument();
+  });
+
+  it("mantém a divisão manual antiga com percentual e valor original", async () => {
+    const user = userEvent.setup();
+    const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
+
+    renderForm({ onCreateTransacao });
+
+    await user.type(screen.getByPlaceholderText("0,00"), "20000");
+    await user.type(screen.getByLabelText("Descrição"), "Restaurante");
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.clear(screen.getByLabelText("Minha parte"));
+    await user.type(screen.getByLabelText("Minha parte"), "60");
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+
+    await waitFor(() => expect(onCreateTransacao).toHaveBeenCalledTimes(1));
+    expect(onCreateTransacao).toHaveBeenCalledWith(
+      expect.objectContaining({
+        valor: 120,
+        isDividida: true,
+        valorTotalOriginal: 200,
+        percentualDivisao: 60,
+      }),
+    );
+    expect(serviceMocks.criarConviteDivisao).not.toHaveBeenCalled();
+  });
+
+  it("busca convidado e cria convite para divisão vinculada", async () => {
+    const user = userEvent.setup();
+    const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
+
+    renderForm({ onCreateTransacao });
+
+    await user.type(screen.getByPlaceholderText("0,00"), "20000");
+    await user.type(screen.getByLabelText("Descrição"), "Restaurante");
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.clear(screen.getByLabelText("Minha parte"));
+    await user.type(screen.getByLabelText("Minha parte"), "60");
+    await user.type(
+      screen.getByPlaceholderText("Buscar contato ou informar e-mail"),
+      "maria@email.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+
+    expect((await screen.findAllByText("Maria")).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+
+    await waitFor(() => expect(serviceMocks.criarConviteDivisao).toHaveBeenCalled());
+    expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transacaoOrigemId: "tx-1",
+        emailConvidado: "maria@email.com",
+        percentualConvidado: 40,
+        salvarContato: true,
+      }),
+    );
+  });
+
+  it("vincula receita a reembolso pendente", async () => {
+    const user = userEvent.setup();
+    const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
+    serviceMocks.listarReembolsosPendentes.mockResolvedValue([
+      {
+        id: "reembolso-1",
+        divisaoTransacaoId: "div-1",
+        participanteId: "part-1",
+        participanteUsuarioId: "user-2",
+        participanteExternoNome: "Maria",
+        valorDevido: 80,
+        valorRecebido: 30,
+        saldoPendente: 50,
+        status: "Parcial",
+      },
+    ]);
+
+    renderForm({ onCreateTransacao });
+
+    await user.click(screen.getByRole("button", { name: "Receita" }));
+    await screen.findByText("Vincular a um reembolso");
+    await user.click(screen.getByLabelText("Vincular a um reembolso"));
+    await user.selectOptions(screen.getByLabelText("Reembolso"), "reembolso-1");
+    await user.type(screen.getByLabelText("Descrição"), " recebido");
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+
+    await waitFor(() => expect(onCreateTransacao).toHaveBeenCalledTimes(1));
+    expect(onCreateTransacao).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tipo: 1,
+        reembolsoDivisaoId: "reembolso-1",
+      }),
+    );
   });
 });

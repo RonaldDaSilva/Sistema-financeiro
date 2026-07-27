@@ -8,14 +8,18 @@ import type {
   ContaBancariaRequest,
   ContaDistribuicao,
   Categoria,
+  ContatoDivisao,
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
   DashboardInicio,
+  DivisaoTransacao,
   ExtratoMensal,
   ExtratoMensalItem,
   FaturaConsolidada,
   PagedResponse,
+  ReembolsoDivisao,
   RelatorioGraficos,
+  ResolverConvidadoDivisaoResponse,
   TipoTransacao,
   TipoTransacaoFiltro,
   StatusFiltro,
@@ -267,6 +271,149 @@ export async function getDashboardInicio(
 
 export async function criarTransacao(request: CriarTransacaoRequest) {
   const { data } = await api.post<{ id: string }>('/api/transacoes', request);
+  return data;
+}
+
+export async function listarContatosDivisao(signal?: AbortSignal) {
+  const { data } = await api.get<ContatoDivisao[]>('/api/contatos-divisao', {
+    signal,
+  });
+  return data;
+}
+
+export async function criarContatoDivisao(request: {
+  usuarioContatoId: string;
+  apelido?: string | null;
+}) {
+  const { data } = await api.post<ContatoDivisao>('/api/contatos-divisao', request);
+  return data;
+}
+
+export async function atualizarContatoDivisao(
+  id: string,
+  request: { apelido?: string | null; ativo?: boolean | null },
+) {
+  const { data } = await api.patch<ContatoDivisao>(
+    `/api/contatos-divisao/${id}`,
+    request,
+  );
+  return data;
+}
+
+export async function removerContatoDivisao(id: string) {
+  await api.delete(`/api/contatos-divisao/${id}`);
+}
+
+export async function resolverConvidadoDivisao(email: string) {
+  const { data } = await api.post<ResolverConvidadoDivisaoResponse>(
+    '/api/divisoes-transacoes/resolver-convidado',
+    { email },
+  );
+  return data;
+}
+
+export async function criarConviteDivisao(request: {
+  transacaoOrigemId: string;
+  emailConvidado: string;
+  percentualConvidado: number;
+  salvarContato: boolean;
+  apelidoContato?: string | null;
+}) {
+  const { data } = await api.post<DivisaoTransacao>(
+    '/api/divisoes-transacoes',
+    request,
+  );
+  return data;
+}
+
+export async function obterDivisaoTransacao(id: string, signal?: AbortSignal) {
+  const { data } = await api.get<DivisaoTransacao>(
+    `/api/divisoes-transacoes/${id}`,
+    { signal },
+  );
+  return data;
+}
+
+export async function aceitarDivisao(participanteId: string) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/participantes/${participanteId}/aceitar`,
+  );
+  return data;
+}
+
+export async function aceitarClassificarDivisao(
+  participanteId: string,
+  request: {
+    categoriaId?: string | null;
+    contaBancariaId?: string | null;
+    cartaoCreditoId?: string | null;
+  },
+) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/participantes/${participanteId}/aceitar-classificar`,
+    request,
+  );
+  return data;
+}
+
+export async function recusarDivisao(
+  participanteId: string,
+  request: { motivo?: string | null } = {},
+) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/participantes/${participanteId}/recusar`,
+    request,
+  );
+  return data;
+}
+
+export async function assumirValorDivisao(divisaoId: string) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/${divisaoId}/assumir-valor`,
+  );
+  return data;
+}
+
+export async function reenviarDivisao(
+  divisaoId: string,
+  request: { percentualConvidado?: number | null } = {},
+) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/${divisaoId}/reenviar`,
+    request,
+  );
+  return data;
+}
+
+export async function excluirDivisao(divisaoId: string, escopo = 'EstaOcorrencia') {
+  await api.delete(`/api/divisoes-transacoes/${divisaoId}`, {
+    params: { escopo },
+  });
+}
+
+export async function aceitarAlteracaoDivisao(versaoId: string) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/alteracoes/${versaoId}/aceitar`,
+  );
+  return data;
+}
+
+export async function recusarAlteracaoDivisao(
+  versaoId: string,
+  request: { motivo?: string | null } = {},
+) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/alteracoes/${versaoId}/recusar`,
+    request,
+  );
+  return data;
+}
+
+export async function listarReembolsosPendentes(signal?: AbortSignal) {
+  const { data } = await api.get<ReembolsoDivisao[]>(
+    '/api/divisoes-transacoes/reembolsos/pendentes',
+    { signal },
+  );
   return data;
 }
 

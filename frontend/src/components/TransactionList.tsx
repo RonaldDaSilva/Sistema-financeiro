@@ -277,8 +277,22 @@ export const TransactionList = memo(function TransactionList({
                         </span>
                       </span>
                     ) : item.isDividida && item.valorTotalOriginal != null ? (
-                      <span className="ml-1 break-words text-xs font-medium text-slate-500 dark:text-slate-400">
-                        ({formatCurrency(item.valorTotalOriginal)})
+                      <span className="mt-1 block text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
+                        <span className="block">
+                          {formatCurrency(item.valorTotalOriginal)} total
+                        </span>
+                        <span className="block">
+                          Sua parte: {formatCurrency(item.valor)}
+                          {item.percentualDivisao
+                            ? ` · ${item.percentualDivisao.toLocaleString("pt-BR")}%`
+                            : ""}
+                        </span>
+                        {item.valorTotalOriginal > item.valor && (
+                          <span className="block text-emerald-700 dark:text-emerald-300">
+                            A receber:{" "}
+                            {formatCurrency(item.valorTotalOriginal - item.valor)}
+                          </span>
+                        )}
                       </span>
                     ) : null}
                   </div>

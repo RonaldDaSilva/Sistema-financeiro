@@ -19,6 +19,26 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         _dbContext = dbContext;
     }
 
+    public async Task<DivisaoTransacaoResponse?> ObterAsync(
+        Guid usuarioId,
+        Guid divisaoId,
+        CancellationToken cancellationToken = default)
+    {
+        var divisao = await _dbContext.DivisoesTransacoes
+            .IgnoreQueryFilters()
+            .Include(item => item.Participantes)
+            .Include(item => item.Versoes)
+            .SingleOrDefaultAsync(
+                item => item.Id == divisaoId &&
+                    (item.UsuarioCriadorId == usuarioId ||
+                        item.Participantes.Any(participante =>
+                            participante.UsuarioId == usuarioId ||
+                            participante.ParticipanteUsuarioId == usuarioId)),
+                cancellationToken);
+
+        return divisao is null ? null : Mapear(divisao);
+    }
+
     public async Task<ResolverConvidadoDivisaoResponse> ResolverConvidadoAsync(
         Guid usuarioId,
         ResolverConvidadoDivisaoRequest request,
@@ -712,6 +732,33 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                 ValorDevido = item.ValorDevido,
                 ValorRecebido = item.ValorRecebido,
                 SaldoPendente = item.ValorDevido - item.ValorRecebido,
+                Status = item.Status
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ReembolsoDivisaoResponse>> ListarReembolsosPendentesAsync(
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.ReembolsosDivisao
+            .AsNoTracking()
+            .Where(item =>
+                item.UsuarioId == usuarioId &&
+                item.Status != ReembolsoDivisaoStatus.Recebido &&
+                item.Status != ReembolsoDivisaoStatus.Dispensado &&
+                item.ValorDevido > item.ValorRecebido)
+            .OrderByDescending(item => item.AtualizadoEm)
+            .Select(item => new ReembolsoDivisaoResponse
+            {
+                Id = item.Id,
+                DivisaoTransacaoId = item.DivisaoTransacaoId,
+                ParticipanteId = item.ParticipanteId,
+                ParticipanteUsuarioId = item.ParticipanteUsuarioId,
+                ParticipanteExternoNome = item.ParticipanteExternoNome,
+                ValorDevido = item.ValorDevido,
+                ValorRecebido = item.ValorRecebido,
+                SaldoPendente = item.SaldoPendente,
                 Status = item.Status
             })
             .ToListAsync(cancellationToken);

@@ -394,7 +394,7 @@ export function DashboardPage() {
   }, [periodo]);
 
   async function handleCreateTransacao(request: CriarTransacaoRequest) {
-    await addTransacaoMutation.mutateAsync({
+    return await addTransacaoMutation.mutateAsync({
       request,
       optimisticItem: criarItemOtimista(
         `optimistic-${crypto.randomUUID()}`,
@@ -1283,6 +1283,7 @@ function criarItemOtimista(
     compraParceladaId: request.compraParceladaId ?? null,
     numeroParcela: request.numeroParcelaQuitada ?? null,
     quantidadeParcelas: previous?.quantidadeParcelas ?? null,
+    reembolsoDivisaoId: request.reembolsoDivisaoId ?? null,
   };
 }
 

@@ -63,8 +63,9 @@ export function QuickTransactionPage() {
   }, [queryClient]);
 
   async function handleCreateTransacao(request: CriarTransacaoRequest) {
-    await financeService.criarTransacao(request);
+    const response = await financeService.criarTransacao(request);
     await invalidarCachesFinanceiros();
+    return response;
   }
 
   async function handleCreateCompraParcelada(

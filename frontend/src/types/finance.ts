@@ -26,6 +26,7 @@ export type ExtratoMensalItem = {
   compraParceladaId: string | null;
   numeroParcela: number | null;
   quantidadeParcelas: number | null;
+  reembolsoDivisaoId?: string | null;
 };
 
 export type ExtratoMensal = {
@@ -344,6 +345,93 @@ export type CriarTransacaoRequest = {
   compraParceladaId?: string | null;
   numeroParcelaQuitada?: number | null;
   reembolsoDivisaoId?: string | null;
+};
+
+export type ContatoDivisao = {
+  id: string;
+  usuarioContatoId: string;
+  nomeExibicao: string;
+  emailMascarado: string;
+  apelido: string | null;
+  ultimoUsoEm: string | null;
+  criadoEm: string;
+  ativo: boolean;
+};
+
+export type ResolverConvidadoDivisaoResponse = {
+  encontrado: boolean;
+  nomeExibicao: string | null;
+  emailMascarado: string | null;
+  identificador: string | null;
+};
+
+export type DivisaoParticipante = {
+  id: string;
+  participanteUsuarioId: string | null;
+  tipoParticipante: number | string;
+  percentual: number;
+  valor: number;
+  status: number | string;
+  versaoConvite: number;
+  expiraEm: string | null;
+  transacaoGeradaId: string | null;
+  ativo: boolean;
+};
+
+export type DivisaoVersao = {
+  id: string;
+  versao: number;
+  status: number | string;
+  escopo: string;
+  valorTotalAnterior: number;
+  valorTotalProposto: number;
+  percentualCriadorAnterior: number;
+  percentualCriadorProposto: number;
+  valorCriadorAnterior: number;
+  valorCriadorProposto: number;
+  percentualParticipanteAnterior: number;
+  percentualParticipanteProposto: number;
+  valorParticipanteAnterior: number;
+  valorParticipanteProposto: number;
+  vencimentoAnterior: string | null;
+  vencimentoProposto: string | null;
+  quantidadeParcelasAnterior: number | null;
+  quantidadeParcelasProposta: number | null;
+  recorrenciaAnterior: string | null;
+  recorrenciaProposta: string | null;
+  frequenciaAnterior: string | null;
+  frequenciaProposta: string | null;
+  responsabilidadeAnterior: string | null;
+  responsabilidadeProposta: string | null;
+  criadoEm: string;
+  respondidoEm: string | null;
+  motivoResposta: string | null;
+};
+
+export type DivisaoTransacao = {
+  id: string;
+  usuarioCriadorId: string;
+  transacaoOrigemId: string | null;
+  valorTotal: number;
+  status: number | string;
+  versaoAtual: number;
+  quantidadeReenvios: number;
+  criadoEm: string;
+  atualizadoEm: string;
+  participantes: DivisaoParticipante[];
+  versoes: DivisaoVersao[];
+};
+
+export type ReembolsoDivisao = {
+  id: string;
+  divisaoTransacaoId: string;
+  participanteId: string | null;
+  participanteUsuarioId: string | null;
+  participanteExternoNome: string | null;
+  valorDevido: number;
+  valorRecebido: number;
+  saldoPendente: number;
+  status: number | string;
 };
 
 export type CriarCompraParceladaRequest = {

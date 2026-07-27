@@ -17,7 +17,9 @@ type NewTransactionModalProps = {
   percentualPadraoDivisao: number;
   initialTransaction?: ExtratoMensalItem | null;
   onClose: () => void;
-  onCreateTransacao: (request: CriarTransacaoRequest) => Promise<void>;
+  onCreateTransacao: (
+    request: CriarTransacaoRequest,
+  ) => Promise<{ id: string } | void>;
   onUpdateTransacao?: (
     id: string,
     request: CriarTransacaoRequest,

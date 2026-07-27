@@ -18,6 +18,21 @@ public sealed class DivisaoTransacaoController : ControllerBase
         _service = service;
     }
 
+    [HttpGet("{divisaoId:guid}")]
+    public async Task<ActionResult<DivisaoTransacaoResponse>> Obter(
+        Guid divisaoId,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        var divisao = await _service.ObterAsync(usuarioId.Value, divisaoId, cancellationToken);
+        return divisao is null ? NotFound() : Ok(divisao);
+    }
+
     [HttpPost("resolver-convidado")]
     public async Task<ActionResult<ResolverConvidadoDivisaoResponse>> ResolverConvidado(
         ResolverConvidadoDivisaoRequest request,
@@ -289,6 +304,19 @@ public sealed class DivisaoTransacaoController : ControllerBase
         {
             return BadRequest(new { message = exception.Message });
         }
+    }
+
+    [HttpGet("reembolsos/pendentes")]
+    public async Task<ActionResult<IReadOnlyList<ReembolsoDivisaoResponse>>> ListarReembolsosPendentes(
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        return Ok(await _service.ListarReembolsosPendentesAsync(usuarioId.Value, cancellationToken));
     }
 
     [HttpGet("{divisaoId:guid}/reembolsos")]

@@ -41,6 +41,8 @@ export const queryKeys = {
   notificacoesNaoLidas: ["notificacoes", "nao-lidas"] as const,
   perfilUsuario: ["usuario", "perfil"] as const,
   categorias: ["categorias"] as const,
+  contatosDivisao: ["contatos-divisao"] as const,
+  reembolsosDivisaoPendentes: ["divisoes-transacoes", "reembolsos", "pendentes"] as const,
   cartoes: ["cartoes"] as const,
   contas: ["contas"] as const,
   distribuicaoContas: ["distribuicao-contas"] as const,

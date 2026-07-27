@@ -2,18 +2,26 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QuickTransactionPage } from "./QuickTransactionPage";
 
 const mocks = vi.hoisted(() => ({
   criarTransacao: vi.fn(),
   criarCompraParcelada: vi.fn(),
+  listarContatosDivisao: vi.fn(),
+  listarReembolsosPendentes: vi.fn(),
+  resolverConvidadoDivisao: vi.fn(),
+  criarConviteDivisao: vi.fn(),
   useCartoes: vi.fn(),
 }));
 
 vi.mock("../services/financeService", () => ({
   criarTransacao: mocks.criarTransacao,
   criarCompraParcelada: mocks.criarCompraParcelada,
+  listarContatosDivisao: mocks.listarContatosDivisao,
+  listarReembolsosPendentes: mocks.listarReembolsosPendentes,
+  resolverConvidadoDivisao: mocks.resolverConvidadoDivisao,
+  criarConviteDivisao: mocks.criarConviteDivisao,
 }));
 
 vi.mock("../hooks/queries/useFinanceQueries", () => ({
@@ -72,6 +80,20 @@ function renderPage() {
 }
 
 describe("QuickTransactionPage", () => {
+  beforeEach(() => {
+    mocks.listarContatosDivisao.mockResolvedValue([]);
+    mocks.listarReembolsosPendentes.mockResolvedValue([]);
+    mocks.resolverConvidadoDivisao.mockResolvedValue({
+      encontrado: true,
+      nomeExibicao: "Maria",
+      emailMascarado: "ma***@email.com",
+      identificador: "user-2",
+    });
+    mocks.criarConviteDivisao.mockResolvedValue({ id: "div-1" });
+    mocks.criarTransacao.mockReset();
+    mocks.criarCompraParcelada.mockReset();
+  });
+
   it("renderiza o layout mínimo sem elementos da Dashboard", () => {
     mocks.useCartoes.mockReturnValue({ data: [], isLoading: false, error: null });
 

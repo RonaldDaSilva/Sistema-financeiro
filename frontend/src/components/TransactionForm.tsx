@@ -1,6 +1,9 @@
 import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import { Calendar, CreditCard, FileText, Landmark, Tag } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Calendar, CreditCard, FileText, Landmark, Search, Tag, Users } from "lucide-react";
+import * as financeService from "../services/financeService";
+import { queryKeys } from "../hooks/queries/queryKeys";
 import type {
   CartaoCredito,
   Categoria,
@@ -8,6 +11,8 @@ import type {
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
   ExtratoMensalItem,
+  ReembolsoDivisao,
+  ResolverConvidadoDivisaoResponse,
 } from "../types/finance";
 import {
   formatCurrencyInput,
@@ -26,7 +31,9 @@ export type TransactionFormProps = {
   onCancel: () => void;
   onSaved?: (summary: TransactionFormSavedSummary) => void;
   onCartaoNecessarioChange?: (necessario: boolean) => void;
-  onCreateTransacao: (request: CriarTransacaoRequest) => Promise<void>;
+  onCreateTransacao: (
+    request: CriarTransacaoRequest,
+  ) => Promise<{ id: string } | void>;
   onUpdateTransacao?: (
     id: string,
     request: CriarTransacaoRequest,
@@ -72,9 +79,21 @@ export function TransactionForm({
   const [valor, setValor] = useState("");
   const [meuValor, setMeuValor] = useState("");
   const [isDividida, setIsDividida] = useState(false);
+  const [modoDivisao, setModoDivisao] = useState<"manual" | "vinculada">(
+    "manual",
+  );
   const [percentualDivisao, setPercentualDivisao] = useState(
     String(percentualPadraoDivisao),
   );
+  const [emailConvidado, setEmailConvidado] = useState("");
+  const [convidadoResolvido, setConvidadoResolvido] =
+    useState<ResolverConvidadoDivisaoResponse | null>(null);
+  const [salvarContato, setSalvarContato] = useState(true);
+  const [apelidoContato, setApelidoContato] = useState("");
+  const [temParteExterna, setTemParteExterna] = useState(false);
+  const [percentualParteExterna, setPercentualParteExterna] = useState("0");
+  const [vincularReembolso, setVincularReembolso] = useState(false);
+  const [reembolsoDivisaoId, setReembolsoDivisaoId] = useState("");
   const [data, setData] = useState(toDateInputValue(new Date()));
   const [categoriaId, setCategoriaId] = useState("");
   const [formaPagamento, setFormaPagamento] = useState("Pix");
@@ -89,6 +108,28 @@ export function TransactionForm({
   const [erro, setErro] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRepeatPromptOpen, setIsRepeatPromptOpen] = useState(false);
+  const queryClient = useQueryClient();
+
+  const contatosDivisaoQuery = useQuery({
+    queryKey: queryKeys.contatosDivisao,
+    queryFn: ({ signal }) => financeService.listarContatosDivisao(signal),
+    enabled: tipo === "despesa" && isDividida && modoDivisao === "vinculada",
+    staleTime: 5 * 60 * 1000,
+  });
+  const reembolsosPendentesQuery = useQuery({
+    queryKey: queryKeys.reembolsosDivisaoPendentes,
+    queryFn: ({ signal }) => financeService.listarReembolsosPendentes(signal),
+    enabled: tipo === "receita",
+    staleTime: 60 * 1000,
+  });
+  const resolverConvidadoMutation = useMutation({
+    mutationFn: financeService.resolverConvidadoDivisao,
+    onSuccess: (data) => setConvidadoResolvido(data),
+    onError: (error) => {
+      setConvidadoResolvido(null);
+      setErro(extractApiError(error, "Não foi possível buscar este e-mail."));
+    },
+  });
 
   const categoriasOrdenadas = useMemo(
     () => [...categorias].sort((a, b) => a.nome.localeCompare(b.nome)),
@@ -106,6 +147,28 @@ export function TransactionForm({
         initialTransaction.numeroParcela +
         1
       : quantidadeParcelas;
+  const percentualMinhaParte = parsePercentual(percentualDivisao);
+  const percentualExterno = temParteExterna
+    ? parsePercentual(percentualParteExterna)
+    : 0;
+  const percentualConvidado = Math.max(
+    0,
+    Math.round((100 - percentualMinhaParte - percentualExterno) * 100) / 100,
+  );
+  const numericValorTotal = parseBrlCurrency(valor);
+  const valorMinhaParte = isDividida
+    ? calcularParteNumerica(numericValorTotal, percentualMinhaParte)
+    : numericValorTotal;
+  const valorConvidado = isDividida
+    ? calcularParteNumerica(numericValorTotal, percentualConvidado)
+    : 0;
+  const valorExterno = isDividida
+    ? Math.max(0, numericValorTotal - valorMinhaParte - valorConvidado)
+    : 0;
+  const somaPercentualDivisao =
+    Math.round((percentualMinhaParte + percentualConvidado + percentualExterno) * 100) / 100;
+  const divisaoVinculadaAtiva =
+    tipo === "despesa" && isDividida && modoDivisao === "vinculada";
 
   useEffect(() => {
     if (categoriasOrdenadas.length > 0 && !categoriaId) {
@@ -120,7 +183,16 @@ export function TransactionForm({
       setValor("");
       setMeuValor("");
       setIsDividida(false);
+      setModoDivisao("manual");
       setPercentualDivisao(String(percentualPadraoDivisao));
+      setEmailConvidado("");
+      setConvidadoResolvido(null);
+      setSalvarContato(true);
+      setApelidoContato("");
+      setTemParteExterna(false);
+      setPercentualParteExterna("0");
+      setVincularReembolso(false);
+      setReembolsoDivisaoId("");
       setData(toDateInputValue(new Date()));
       setCategoriaId(categoriasOrdenadas[0]?.id ?? "");
       setFormaPagamento("Pix");
@@ -146,6 +218,15 @@ export function TransactionForm({
     );
     setDescricao(stripProjectedInstallmentSuffix(initialTransaction.descricao));
     setIsDividida(initialTransaction.isDividida);
+    setModoDivisao("manual");
+    setEmailConvidado("");
+    setConvidadoResolvido(null);
+    setSalvarContato(true);
+    setApelidoContato("");
+    setTemParteExterna(false);
+    setPercentualParteExterna("0");
+    setVincularReembolso(false);
+    setReembolsoDivisaoId(initialTransaction.reembolsoDivisaoId ?? "");
     setValor(
       formatCurrencyInput(
         initialTransaction.isDividida &&
@@ -189,11 +270,14 @@ export function TransactionForm({
       setIsParcelada(false);
       setCartaoCreditoId("");
       setIsDividida(false);
+      setModoDivisao("manual");
       setMeuValor("");
     }
 
     if (tipo === "receita") {
       setFormaPagamento("Pix");
+      setModoDivisao("manual");
+      setIsDividida(false);
     } else if (tipo === "investimento") {
       setContaBancariaId("");
     }
@@ -213,6 +297,17 @@ export function TransactionForm({
   useEffect(() => {
     onCartaoNecessarioChange?.(cartaoNecessario);
   }, [cartaoNecessario, onCartaoNecessarioChange]);
+
+  async function handleResolverConvidado() {
+    setErro(null);
+    const email = emailConvidado.trim();
+    if (!email) {
+      setErro("Informe o e-mail completo do convidado.");
+      return;
+    }
+
+    await resolverConvidadoMutation.mutateAsync(email);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -237,6 +332,22 @@ export function TransactionForm({
         throw new Error(
           "O percentual deve estar entre 0,01% e 100%, e seu valor não pode superar o valor total.",
         );
+      }
+
+      if (divisaoVinculadaAtiva) {
+        if (isEditing || isEditingCompraParcelada || isParcelada) {
+          throw new Error(
+            "A divisão vinculada nesta etapa está disponível para despesas avulsas. Para fixas ou parceladas, o percentual informado continua valendo para cada ocorrência.",
+          );
+        }
+
+        if (!convidadoResolvido?.encontrado || !emailConvidado.trim()) {
+          throw new Error("Busque e selecione uma pessoa antes de salvar a divisão vinculada.");
+        }
+
+        if (percentualConvidado <= 0 || somaPercentualDivisao !== 100) {
+          throw new Error("A soma entre você, convidado e parte externa deve fechar em 100%.");
+        }
       }
 
       if (tipo === "despesa" && !categoriaId) {
@@ -327,12 +438,34 @@ export function TransactionForm({
           percentualDivisao: isDividida ? numericPercentual : null,
           compraParceladaId: initialTransaction?.compraParceladaId ?? null,
           numeroParcelaQuitada: initialTransaction?.numeroParcela ?? null,
+          reembolsoDivisaoId:
+            tipo === "receita" && vincularReembolso
+              ? reembolsoDivisaoId || null
+              : null,
         };
 
         if (isEditing && initialTransaction?.id && onUpdateTransacao) {
           await onUpdateTransacao(initialTransaction.id, request);
         } else {
-          await onCreateTransacao(request);
+          const transacaoCriada = await onCreateTransacao(request);
+          if (divisaoVinculadaAtiva && transacaoCriada?.id) {
+            await financeService.criarConviteDivisao({
+              transacaoOrigemId: transacaoCriada.id,
+              emailConvidado: emailConvidado.trim(),
+              percentualConvidado,
+              salvarContato,
+              apelidoContato: apelidoContato.trim() || null,
+            });
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: queryKeys.contatosDivisao }),
+              queryClient.invalidateQueries({ queryKey: queryKeys.notificacoesNaoLidas }),
+            ]);
+          }
+          if (request.reembolsoDivisaoId) {
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.reembolsosDivisaoPendentes,
+            });
+          }
         }
       }
 
@@ -523,7 +656,7 @@ export function TransactionForm({
               )}
               <ToggleField
                 checked={isDividida}
-                label="Dividir despesa"
+                label="Dividir esta transação"
                 onChange={(checked) => {
                   setIsDividida(checked);
                   if (checked) {
@@ -532,6 +665,7 @@ export function TransactionForm({
                     setMeuValor(calcularMeuValor(valor, nextPercentual));
                   } else {
                     setMeuValor("");
+                    setModoDivisao("manual");
                   }
                 }}
               />
@@ -539,57 +673,127 @@ export function TransactionForm({
           )}
 
           {tipo === "despesa" && isDividida && (
-            <div className="grid gap-4 rounded-xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-2">
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                  Percentual
-                </span>
-                <div className="relative">
-                  <input
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                    type="text"
-                    inputMode="decimal"
-                    value={percentualDivisao}
-                    onChange={(event) => {
-                      const nextPercentual = limitarPercentual(
-                        event.target.value,
-                      );
-                      setPercentualDivisao(nextPercentual);
-                      setMeuValor(calcularMeuValor(valor, nextPercentual));
-                    }}
-                    required
+            <div className="space-y-4 rounded-xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950">
+              <fieldset className="space-y-3">
+                <legend className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                  Tipo de divisão
+                </legend>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <RadioOption
+                    checked={modoDivisao === "manual"}
+                    label="Apenas informar minha parte"
+                    onChange={() => setModoDivisao("manual")}
                   />
-                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-500">
-                    %
-                  </span>
+                  <RadioOption
+                    checked={modoDivisao === "vinculada"}
+                    label="Dividir com outra pessoa"
+                    onChange={() => setModoDivisao("vinculada")}
+                  />
                 </div>
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                  Meu Valor
-                </span>
-                <div className="relative">
-                  <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-slate-500">
-                    R$
+              </fieldset>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                    Minha parte
                   </span>
+                  <div className="relative">
+                    <input
+                      aria-label="Minha parte"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                      type="text"
+                      inputMode="decimal"
+                      value={percentualDivisao}
+                      onChange={(event) => {
+                        const nextPercentual = limitarPercentual(
+                          event.target.value,
+                        );
+                        setPercentualDivisao(nextPercentual);
+                        setMeuValor(calcularMeuValor(valor, nextPercentual));
+                      }}
+                      required
+                    />
+                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-500">
+                      %
+                    </span>
+                  </div>
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                    Valor da minha parte
+                  </span>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-slate-500">
+                      R$
+                    </span>
                   <input
+                    aria-label="Valor da minha parte"
                     className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                    inputMode="numeric"
-                    value={meuValor}
-                    onChange={(event) => {
-                      const nextMeuValor = limitarMeuValor(
-                        valor,
-                        event.target.value,
-                      );
-                      setMeuValor(nextMeuValor);
-                      setPercentualDivisao(
-                        calcularPercentual(valor, nextMeuValor),
-                      );
-                    }}
-                    required
-                  />
-                </div>
-              </label>
+                      inputMode="numeric"
+                      value={meuValor}
+                      onChange={(event) => {
+                        const nextMeuValor = limitarMeuValor(
+                          valor,
+                          event.target.value,
+                        );
+                        setMeuValor(nextMeuValor);
+                        setPercentualDivisao(
+                          calcularPercentual(valor, nextMeuValor),
+                        );
+                      }}
+                      required
+                    />
+                  </div>
+                </label>
+              </div>
+
+              {modoDivisao === "vinculada" && (
+                <LinkedDivisionPanel
+                  apelidoContato={apelidoContato}
+                  contatos={contatosDivisaoQuery.data ?? []}
+                  emailConvidado={emailConvidado}
+                  isBuscando={resolverConvidadoMutation.isPending}
+                  isParcelada={isParcelada || isFixa}
+                  percentualConvidado={percentualConvidado}
+                  percentualExterno={percentualExterno}
+                  percentualMinhaParte={percentualMinhaParte}
+                  resultadoBusca={convidadoResolvido}
+                  salvarContato={salvarContato}
+                  somaPercentual={somaPercentualDivisao}
+                  temParteExterna={temParteExterna}
+                  valorConvidado={valorConvidado}
+                  valorExterno={valorExterno}
+                  valorMinhaParte={valorMinhaParte}
+                  valorTotal={numericValorTotal}
+                  onApelidoContatoChange={setApelidoContato}
+                  onBuscar={handleResolverConvidado}
+                  onEmailChange={(value) => {
+                    setEmailConvidado(value);
+                    setConvidadoResolvido(null);
+                  }}
+                  onPercentualExternoChange={(value) =>
+                    setPercentualParteExterna(limitarPercentual(value))
+                  }
+                  onSalvarContatoChange={setSalvarContato}
+                  onTemParteExternaChange={(checked) => {
+                    setTemParteExterna(checked);
+                    if (!checked) setPercentualParteExterna("0");
+                  }}
+                />
+              )}
+
+              <DivisionSummary
+                isCartao={formaPagamento === "Cartão de crédito" || (isParcelada && !isCarne)}
+                isParcelada={isParcelada}
+                modo={modoDivisao}
+                percentualConvidado={percentualConvidado}
+                quantidadeParcelas={quantidadeParcelas || parcelasRestantes}
+                temParteExterna={temParteExterna}
+                valorConvidado={valorConvidado}
+                valorExterno={valorExterno}
+                valorMinhaParte={valorMinhaParte}
+                valorTotal={numericValorTotal}
+              />
             </div>
           )}
 
@@ -601,12 +805,64 @@ export function TransactionForm({
           )}
 
           {tipo === "receita" && (
-            <div className="py-1">
+            <div className="space-y-4 py-1">
               <ToggleField
                 checked={isFixa}
                 label="Receita fixa"
                 onChange={(checked) => setIsFixa(checked)}
               />
+              {(reembolsosPendentesQuery.data?.length ?? 0) > 0 && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                  <ToggleField
+                    checked={vincularReembolso}
+                    disabled={isFixa}
+                    label="Vincular a um reembolso"
+                    onChange={(checked) => {
+                      setVincularReembolso(checked);
+                      if (!checked) setReembolsoDivisaoId("");
+                    }}
+                  />
+                  {vincularReembolso && (
+                    <label className="mt-4 block space-y-1.5">
+                      <span className="text-sm font-medium text-emerald-900 dark:text-emerald-100">
+                        Reembolso
+                      </span>
+                      <select
+                        aria-label="Reembolso"
+                        className={`${inputClass} appearance-none border-emerald-200 bg-white dark:border-emerald-500/30`}
+                        value={reembolsoDivisaoId}
+                        onChange={(event) => {
+                          const selectedId = event.target.value;
+                          setReembolsoDivisaoId(selectedId);
+                          const reembolso = reembolsosPendentesQuery.data?.find(
+                            (item) => item.id === selectedId,
+                          );
+                          if (reembolso && !descricao.trim()) {
+                            setDescricao(
+                              `Reembolso de ${nomeParticipanteReembolso(reembolso)}`,
+                            );
+                          }
+                          if (reembolso && !valor) {
+                            setValor(formatCurrencyInput(reembolso.saldoPendente));
+                          }
+                        }}
+                        required
+                      >
+                        <option value="">Selecione</option>
+                        {reembolsosPendentesQuery.data?.map((reembolso) => (
+                          <option key={reembolso.id} value={reembolso.id}>
+                            {nomeParticipanteReembolso(reembolso)} —{" "}
+                            {formatCurrency(reembolso.saldoPendente)}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs leading-5 text-emerald-800 dark:text-emerald-100/80">
+                        Reembolso aumenta o caixa, mas não entra como renda recorrente nem na taxa de economia.
+                      </p>
+                    </label>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -833,7 +1089,16 @@ export function TransactionForm({
     setValor("");
     setMeuValor("");
     setIsDividida(false);
+    setModoDivisao("manual");
     setPercentualDivisao(String(percentualPadraoDivisao));
+    setEmailConvidado("");
+    setConvidadoResolvido(null);
+    setSalvarContato(true);
+    setApelidoContato("");
+    setTemParteExterna(false);
+    setPercentualParteExterna("0");
+    setVincularReembolso(false);
+    setReembolsoDivisaoId("");
     setData(toDateInputValue(new Date()));
     setCategoriaId(categoriasOrdenadas[0]?.id ?? "");
     setFormaPagamento("Pix");
@@ -856,6 +1121,343 @@ function calcularMeuValor(valorTotal: string, percentual: string) {
   }
 
   return formatCurrencyInput(calcularParteNumerica(total, percentualNumerico));
+}
+
+function LinkedDivisionPanel({
+  apelidoContato,
+  contatos,
+  emailConvidado,
+  isBuscando,
+  isParcelada,
+  percentualConvidado,
+  percentualExterno,
+  percentualMinhaParte,
+  resultadoBusca,
+  salvarContato,
+  somaPercentual,
+  temParteExterna,
+  valorConvidado,
+  valorExterno,
+  valorMinhaParte,
+  valorTotal,
+  onApelidoContatoChange,
+  onBuscar,
+  onEmailChange,
+  onPercentualExternoChange,
+  onSalvarContatoChange,
+  onTemParteExternaChange,
+}: {
+  apelidoContato: string;
+  contatos: Array<{
+    id: string;
+    nomeExibicao: string;
+    emailMascarado: string;
+    apelido: string | null;
+    ultimoUsoEm: string | null;
+  }>;
+  emailConvidado: string;
+  isBuscando: boolean;
+  isParcelada: boolean;
+  percentualConvidado: number;
+  percentualExterno: number;
+  percentualMinhaParte: number;
+  resultadoBusca: ResolverConvidadoDivisaoResponse | null;
+  salvarContato: boolean;
+  somaPercentual: number;
+  temParteExterna: boolean;
+  valorConvidado: number;
+  valorExterno: number;
+  valorMinhaParte: number;
+  valorTotal: number;
+  onApelidoContatoChange: (value: string) => void;
+  onBuscar: () => void;
+  onEmailChange: (value: string) => void;
+  onPercentualExternoChange: (value: string) => void;
+  onSalvarContatoChange: (checked: boolean) => void;
+  onTemParteExternaChange: (checked: boolean) => void;
+}) {
+  const recentes = [...contatos]
+    .filter((contato) => contato.emailMascarado)
+    .sort((a, b) => {
+      const left = a.ultimoUsoEm ? Date.parse(a.ultimoUsoEm) : 0;
+      const right = b.ultimoUsoEm ? Date.parse(b.ultimoUsoEm) : 0;
+      return right - left;
+    })
+    .slice(0, 4);
+
+  return (
+    <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+        <label className="block space-y-1.5">
+          <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+            Dividir restante com
+          </span>
+          <input
+            className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-base text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            inputMode="email"
+            placeholder="Buscar contato ou informar e-mail"
+            type="email"
+            value={emailConvidado}
+            onChange={(event) => onEmailChange(event.target.value)}
+          />
+        </label>
+        <button
+          className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800"
+          type="button"
+          disabled={isBuscando}
+          onClick={onBuscar}
+        >
+          <Search size={16} />
+          {isBuscando ? "Buscando..." : "Buscar"}
+        </button>
+      </div>
+
+      {recentes.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
+            Contatos recentes
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {recentes.map((contato) => (
+              <div
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
+                key={contato.id}
+              >
+                <p className="font-bold text-slate-900 dark:text-white">
+                  {contato.apelido || contato.nomeExibicao}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {contato.emailMascarado}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Por segurança, o convite exige informar o e-mail completo no campo acima.
+          </p>
+        </div>
+      )}
+
+      {resultadoBusca && (
+        <div
+          className={`rounded-xl border px-3 py-2 text-sm ${
+            resultadoBusca.encontrado
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100"
+              : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+          }`}
+        >
+          {resultadoBusca.encontrado ? (
+            <>
+              <p className="font-black">{resultadoBusca.nomeExibicao}</p>
+              <p>{resultadoBusca.emailMascarado}</p>
+            </>
+          ) : (
+            <p className="font-semibold">Nenhum usuário encontrado para este e-mail.</p>
+          )}
+        </div>
+      )}
+
+      {resultadoBusca?.encontrado && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ToggleField
+            checked={salvarContato}
+            label="Salvar nos meus contatos"
+            onChange={onSalvarContatoChange}
+          />
+          {salvarContato && (
+            <input
+              className="min-h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-base text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              maxLength={120}
+              placeholder="Apelido opcional"
+              value={apelidoContato}
+              onChange={(event) => onApelidoContatoChange(event.target.value)}
+            />
+          )}
+        </div>
+      )}
+
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
+        <ToggleField
+          checked={temParteExterna}
+          label="Existe também uma parte de pessoa externa"
+          onChange={onTemParteExternaChange}
+        />
+        {temParteExterna && (
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              Parte externa
+            </span>
+            <div className="relative max-w-40">
+              <input
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                inputMode="decimal"
+                value={String(percentualExterno).replace(".", ",")}
+                onChange={(event) => onPercentualExternoChange(event.target.value)}
+              />
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-500">
+                %
+              </span>
+            </div>
+          </label>
+        )}
+        <div className="grid gap-2 text-sm text-slate-700 dark:text-slate-200">
+          <PercentRow label="Você" percent={percentualMinhaParte} value={valorMinhaParte} />
+          <PercentRow label={resultadoBusca?.nomeExibicao ?? "Convidado"} percent={percentualConvidado} value={valorConvidado} />
+          {temParteExterna && (
+            <PercentRow label="Parte externa" percent={percentualExterno} value={valorExterno} />
+          )}
+        </div>
+        <p
+          className={`text-xs font-bold ${
+            somaPercentual === 100
+              ? "text-emerald-700 dark:text-emerald-300"
+              : "text-red-600 dark:text-red-300"
+          }`}
+        >
+          Soma: {somaPercentual.toLocaleString("pt-BR")}% de 100%
+        </p>
+      </div>
+
+      {isParcelada && (
+        <p className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-100">
+          O percentual informado vale para cada ocorrência. Um único aceite será aplicado à série quando o backend expuser esse vínculo para parceladas/fixas.
+        </p>
+      )}
+
+      {valorTotal > 0 && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Valor total: {formatCurrency(valorTotal)} · Minha parte:{" "}
+          {percentualMinhaParte.toLocaleString("pt-BR")}%
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DivisionSummary({
+  isCartao,
+  isParcelada,
+  modo,
+  percentualConvidado,
+  quantidadeParcelas,
+  temParteExterna,
+  valorConvidado,
+  valorExterno,
+  valorMinhaParte,
+  valorTotal,
+}: {
+  isCartao: boolean;
+  isParcelada: boolean;
+  modo: "manual" | "vinculada";
+  percentualConvidado: number;
+  quantidadeParcelas: number;
+  temParteExterna: boolean;
+  valorConvidado: number;
+  valorExterno: number;
+  valorMinhaParte: number;
+  valorTotal: number;
+}) {
+  const aReceber = modo === "vinculada" ? valorConvidado + valorExterno : 0;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-900 dark:text-white">
+        <Users size={16} />
+        Resumo
+      </div>
+      <div className="space-y-2 text-sm">
+        <SummaryRow label={isCartao ? "Fatura total" : "Total"} value={valorTotal} />
+        <SummaryRow label={isCartao ? "Seu consumo" : "Sua parte"} value={valorMinhaParte} />
+        {modo === "vinculada" && (
+          <>
+            <SummaryRow label="Convidado" detail={`${percentualConvidado.toLocaleString("pt-BR")}%`} value={valorConvidado} />
+            {temParteExterna && <SummaryRow label="Parte externa" value={valorExterno} />}
+            <SummaryRow label="A receber" strong value={aReceber} />
+          </>
+        )}
+      </div>
+      {isCartao && modo === "vinculada" && (
+        <p className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          A fatura permanece pelo valor total; seu consumo pessoal usa apenas sua parte.
+        </p>
+      )}
+      {isParcelada && valorTotal > 0 && (
+        <p className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          {quantidadeParcelas} parcelas de {formatCurrency(valorTotal)}. Sua parte mensal:{" "}
+          {formatCurrency(valorMinhaParte)}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PercentRow({
+  label,
+  percent,
+  value,
+}: {
+  label: string;
+  percent: number;
+  value: number;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span>{label}</span>
+      <span className="text-right font-bold">
+        {percent.toLocaleString("pt-BR")}% · {formatCurrency(value)}
+      </span>
+    </div>
+  );
+}
+
+function SummaryRow({
+  detail,
+  label,
+  strong,
+  value,
+}: {
+  detail?: string;
+  label: string;
+  strong?: boolean;
+  value: number;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 ${
+        strong ? "border-t border-slate-200 pt-2 font-black dark:border-slate-800" : ""
+      }`}
+    >
+      <span className="text-slate-600 dark:text-slate-300">
+        {label}
+        {detail ? <span className="ml-1 text-xs text-slate-400">({detail})</span> : null}
+      </span>
+      <span className="shrink-0 font-bold text-slate-900 dark:text-white">
+        {formatCurrency(value)}
+      </span>
+    </div>
+  );
+}
+
+function RadioOption({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: () => void;
+}) {
+  return (
+    <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+      <input
+        checked={checked}
+        className="h-4 w-4 accent-[var(--app-accent)]"
+        type="radio"
+        onChange={onChange}
+      />
+      {label}
+    </label>
+  );
 }
 
 function extractApiError(error: unknown, fallback: string) {
@@ -943,6 +1545,17 @@ function parsePercentual(value: string) {
 
 function formatarPercentualInput(value: number) {
   return String(value).replace(".", ",");
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(Number.isFinite(value) ? value : 0);
+}
+
+function nomeParticipanteReembolso(reembolso: ReembolsoDivisao) {
+  return reembolso.participanteExternoNome || "Participante";
 }
 
 function stripProjectedInstallmentSuffix(descricao: string) {
