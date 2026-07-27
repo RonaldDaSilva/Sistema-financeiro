@@ -194,6 +194,10 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         participante.TransacaoGerada = transacaoGerada;
         participante.DivisaoTransacao.Status = ObterStatusAposAceite(participante.DivisaoTransacao);
         participante.DivisaoTransacao.AtualizadoEm = DateTimeOffset.UtcNow;
+        await CriarOuAtualizarPendenciaReembolsoAsync(
+            participante.DivisaoTransacao,
+            participante,
+            cancellationToken);
         ResolverNotificacoesPendentes(usuarioId, participante.DivisaoTransacao.Id, TipoNotificacao.DivisaoRecebida);
         CriarNotificacao(
             participante.DivisaoTransacao.UsuarioCriadorId,
@@ -422,6 +426,8 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                 divisao.VersaoAtual);
         }
 
+        await DispensarReembolsosPendentesAsync(divisao.Id, usuarioId, cancellationToken);
+
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -571,6 +577,8 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             }
         }
 
+        await CriarOuAtualizarPendenciaReembolsoAsync(divisao, participante, cancellationToken);
+
         versao.Status = DivisaoTransacaoVersaoStatus.Aceita;
         versao.UsuarioRespondenteId = usuarioId;
         versao.RespondidoEm = DateTimeOffset.UtcNow;
@@ -683,6 +691,55 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         versao.DivisaoTransacao.AtualizadoEm = DateTimeOffset.UtcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
         return Mapear(versao.DivisaoTransacao);
+    }
+
+    public async Task<IReadOnlyList<ReembolsoDivisaoResponse>> ListarReembolsosAsync(
+        Guid usuarioId,
+        Guid divisaoId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.ReembolsosDivisao
+            .AsNoTracking()
+            .Where(item => item.UsuarioId == usuarioId && item.DivisaoTransacaoId == divisaoId)
+            .OrderBy(item => item.CriadoEm)
+            .Select(item => new ReembolsoDivisaoResponse
+            {
+                Id = item.Id,
+                DivisaoTransacaoId = item.DivisaoTransacaoId,
+                ParticipanteId = item.ParticipanteId,
+                ParticipanteUsuarioId = item.ParticipanteUsuarioId,
+                ParticipanteExternoNome = item.ParticipanteExternoNome,
+                ValorDevido = item.ValorDevido,
+                ValorRecebido = item.ValorRecebido,
+                SaldoPendente = item.ValorDevido - item.ValorRecebido,
+                Status = item.Status
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<ReembolsoDivisaoResponse?> DispensarReembolsoAsync(
+        Guid usuarioId,
+        Guid reembolsoId,
+        CancellationToken cancellationToken = default)
+    {
+        var reembolso = await _dbContext.ReembolsosDivisao
+            .SingleOrDefaultAsync(
+                item => item.Id == reembolsoId && item.UsuarioId == usuarioId,
+                cancellationToken);
+        if (reembolso is null)
+        {
+            return null;
+        }
+
+        if (reembolso.ValorRecebido > 0)
+        {
+            throw new InvalidOperationException("Reembolso parcial não pode ser dispensado sem preservar o histórico recebido.");
+        }
+
+        reembolso.Status = ReembolsoDivisaoStatus.Dispensado;
+        reembolso.AtualizadoEm = DateTimeOffset.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return MapearReembolso(reembolso);
     }
 
     public async Task<int> ProcessarExpiracoesAsync(
@@ -880,6 +937,77 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             : null;
     }
 
+    private async Task CriarOuAtualizarPendenciaReembolsoAsync(
+        DivisaoTransacao divisao,
+        DivisaoTransacaoParticipante participante,
+        CancellationToken cancellationToken)
+    {
+        if (!participante.ParticipanteUsuarioId.HasValue &&
+            string.IsNullOrWhiteSpace(participante.MotivoResposta))
+        {
+            return;
+        }
+
+        var reembolso = await _dbContext.ReembolsosDivisao
+            .IgnoreQueryFilters()
+            .SingleOrDefaultAsync(
+                item => item.UsuarioId == divisao.UsuarioCriadorId &&
+                    item.DivisaoTransacaoId == divisao.Id &&
+                    item.ParticipanteId == participante.Id,
+                cancellationToken);
+
+        if (reembolso is null)
+        {
+            _dbContext.ReembolsosDivisao.Add(new ReembolsoDivisao
+            {
+                UsuarioId = divisao.UsuarioCriadorId,
+                DivisaoTransacaoId = divisao.Id,
+                ParticipanteId = participante.Id,
+                ParticipanteUsuarioId = participante.ParticipanteUsuarioId,
+                ParticipanteExternoNome = participante.ParticipanteUsuarioId.HasValue ? null : "Participante externo",
+                ValorDevido = participante.Valor,
+                ValorRecebido = 0m,
+                Status = participante.Valor > 0 ? ReembolsoDivisaoStatus.Pendente : ReembolsoDivisaoStatus.Recebido,
+                CriadoEm = DateTimeOffset.UtcNow,
+                AtualizadoEm = DateTimeOffset.UtcNow
+            });
+            return;
+        }
+
+        if (reembolso.ValorRecebido > participante.Valor)
+        {
+            throw new InvalidOperationException("A alteração reduziria o reembolso abaixo do valor já recebido.");
+        }
+
+        reembolso.ValorDevido = participante.Valor;
+        reembolso.AtualizadoEm = DateTimeOffset.UtcNow;
+        reembolso.Status = reembolso.ValorRecebido <= 0
+            ? ReembolsoDivisaoStatus.Pendente
+            : reembolso.ValorRecebido < reembolso.ValorDevido
+                ? ReembolsoDivisaoStatus.Parcial
+                : ReembolsoDivisaoStatus.Recebido;
+    }
+
+    private async Task DispensarReembolsosPendentesAsync(
+        Guid divisaoId,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var reembolsos = await _dbContext.ReembolsosDivisao
+            .IgnoreQueryFilters()
+            .Where(item =>
+                item.UsuarioId == usuarioId &&
+                item.DivisaoTransacaoId == divisaoId &&
+                item.Status != ReembolsoDivisaoStatus.Recebido)
+            .ToListAsync(cancellationToken);
+
+        foreach (var reembolso in reembolsos.Where(item => item.ValorRecebido == 0))
+        {
+            reembolso.Status = ReembolsoDivisaoStatus.Dispensado;
+            reembolso.AtualizadoEm = DateTimeOffset.UtcNow;
+        }
+    }
+
     private static DivisaoTransacaoParticipante ObterParticipanteCriador(DivisaoTransacao divisao)
     {
         return divisao.Participantes.Single(participante =>
@@ -1055,6 +1183,22 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                     MotivoResposta = versao.MotivoResposta
                 })
                 .ToList()
+        };
+    }
+
+    private static ReembolsoDivisaoResponse MapearReembolso(ReembolsoDivisao reembolso)
+    {
+        return new ReembolsoDivisaoResponse
+        {
+            Id = reembolso.Id,
+            DivisaoTransacaoId = reembolso.DivisaoTransacaoId,
+            ParticipanteId = reembolso.ParticipanteId,
+            ParticipanteUsuarioId = reembolso.ParticipanteUsuarioId,
+            ParticipanteExternoNome = reembolso.ParticipanteExternoNome,
+            ValorDevido = reembolso.ValorDevido,
+            ValorRecebido = reembolso.ValorRecebido,
+            SaldoPendente = reembolso.SaldoPendente,
+            Status = reembolso.Status
         };
     }
 

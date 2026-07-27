@@ -160,3 +160,16 @@ public sealed class DivisaoVersaoResponse
     public DateTimeOffset? RespondidoEm { get; set; }
     public string? MotivoResposta { get; set; }
 }
+
+public sealed class ReembolsoDivisaoResponse
+{
+    public Guid Id { get; set; }
+    public Guid DivisaoTransacaoId { get; set; }
+    public Guid? ParticipanteId { get; set; }
+    public Guid? ParticipanteUsuarioId { get; set; }
+    public string? ParticipanteExternoNome { get; set; }
+    public decimal ValorDevido { get; set; }
+    public decimal ValorRecebido { get; set; }
+    public decimal SaldoPendente { get; set; }
+    public ReembolsoDivisaoStatus Status { get; set; }
+}

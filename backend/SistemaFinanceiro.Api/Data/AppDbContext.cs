@@ -33,6 +33,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<DivisaoTransacao> DivisoesTransacoes => Set<DivisaoTransacao>();
     public DbSet<DivisaoTransacaoParticipante> DivisoesTransacoesParticipantes => Set<DivisaoTransacaoParticipante>();
     public DbSet<DivisaoTransacaoVersao> DivisoesTransacoesVersoes => Set<DivisaoTransacaoVersao>();
+    public DbSet<ReembolsoDivisao> ReembolsosDivisao => Set<ReembolsoDivisao>();
     public DbSet<ContatoDivisao> ContatosDivisao => Set<ContatoDivisao>();
 
     public Guid? TenantId => _tenantProvider.UsuarioId;
@@ -58,6 +59,7 @@ public sealed class AppDbContext : DbContext
         ConfigureDivisaoTransacao(modelBuilder);
         ConfigureDivisaoTransacaoParticipante(modelBuilder);
         ConfigureDivisaoTransacaoVersao(modelBuilder);
+        ConfigureReembolsoDivisao(modelBuilder);
         ConfigureContatoDivisao(modelBuilder);
         ConfigureTenantFilters(modelBuilder);
     }
@@ -492,6 +494,9 @@ public sealed class AppDbContext : DbContext
             entity.Property(transacao => transacao.NumeroParcelaQuitada)
                 .HasColumnName("numero_parcela_quitada");
 
+            entity.Property(transacao => transacao.ReembolsoDivisaoId)
+                .HasColumnName("id_reembolso_divisao");
+
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CodigoExibicao })
                 .IsUnique();
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.DataOcorrencia });
@@ -503,6 +508,7 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CompraParceladaId, transacao.NumeroParcelaQuitada });
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.OrigemTransacao, transacao.DataOcorrencia });
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.TransferenciaId });
+            entity.HasIndex(transacao => transacao.ReembolsoDivisaoId);
 
             entity.HasOne(transacao => transacao.Usuario)
                 .WithMany(usuario => usuario.Transacoes)
@@ -528,6 +534,11 @@ public sealed class AppDbContext : DbContext
                 .WithMany(compra => compra.TransacoesQuitacao)
                 .HasForeignKey(transacao => transacao.CompraParceladaId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(transacao => transacao.ReembolsoDivisao)
+                .WithMany(reembolso => reembolso.TransacoesReembolso)
+                .HasForeignKey(transacao => transacao.ReembolsoDivisaoId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 
@@ -1349,6 +1360,84 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(versao => versao.DivisaoTransacaoId);
             entity.HasIndex(versao => new { versao.DivisaoTransacaoId, versao.Versao })
                 .IsUnique();
+        });
+    }
+
+    private static void ConfigureReembolsoDivisao(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ReembolsoDivisao>(entity =>
+        {
+            entity.ToTable("reembolsos_divisao");
+
+            entity.HasKey(reembolso => reembolso.Id);
+
+            entity.Property(reembolso => reembolso.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(reembolso => reembolso.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+
+            entity.Property(reembolso => reembolso.DivisaoTransacaoId)
+                .HasColumnName("id_divisao_transacao")
+                .IsRequired();
+
+            entity.Property(reembolso => reembolso.ParticipanteId)
+                .HasColumnName("id_participante");
+
+            entity.Property(reembolso => reembolso.ParticipanteUsuarioId)
+                .HasColumnName("id_usuario_participante");
+
+            entity.Property(reembolso => reembolso.ParticipanteExternoNome)
+                .HasColumnName("participante_externo_nome")
+                .HasMaxLength(160);
+
+            entity.Property(reembolso => reembolso.ValorDevido)
+                .HasColumnName("valor_devido")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(reembolso => reembolso.ValorRecebido)
+                .HasColumnName("valor_recebido")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(reembolso => reembolso.Status)
+                .HasColumnName("status")
+                .HasConversion<string>()
+                .HasMaxLength(30)
+                .IsRequired();
+
+            entity.Property(reembolso => reembolso.CriadoEm)
+                .HasColumnName("criado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.Property(reembolso => reembolso.AtualizadoEm)
+                .HasColumnName("atualizado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.HasOne(reembolso => reembolso.DivisaoTransacao)
+                .WithMany()
+                .HasForeignKey(reembolso => reembolso.DivisaoTransacaoId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(reembolso => reembolso.Participante)
+                .WithMany()
+                .HasForeignKey(reembolso => reembolso.ParticipanteId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(reembolso => reembolso.ParticipanteUsuario)
+                .WithMany()
+                .HasForeignKey(reembolso => reembolso.ParticipanteUsuarioId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(reembolso => reembolso.UsuarioId);
+            entity.HasIndex(reembolso => reembolso.DivisaoTransacaoId);
+            entity.HasIndex(reembolso => reembolso.ParticipanteId);
+            entity.HasIndex(reembolso => reembolso.ParticipanteUsuarioId);
         });
     }
 

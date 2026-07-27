@@ -291,6 +291,42 @@ public sealed class DivisaoTransacaoController : ControllerBase
         }
     }
 
+    [HttpGet("{divisaoId:guid}/reembolsos")]
+    public async Task<ActionResult<IReadOnlyList<ReembolsoDivisaoResponse>>> ListarReembolsos(
+        Guid divisaoId,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        return Ok(await _service.ListarReembolsosAsync(usuarioId.Value, divisaoId, cancellationToken));
+    }
+
+    [HttpPost("reembolsos/{reembolsoId:guid}/dispensar")]
+    public async Task<ActionResult<ReembolsoDivisaoResponse>> DispensarReembolso(
+        Guid reembolsoId,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var reembolso = await _service.DispensarReembolsoAsync(usuarioId.Value, reembolsoId, cancellationToken);
+            return reembolso is null ? NotFound() : Ok(reembolso);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
     private async Task<ActionResult<DivisaoTransacaoResponse>> AceitarInterno(
         Guid participanteId,
         ClassificarAceiteDivisaoRequest? request,

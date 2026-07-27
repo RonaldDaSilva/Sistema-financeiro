@@ -22,4 +22,5 @@ public sealed class TransacaoResponse
     public decimal? PercentualDivisao { get; set; }
     public Guid? CompraParceladaId { get; set; }
     public int? NumeroParcelaQuitada { get; set; }
+    public Guid? ReembolsoDivisaoId { get; set; }
 }

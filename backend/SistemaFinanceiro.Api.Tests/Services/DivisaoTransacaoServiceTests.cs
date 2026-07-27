@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Divisoes;
+using SistemaFinanceiro.Api.Dtos.Transacoes;
 using SistemaFinanceiro.Api.Models;
 using SistemaFinanceiro.Api.Services.Divisoes;
+using SistemaFinanceiro.Api.Services.Transacoes;
 using SistemaFinanceiro.Api.Tests.Infrastructure;
 using Xunit;
 
@@ -517,6 +519,260 @@ public sealed class DivisaoTransacaoServiceTests
     }
 
     [Fact]
+    public async Task Reembolso_AceiteCriaPendencia()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+
+        var reembolso = Assert.Single(database.Context.ReembolsosDivisao.IgnoreQueryFilters());
+        Assert.Equal(criador.Id, reembolso.UsuarioId);
+        Assert.Equal(divisao.Id, reembolso.DivisaoTransacaoId);
+        Assert.Equal(convidado.Id, reembolso.ParticipanteUsuarioId);
+        Assert.Equal(400m, reembolso.ValorDevido);
+        Assert.Equal(0m, reembolso.ValorRecebido);
+        Assert.Equal(400m, reembolso.SaldoPendente);
+        Assert.Equal(ReembolsoDivisaoStatus.Pendente, reembolso.Status);
+    }
+
+    [Fact]
+    public async Task Reembolso_ReceitaParcialAtualizaSaldoPendente()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var conta = await CriarContaAsync(database.Context, criador.Id);
+        var reembolso = database.Context.ReembolsosDivisao.IgnoreQueryFilters().Single();
+        var transacaoService = new TransacaoService(database.Context);
+
+        await transacaoService.CriarAsync(
+            new CriarTransacaoRequest
+            {
+                Tipo = TipoTransacao.Receita,
+                Descricao = "Reembolso Maria",
+                Valor = 30m,
+                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                FormaPagamento = "Pix",
+                ContaBancariaId = conta.Id,
+                ReembolsoDivisaoId = reembolso.Id
+            },
+            criador.Id);
+
+        Assert.Equal(30m, reembolso.ValorRecebido);
+        Assert.Equal(370m, reembolso.SaldoPendente);
+        Assert.Equal(ReembolsoDivisaoStatus.Parcial, reembolso.Status);
+    }
+
+    [Fact]
+    public async Task Reembolso_ReceitaIntegralMarcaRecebido()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var conta = await CriarContaAsync(database.Context, criador.Id);
+        var reembolso = database.Context.ReembolsosDivisao.IgnoreQueryFilters().Single();
+        var transacaoService = new TransacaoService(database.Context);
+
+        await transacaoService.CriarAsync(
+            new CriarTransacaoRequest
+            {
+                Tipo = TipoTransacao.Receita,
+                Descricao = "Reembolso integral",
+                Valor = 400m,
+                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                FormaPagamento = "Pix",
+                ContaBancariaId = conta.Id,
+                ReembolsoDivisaoId = reembolso.Id
+            },
+            criador.Id);
+
+        Assert.Equal(400m, reembolso.ValorRecebido);
+        Assert.Equal(0m, reembolso.SaldoPendente);
+        Assert.Equal(ReembolsoDivisaoStatus.Recebido, reembolso.Status);
+    }
+
+    [Fact]
+    public async Task Reembolso_ReceitaDesvinculadaNaoAtualizaPendencia()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var conta = await CriarContaAsync(database.Context, criador.Id);
+        var reembolso = database.Context.ReembolsosDivisao.IgnoreQueryFilters().Single();
+        var transacaoService = new TransacaoService(database.Context);
+
+        await transacaoService.CriarAsync(
+            new CriarTransacaoRequest
+            {
+                Tipo = TipoTransacao.Receita,
+                Descricao = "Receita normal",
+                Valor = 50m,
+                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                FormaPagamento = "Pix",
+                ContaBancariaId = conta.Id
+            },
+            criador.Id);
+
+        Assert.Equal(0m, reembolso.ValorRecebido);
+        Assert.Equal(ReembolsoDivisaoStatus.Pendente, reembolso.Status);
+    }
+
+    [Fact]
+    public async Task Reembolso_ExcessoBloqueiaVinculo()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var conta = await CriarContaAsync(database.Context, criador.Id);
+        var reembolso = database.Context.ReembolsosDivisao.IgnoreQueryFilters().Single();
+        var transacaoService = new TransacaoService(database.Context);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            transacaoService.CriarAsync(
+                new CriarTransacaoRequest
+                {
+                    Tipo = TipoTransacao.Receita,
+                    Descricao = "Reembolso acima",
+                    Valor = 401m,
+                    DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                    FormaPagamento = "Pix",
+                    ContaBancariaId = conta.Id,
+                    ReembolsoDivisaoId = reembolso.Id
+                },
+                criador.Id));
+    }
+
+    [Fact]
+    public async Task Reembolso_ReceitaRecorrenteBloqueiaRendaRecorrente()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var conta = await CriarContaAsync(database.Context, criador.Id);
+        var reembolso = database.Context.ReembolsosDivisao.IgnoreQueryFilters().Single();
+        var transacaoService = new TransacaoService(database.Context);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            transacaoService.CriarAsync(
+                new CriarTransacaoRequest
+                {
+                    Tipo = TipoTransacao.Receita,
+                    Descricao = "Reembolso fixo indevido",
+                    Valor = 30m,
+                    DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                    FormaPagamento = "Pix",
+                    ContaBancariaId = conta.Id,
+                    IsFixa = true,
+                    ReembolsoDivisaoId = reembolso.Id
+                },
+                criador.Id));
+    }
+
+    [Fact]
+    public async Task Reembolso_DesfazerRecebimentoReabrePendencia()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var conta = await CriarContaAsync(database.Context, criador.Id);
+        var reembolso = database.Context.ReembolsosDivisao.IgnoreQueryFilters().Single();
+        var transacaoService = new TransacaoService(database.Context);
+        var transacaoId = await transacaoService.CriarAsync(
+            new CriarTransacaoRequest
+            {
+                Tipo = TipoTransacao.Receita,
+                Descricao = "Reembolso",
+                Valor = 30m,
+                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                FormaPagamento = "Pix",
+                ContaBancariaId = conta.Id,
+                ReembolsoDivisaoId = reembolso.Id
+            },
+            criador.Id);
+
+        await transacaoService.AlternarStatusPagamentoAsync(
+            transacaoId,
+            criador.Id,
+            request: new AlterarStatusPagamentoRequest { IsPaga = false });
+
+        Assert.Equal(0m, reembolso.ValorRecebido);
+        Assert.Equal(400m, reembolso.SaldoPendente);
+        Assert.Equal(ReembolsoDivisaoStatus.Pendente, reembolso.Status);
+    }
+
+    [Fact]
+    public async Task Reembolso_CancelamentoDispensaPendenciaAberta()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var reembolso = database.Context.ReembolsosDivisao.IgnoreQueryFilters().Single();
+
+        await service.ExcluirAsync(
+            criador.Id,
+            divisao.Id,
+            new ExcluirDivisaoRequest { Escopo = "EstaOcorrencia" });
+
+        Assert.Equal(ReembolsoDivisaoStatus.Dispensado, reembolso.Status);
+    }
+
+    [Fact]
+    public async Task Reembolso_ParticipanteExternoPermiteReceitaVinculada()
+    {
+        var (database, criador, _, transacao, _) = await CriarCenarioAsync();
+        var divisao = new DivisaoTransacao
+        {
+            UsuarioId = criador.Id,
+            UsuarioCriadorId = criador.Id,
+            TransacaoOrigemId = transacao.Id,
+            ValorTotal = 100m,
+            Status = DivisaoTransacaoStatus.Aceita
+        };
+        var participanteExterno = new DivisaoTransacaoParticipante
+        {
+            UsuarioId = criador.Id,
+            DivisaoTransacao = divisao,
+            TipoParticipante = TipoParticipanteDivisao.Externo,
+            Percentual = 50m,
+            Valor = 50m,
+            Status = DivisaoTransacaoParticipanteStatus.Aceito,
+            Ativo = true,
+            MotivoResposta = "Joao"
+        };
+        var reembolso = new ReembolsoDivisao
+        {
+            UsuarioId = criador.Id,
+            DivisaoTransacao = divisao,
+            Participante = participanteExterno,
+            ParticipanteExternoNome = "Joao",
+            ValorDevido = 50m,
+            ValorRecebido = 0m,
+            Status = ReembolsoDivisaoStatus.Pendente
+        };
+        database.Context.AddRange(divisao, participanteExterno, reembolso);
+        var conta = await CriarContaAsync(database.Context, criador.Id);
+        await database.Context.SaveChangesAsync();
+        var transacaoService = new TransacaoService(database.Context);
+
+        await transacaoService.CriarAsync(
+            new CriarTransacaoRequest
+            {
+                Tipo = TipoTransacao.Receita,
+                Descricao = "Reembolso externo",
+                Valor = 50m,
+                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                FormaPagamento = "Pix",
+                ContaBancariaId = conta.Id,
+                ReembolsoDivisaoId = reembolso.Id
+            },
+            criador.Id);
+
+        Assert.Equal(ReembolsoDivisaoStatus.Recebido, reembolso.Status);
+        Assert.Equal(50m, reembolso.ValorRecebido);
+    }
+
+    [Fact]
     public async Task ExcluirAsync_CancelaDivisaoETransacaoAvulsaPendente()
     {
         var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
@@ -623,5 +879,19 @@ public sealed class DivisaoTransacaoServiceTests
         database.Context.Transacoes.Add(transacao);
         await database.Context.SaveChangesAsync();
         return (database, criador, convidado, transacao, outro);
+    }
+
+    private static async Task<ContaBancaria> CriarContaAsync(AppDbContext context, Guid usuarioId)
+    {
+        var conta = new ContaBancaria
+        {
+            UsuarioId = usuarioId,
+            NomeCustomizado = "Conta reembolso",
+            CodigoBanco = "001",
+            SaldoInicial = 0m
+        };
+        context.ContasBancarias.Add(conta);
+        await context.SaveChangesAsync();
+        return conta;
     }
 }

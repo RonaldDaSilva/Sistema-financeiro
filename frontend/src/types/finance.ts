@@ -343,6 +343,7 @@ export type CriarTransacaoRequest = {
   percentualDivisao?: number | null;
   compraParceladaId?: string | null;
   numeroParcelaQuitada?: number | null;
+  reembolsoDivisaoId?: string | null;
 };
 
 export type CriarCompraParceladaRequest = {

@@ -29,4 +29,5 @@ public sealed class ExtratoMensalItemResponse
     public Guid? CompraParceladaId { get; set; }
     public int? NumeroParcela { get; set; }
     public int? QuantidadeParcelas { get; set; }
+    public Guid? ReembolsoDivisaoId { get; set; }
 }

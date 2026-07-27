@@ -680,6 +680,7 @@ public sealed class TransacaoService : ITransacaoService
             OrigemTransacao = transacao.OrigemTransacao,
             CompraParceladaId = transacao.CompraParceladaId,
             NumeroParcelaQuitada = transacao.NumeroParcelaQuitada,
+            ReembolsoDivisaoId = transacao.ReembolsoDivisaoId,
             Categoria = transacao.Categoria == null
                 ? null
                 : new Categoria
@@ -1026,6 +1027,7 @@ public sealed class TransacaoService : ITransacaoService
     {
         ValidarDivisao(request);
         await ValidarRelacionamentosAsync(request, usuarioId, cancellationToken);
+        var reembolso = await ValidarReembolsoDivisaoAsync(request, usuarioId, cancellationToken);
 
         var ultimoCodigo = await _dbContext.Transacoes
             .Where(transacao => transacao.UsuarioId == usuarioId)
@@ -1051,8 +1053,17 @@ public sealed class TransacaoService : ITransacaoService
             ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null,
             PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null,
             CompraParceladaId = request.CompraParceladaId,
-            NumeroParcelaQuitada = request.NumeroParcelaQuitada
+            NumeroParcelaQuitada = request.NumeroParcelaQuitada,
+            ReembolsoDivisaoId = request.ReembolsoDivisaoId,
+            OrigemTransacao = request.ReembolsoDivisaoId.HasValue
+                ? OrigemTransacao.ReembolsoDivisao
+                : OrigemTransacao.Lancamento
         };
+
+        if (reembolso is not null && transacao.IsPaga)
+        {
+            AplicarRecebimentoReembolso(reembolso, transacao.Valor);
+        }
 
         _dbContext.Transacoes.Add(transacao);
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -1078,6 +1089,12 @@ public sealed class TransacaoService : ITransacaoService
         if (transacao is null)
         {
             return null;
+        }
+
+        if (transacao.ReembolsoDivisaoId.HasValue)
+        {
+            throw new InvalidOperationException(
+                "Receitas vinculadas a reembolso de divisão não podem ser editadas. Remova o vínculo atual e registre uma nova receita de reembolso.");
         }
 
         if (transacao.OrigemTransacao == OrigemTransacao.Transferencia &&
@@ -1349,10 +1366,33 @@ public sealed class TransacaoService : ITransacaoService
             return pagamento.IsPaga;
         }
 
+        var isPagaAnterior = transacao.IsPaga;
         transacao.IsPaga = request?.IsPaga ?? !transacao.IsPaga;
         if (transacao.IsPaga && request?.ContaBancariaId.HasValue == true)
         {
             transacao.ContaBancariaId = request.ContaBancariaId.Value;
+        }
+
+        if (transacao.ReembolsoDivisaoId.HasValue && isPagaAnterior != transacao.IsPaga)
+        {
+            var reembolso = await _dbContext.ReembolsosDivisao
+                .SingleAsync(
+                    item => item.Id == transacao.ReembolsoDivisaoId.Value &&
+                        item.UsuarioId == usuarioId,
+                    cancellationToken);
+            if (transacao.IsPaga)
+            {
+                if (transacao.Valor > reembolso.SaldoPendente)
+                {
+                    throw new InvalidOperationException("O pagamento excede o saldo pendente do reembolso.");
+                }
+
+                AplicarRecebimentoReembolso(reembolso, transacao.Valor);
+            }
+            else
+            {
+                RemoverRecebimentoReembolso(reembolso, transacao.Valor);
+            }
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -1625,6 +1665,16 @@ public sealed class TransacaoService : ITransacaoService
             return true;
         }
 
+        if (transacao.ReembolsoDivisaoId.HasValue && transacao.IsPaga)
+        {
+            var reembolso = await _dbContext.ReembolsosDivisao
+                .SingleAsync(
+                    item => item.Id == transacao.ReembolsoDivisaoId.Value &&
+                        item.UsuarioId == usuarioId,
+                    cancellationToken);
+            RemoverRecebimentoReembolso(reembolso, transacao.Valor);
+        }
+
         _dbContext.Transacoes.Remove(transacao);
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
@@ -1764,7 +1814,8 @@ public sealed class TransacaoService : ITransacaoService
             Origem = "Transacao",
             OrigemTransacao = transacao.OrigemTransacao,
             CompraParceladaId = transacao.CompraParceladaId,
-            NumeroParcela = transacao.NumeroParcelaQuitada
+            NumeroParcela = transacao.NumeroParcelaQuitada,
+            ReembolsoDivisaoId = transacao.ReembolsoDivisaoId
         };
     }
 
@@ -1950,6 +2001,73 @@ public sealed class TransacaoService : ITransacaoService
         }
     }
 
+    private async Task<ReembolsoDivisao?> ValidarReembolsoDivisaoAsync(
+        CriarTransacaoRequest request,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        if (!request.ReembolsoDivisaoId.HasValue)
+        {
+            return null;
+        }
+
+        if (request.Tipo != TipoTransacao.Receita)
+        {
+            throw new InvalidOperationException("Reembolso de divisão deve ser registrado como receita.");
+        }
+
+        if (request.IsFixa)
+        {
+            throw new InvalidOperationException("Reembolso de divisão não pode ser receita recorrente.");
+        }
+
+        var reembolso = await _dbContext.ReembolsosDivisao
+            .SingleOrDefaultAsync(
+                item => item.Id == request.ReembolsoDivisaoId.Value &&
+                    item.UsuarioId == usuarioId,
+                cancellationToken);
+
+        if (reembolso is null)
+        {
+            throw new InvalidOperationException("Pendência de reembolso não encontrada.");
+        }
+
+        if (reembolso.Status == ReembolsoDivisaoStatus.Dispensado)
+        {
+            throw new InvalidOperationException("Pendência de reembolso dispensada não pode receber pagamento.");
+        }
+
+        if (request.Valor > reembolso.SaldoPendente)
+        {
+            throw new InvalidOperationException(
+                "O valor vinculado excede o saldo pendente do reembolso. Vincule apenas o valor devido e registre o excedente como receita normal.");
+        }
+
+        return reembolso;
+    }
+
+    private static void AplicarRecebimentoReembolso(ReembolsoDivisao reembolso, decimal valor)
+    {
+        reembolso.ValorRecebido += valor;
+        reembolso.AtualizadoEm = DateTimeOffset.UtcNow;
+        reembolso.Status = reembolso.ValorRecebido <= 0
+            ? ReembolsoDivisaoStatus.Pendente
+            : reembolso.ValorRecebido < reembolso.ValorDevido
+                ? ReembolsoDivisaoStatus.Parcial
+                : ReembolsoDivisaoStatus.Recebido;
+    }
+
+    private static void RemoverRecebimentoReembolso(ReembolsoDivisao reembolso, decimal valor)
+    {
+        reembolso.ValorRecebido = Math.Max(0m, reembolso.ValorRecebido - valor);
+        reembolso.AtualizadoEm = DateTimeOffset.UtcNow;
+        reembolso.Status = reembolso.ValorRecebido <= 0
+            ? ReembolsoDivisaoStatus.Pendente
+            : reembolso.ValorRecebido < reembolso.ValorDevido
+                ? ReembolsoDivisaoStatus.Parcial
+                : ReembolsoDivisaoStatus.Recebido;
+    }
+
     private static void ValidarDivisao(CriarTransacaoRequest request)
     {
         if (!request.IsDividida)
@@ -2016,7 +2134,8 @@ public sealed class TransacaoService : ITransacaoService
             ValorTotalOriginal = transacao.ValorTotalOriginal,
             PercentualDivisao = transacao.PercentualDivisao,
             CompraParceladaId = transacao.CompraParceladaId,
-            NumeroParcelaQuitada = transacao.NumeroParcelaQuitada
+            NumeroParcelaQuitada = transacao.NumeroParcelaQuitada,
+            ReembolsoDivisaoId = transacao.ReembolsoDivisaoId
         };
     }
 

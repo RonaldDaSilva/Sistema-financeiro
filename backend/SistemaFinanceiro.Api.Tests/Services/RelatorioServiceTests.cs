@@ -368,19 +368,33 @@ public sealed class RelatorioServiceTests
 
         var conta = CriarConta(usuarioId, "Conta principal");
         database.Context.ContasBancarias.Add(conta);
-        database.Context.Transacoes.Add(new Transacao
-        {
-            UsuarioId = usuarioId,
-            CodigoExibicao = 11,
-            Tipo = TipoTransacao.Receita,
-            Descricao = "Reembolso do jantar",
-            Valor = 80m,
-            DataOcorrencia = new DateOnly(2026, 7, 20),
-            FormaPagamento = "Pix",
-            ContaBancaria = conta,
-            IsPaga = true,
-            OrigemTransacao = OrigemTransacao.ReembolsoDivisao
-        });
+        database.Context.Transacoes.AddRange(
+            new Transacao
+            {
+                UsuarioId = usuarioId,
+                CodigoExibicao = 10,
+                Tipo = TipoTransacao.Receita,
+                Descricao = "Salario",
+                Valor = 1000m,
+                DataOcorrencia = new DateOnly(2026, 7, 10),
+                FormaPagamento = "Pix",
+                ContaBancaria = conta,
+                IsPaga = true,
+                OrigemTransacao = OrigemTransacao.Lancamento
+            },
+            new Transacao
+            {
+                UsuarioId = usuarioId,
+                CodigoExibicao = 11,
+                Tipo = TipoTransacao.Receita,
+                Descricao = "Reembolso do jantar",
+                Valor = 80m,
+                DataOcorrencia = new DateOnly(2026, 7, 20),
+                FormaPagamento = "Pix",
+                ContaBancaria = conta,
+                IsPaga = true,
+                OrigemTransacao = OrigemTransacao.ReembolsoDivisao
+            });
         await database.Context.SaveChangesAsync();
 
         var service = CriarServiceConsolidado(database.Context);
@@ -390,10 +404,12 @@ public sealed class RelatorioServiceTests
             new DateOnly(2026, 7, 31),
             usuarioId);
 
-        Assert.Equal(0m, response.Kpis.Receitas.ValorAtual);
-        Assert.Equal(0m, response.ResumoAuditavel.ReceitasRealizadas);
-        Assert.Equal(80m, response.ProjecaoDiaria.Sum(item => item.Entradas));
-        Assert.Equal(80m, response.SerieFluxo.Sum(item => item.Receitas));
+        Assert.Equal(1000m, response.Kpis.Receitas.ValorAtual);
+        Assert.Equal(1000m, response.ResumoAuditavel.ReceitasRealizadas);
+        Assert.Equal(100m, response.Kpis.TaxaEconomia.ValorAtual);
+        Assert.Equal(1080m, response.ProjecaoDiaria.Sum(item => item.Entradas));
+        Assert.Equal(1080m, response.SerieFluxo.Sum(item => item.Receitas));
+        Assert.Equal(1080m, response.DisponivelAposCompromissos.SaldoAtual);
     }
 
     [Fact]

@@ -37,4 +37,5 @@ public sealed class CriarTransacaoRequest
 
     public Guid? CompraParceladaId { get; set; }
     public int? NumeroParcelaQuitada { get; set; }
+    public Guid? ReembolsoDivisaoId { get; set; }
 }

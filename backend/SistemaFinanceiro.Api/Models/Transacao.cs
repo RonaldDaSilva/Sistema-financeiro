@@ -27,10 +27,12 @@ public sealed class Transacao : IHasGuidId, IMustHaveTenant
     public string? Observacao { get; set; }
     public Guid? CompraParceladaId { get; set; }
     public int? NumeroParcelaQuitada { get; set; }
+    public Guid? ReembolsoDivisaoId { get; set; }
 
     public Usuario Usuario { get; set; } = null!;
     public Categoria? Categoria { get; set; }
     public CartaoCredito? CartaoCredito { get; set; }
     public ContaBancaria? ContaBancaria { get; set; }
     public CompraParcelada? CompraParcelada { get; set; }
+    public ReembolsoDivisao? ReembolsoDivisao { get; set; }
 }

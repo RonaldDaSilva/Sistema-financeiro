@@ -17,4 +17,6 @@ public interface IDivisaoTransacaoService
     Task<DivisaoTransacaoResponse?> RecusarAlteracaoAsync(Guid usuarioId, Guid versaoId, ResponderAlteracaoDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> ReenviarAlteracaoAsync(Guid usuarioId, Guid versaoId, ReenviarAlteracaoDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> ManterVersaoAnteriorAsync(Guid usuarioId, Guid versaoId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ReembolsoDivisaoResponse>> ListarReembolsosAsync(Guid usuarioId, Guid divisaoId, CancellationToken cancellationToken = default);
+    Task<ReembolsoDivisaoResponse?> DispensarReembolsoAsync(Guid usuarioId, Guid reembolsoId, CancellationToken cancellationToken = default);
 }
