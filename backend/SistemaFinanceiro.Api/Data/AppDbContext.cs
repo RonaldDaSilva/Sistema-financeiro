@@ -32,6 +32,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<FechamentoMensalConta> FechamentosMensaisConta => Set<FechamentoMensalConta>();
     public DbSet<DivisaoTransacao> DivisoesTransacoes => Set<DivisaoTransacao>();
     public DbSet<DivisaoTransacaoParticipante> DivisoesTransacoesParticipantes => Set<DivisaoTransacaoParticipante>();
+    public DbSet<DivisaoTransacaoVersao> DivisoesTransacoesVersoes => Set<DivisaoTransacaoVersao>();
     public DbSet<ContatoDivisao> ContatosDivisao => Set<ContatoDivisao>();
 
     public Guid? TenantId => _tenantProvider.UsuarioId;
@@ -56,6 +57,7 @@ public sealed class AppDbContext : DbContext
         ConfigureFechamentoMensalConta(modelBuilder);
         ConfigureDivisaoTransacao(modelBuilder);
         ConfigureDivisaoTransacaoParticipante(modelBuilder);
+        ConfigureDivisaoTransacaoVersao(modelBuilder);
         ConfigureContatoDivisao(modelBuilder);
         ConfigureTenantFilters(modelBuilder);
     }
@@ -1194,6 +1196,158 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(contato => contato.UsuarioId);
             entity.HasIndex(contato => contato.UsuarioContatoId);
             entity.HasIndex(contato => new { contato.UsuarioId, contato.UsuarioContatoId })
+                .IsUnique();
+        });
+    }
+
+    private static void ConfigureDivisaoTransacaoVersao(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DivisaoTransacaoVersao>(entity =>
+        {
+            entity.ToTable("divisoes_transacoes_versoes");
+
+            entity.HasKey(versao => versao.Id);
+
+            entity.Property(versao => versao.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+
+            entity.Property(versao => versao.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+
+            entity.Property(versao => versao.DivisaoTransacaoId)
+                .HasColumnName("id_divisao_transacao")
+                .IsRequired();
+
+            entity.Property(versao => versao.Versao)
+                .HasColumnName("versao")
+                .IsRequired();
+
+            entity.Property(versao => versao.Status)
+                .HasColumnName("status")
+                .HasConversion<string>()
+                .HasMaxLength(40)
+                .IsRequired();
+
+            entity.Property(versao => versao.Escopo)
+                .HasColumnName("escopo")
+                .HasMaxLength(40)
+                .IsRequired();
+
+            entity.Property(versao => versao.UsuarioSolicitanteId)
+                .HasColumnName("id_usuario_solicitante")
+                .IsRequired();
+
+            entity.Property(versao => versao.UsuarioRespondenteId)
+                .HasColumnName("id_usuario_respondente");
+
+            entity.Property(versao => versao.ValorTotalAnterior)
+                .HasColumnName("valor_total_anterior")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(versao => versao.ValorTotalProposto)
+                .HasColumnName("valor_total_proposto")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(versao => versao.PercentualCriadorAnterior)
+                .HasColumnName("percentual_criador_anterior")
+                .HasPrecision(5, 2)
+                .IsRequired();
+
+            entity.Property(versao => versao.PercentualCriadorProposto)
+                .HasColumnName("percentual_criador_proposto")
+                .HasPrecision(5, 2)
+                .IsRequired();
+
+            entity.Property(versao => versao.ValorCriadorAnterior)
+                .HasColumnName("valor_criador_anterior")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(versao => versao.ValorCriadorProposto)
+                .HasColumnName("valor_criador_proposto")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(versao => versao.PercentualParticipanteAnterior)
+                .HasColumnName("percentual_participante_anterior")
+                .HasPrecision(5, 2)
+                .IsRequired();
+
+            entity.Property(versao => versao.PercentualParticipanteProposto)
+                .HasColumnName("percentual_participante_proposto")
+                .HasPrecision(5, 2)
+                .IsRequired();
+
+            entity.Property(versao => versao.ValorParticipanteAnterior)
+                .HasColumnName("valor_participante_anterior")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(versao => versao.ValorParticipanteProposto)
+                .HasColumnName("valor_participante_proposto")
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(versao => versao.VencimentoAnterior)
+                .HasColumnName("vencimento_anterior");
+
+            entity.Property(versao => versao.VencimentoProposto)
+                .HasColumnName("vencimento_proposto");
+
+            entity.Property(versao => versao.QuantidadeParcelasAnterior)
+                .HasColumnName("quantidade_parcelas_anterior");
+
+            entity.Property(versao => versao.QuantidadeParcelasProposta)
+                .HasColumnName("quantidade_parcelas_proposta");
+
+            entity.Property(versao => versao.RecorrenciaAnterior)
+                .HasColumnName("recorrencia_anterior")
+                .HasMaxLength(40);
+
+            entity.Property(versao => versao.RecorrenciaProposta)
+                .HasColumnName("recorrencia_proposta")
+                .HasMaxLength(40);
+
+            entity.Property(versao => versao.FrequenciaAnterior)
+                .HasColumnName("frequencia_anterior")
+                .HasMaxLength(40);
+
+            entity.Property(versao => versao.FrequenciaProposta)
+                .HasColumnName("frequencia_proposta")
+                .HasMaxLength(40);
+
+            entity.Property(versao => versao.ResponsabilidadeAnterior)
+                .HasColumnName("responsabilidade_anterior")
+                .HasMaxLength(80);
+
+            entity.Property(versao => versao.ResponsabilidadeProposta)
+                .HasColumnName("responsabilidade_proposta")
+                .HasMaxLength(80);
+
+            entity.Property(versao => versao.CriadoEm)
+                .HasColumnName("criado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.Property(versao => versao.RespondidoEm)
+                .HasColumnName("respondido_em");
+
+            entity.Property(versao => versao.MotivoResposta)
+                .HasColumnName("motivo_resposta")
+                .HasMaxLength(500);
+
+            entity.HasOne(versao => versao.DivisaoTransacao)
+                .WithMany(divisao => divisao.Versoes)
+                .HasForeignKey(versao => versao.DivisaoTransacaoId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(versao => versao.UsuarioId);
+            entity.HasIndex(versao => versao.DivisaoTransacaoId);
+            entity.HasIndex(versao => new { versao.DivisaoTransacaoId, versao.Versao })
                 .IsUnique();
         });
     }

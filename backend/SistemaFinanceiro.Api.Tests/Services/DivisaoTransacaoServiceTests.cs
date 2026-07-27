@@ -289,6 +289,234 @@ public sealed class DivisaoTransacaoServiceTests
     }
 
     [Fact]
+    public async Task ProporAlteracaoAsync_MantemVersaoAnteriorVigente()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+
+        var alterada = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest
+            {
+                ValorTotal = 1200m,
+                PercentualConvidado = 25m
+            });
+
+        Assert.Equal(DivisaoTransacaoStatus.AlteracaoPendente, alterada!.Status);
+        Assert.Equal(1, alterada.VersaoAtual);
+        Assert.Equal(600m, transacao.Valor);
+        Assert.Equal(400m, database.Context.Transacoes.IgnoreQueryFilters().Single(item => item.UsuarioId == convidado.Id).Valor);
+        var proposta = Assert.Single(alterada.Versoes);
+        Assert.Equal(2, proposta.Versao);
+        Assert.Equal(DivisaoTransacaoVersaoStatus.PropostaPendente, proposta.Status);
+        Assert.Equal(1000m, proposta.ValorTotalAnterior);
+        Assert.Equal(1200m, proposta.ValorTotalProposto);
+        Assert.Equal(400m, proposta.ValorParticipanteAnterior);
+        Assert.Equal(300m, proposta.ValorParticipanteProposto);
+    }
+
+    [Fact]
+    public async Task AceitarAlteracaoAsync_SubstituiVersaoVigenteEAtualizaLancamentoPendente()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var novoVencimento = transacao.DataOcorrencia.AddDays(5);
+        var alterada = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest
+            {
+                ValorTotal = 1200m,
+                PercentualConvidado = 25m,
+                Vencimento = novoVencimento
+            });
+        var proposta = alterada!.Versoes.Single();
+
+        var aceita = await service.AceitarAlteracaoAsync(convidado.Id, proposta.Id);
+
+        Assert.Equal(DivisaoTransacaoStatus.Aceita, aceita!.Status);
+        Assert.Equal(2, aceita.VersaoAtual);
+        Assert.Equal(1200m, aceita.ValorTotal);
+        Assert.Equal(900m, aceita.Participantes.Single(item => item.TipoParticipante == TipoParticipanteDivisao.Criador).Valor);
+        Assert.Equal(300m, aceita.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id).Valor);
+        Assert.Equal(900m, transacao.Valor);
+        Assert.Equal(novoVencimento, transacao.DataOcorrencia);
+        var gerada = database.Context.Transacoes.IgnoreQueryFilters().Single(item => item.UsuarioId == convidado.Id);
+        Assert.Equal(300m, gerada.Valor);
+        Assert.Equal(novoVencimento, gerada.DataOcorrencia);
+        Assert.Equal(DivisaoTransacaoVersaoStatus.Aceita, aceita.Versoes.Single().Status);
+    }
+
+    [Fact]
+    public async Task RecusarAlteracaoAsync_PreservaVersaoAnteriorENotificaCriador()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var alterada = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest
+            {
+                ValorTotal = 1200m,
+                PercentualConvidado = 25m
+            });
+        var proposta = alterada!.Versoes.Single();
+
+        var recusada = await service.RecusarAlteracaoAsync(
+            convidado.Id,
+            proposta.Id,
+            new ResponderAlteracaoDivisaoRequest { Motivo = "Prefiro manter o combinado" });
+
+        Assert.Equal(DivisaoTransacaoStatus.Aceita, recusada!.Status);
+        Assert.Equal(1, recusada.VersaoAtual);
+        Assert.Equal(600m, transacao.Valor);
+        Assert.Equal(400m, database.Context.Transacoes.IgnoreQueryFilters().Single(item => item.UsuarioId == convidado.Id).Valor);
+        Assert.Equal(DivisaoTransacaoVersaoStatus.Recusada, recusada.Versoes.Single().Status);
+        Assert.Contains(database.Context.Notificacoes.IgnoreQueryFilters(), notificacao =>
+            notificacao.UsuarioId == criador.Id &&
+            notificacao.TipoNotificacao == TipoNotificacao.AlteracaoDivisaoRecusada &&
+            notificacao.AcaoPendente == "DecidirAlteracaoDivisao");
+    }
+
+    [Fact]
+    public async Task ManterVersaoAnteriorAsync_EncerraDecisaoDaAlteracaoRecusada()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var alterada = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest { ValorTotal = 1200m });
+        var proposta = alterada!.Versoes.Single();
+        await service.RecusarAlteracaoAsync(convidado.Id, proposta.Id, new ResponderAlteracaoDivisaoRequest());
+
+        var mantida = await service.ManterVersaoAnteriorAsync(criador.Id, proposta.Id);
+
+        Assert.Equal(DivisaoTransacaoStatus.Aceita, mantida!.Status);
+        Assert.Equal(1, mantida.VersaoAtual);
+        Assert.Equal(1000m, mantida.ValorTotal);
+    }
+
+    [Fact]
+    public async Task ReenviarAlteracaoAsync_CriaNovaPropostaPreservandoHistorico()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var alterada = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest { ValorTotal = 1200m, PercentualConvidado = 25m });
+        var proposta = alterada!.Versoes.Single();
+        await service.RecusarAlteracaoAsync(convidado.Id, proposta.Id, new ResponderAlteracaoDivisaoRequest());
+
+        var reenviada = await service.ReenviarAlteracaoAsync(
+            criador.Id,
+            proposta.Id,
+            new ReenviarAlteracaoDivisaoRequest
+            {
+                ValorTotal = 1300m,
+                PercentualConvidado = 30m,
+                Escopo = "EstaEProximas"
+            });
+
+        Assert.Equal(DivisaoTransacaoStatus.AlteracaoPendente, reenviada!.Status);
+        Assert.Equal(2, reenviada.Versoes.Count);
+        Assert.Contains(reenviada.Versoes, item => item.Status == DivisaoTransacaoVersaoStatus.Recusada);
+        Assert.Contains(reenviada.Versoes, item =>
+            item.Status == DivisaoTransacaoVersaoStatus.PropostaPendente &&
+            item.ValorTotalProposto == 1300m &&
+            item.Escopo == "EstaEProximas");
+    }
+
+    [Fact]
+    public async Task ProporAlteracaoAsync_RegistraEscopoSerieParcelaResponsabilidadeNoHistorico()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+
+        var alterada = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest
+            {
+                Escopo = "TodaSerie",
+                QuantidadeParcelas = 6,
+                Recorrencia = "Mensal",
+                Frequencia = "Mensal",
+                ResponsabilidadeParticipante = "Participante responde pelas proximas ocorrencias"
+            });
+
+        var historico = alterada!.Versoes.Single();
+        Assert.Equal("TodaSerie", historico.Escopo);
+        Assert.Equal(6, historico.QuantidadeParcelasProposta);
+        Assert.Equal("Mensal", historico.RecorrenciaProposta);
+        Assert.Equal("Mensal", historico.FrequenciaProposta);
+        Assert.Equal("Participante responde pelas proximas ocorrencias", historico.ResponsabilidadeProposta);
+    }
+
+    [Fact]
+    public async Task AceitarAlteracaoAsync_PreservaOcorrenciaPassadaRealizada()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        transacao.IsPaga = true;
+        transacao.DataOcorrencia = DateOnly.FromDateTime(DateTime.Today).AddDays(-10);
+        var gerada = database.Context.Transacoes.IgnoreQueryFilters().Single(item => item.UsuarioId == convidado.Id);
+        gerada.IsPaga = true;
+        gerada.DataOcorrencia = transacao.DataOcorrencia;
+        await database.Context.SaveChangesAsync();
+        var alterada = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest
+            {
+                ValorTotal = 1200m,
+                PercentualConvidado = 25m,
+                Escopo = "EstaEProximas"
+            });
+        var proposta = alterada!.Versoes.Single();
+
+        var aceita = await service.AceitarAlteracaoAsync(convidado.Id, proposta.Id);
+
+        Assert.Equal(2, aceita!.VersaoAtual);
+        Assert.Equal(600m, transacao.Valor);
+        Assert.Equal(400m, gerada.Valor);
+    }
+
+    [Fact]
+    public async Task ExcluirAsync_AposAceite_PreservaMovimentacaoRealizadaENotificaConvidado()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        transacao.IsPaga = true;
+        var gerada = database.Context.Transacoes.IgnoreQueryFilters().Single(item => item.UsuarioId == convidado.Id);
+        gerada.IsPaga = true;
+        await database.Context.SaveChangesAsync();
+
+        var excluida = await service.ExcluirAsync(
+            criador.Id,
+            divisao.Id,
+            new ExcluirDivisaoRequest { Escopo = "EstaOcorrencia" });
+
+        Assert.True(excluida);
+        Assert.Contains(database.Context.Transacoes.IgnoreQueryFilters(), item => item.Id == transacao.Id);
+        Assert.Contains(database.Context.Transacoes.IgnoreQueryFilters(), item => item.Id == gerada.Id);
+        Assert.Equal(DivisaoTransacaoStatus.Cancelada, database.Context.DivisoesTransacoes.IgnoreQueryFilters().Single().Status);
+        Assert.Contains(database.Context.Notificacoes.IgnoreQueryFilters(), notificacao =>
+            notificacao.UsuarioId == convidado.Id &&
+            notificacao.TipoNotificacao == TipoNotificacao.DivisaoCancelada);
+    }
+
+    [Fact]
     public async Task ExcluirAsync_CancelaDivisaoETransacaoAvulsaPendente()
     {
         var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
@@ -340,6 +568,18 @@ public sealed class DivisaoTransacaoServiceTests
                 EmailConvidado = convidado.Email,
                 PercentualConvidado = 40m
             });
+    }
+
+    private static async Task<DivisaoTransacaoResponse> CriarDivisaoAceitaPadraoAsync(
+        DivisaoTransacaoService service,
+        Usuario criador,
+        Usuario convidado,
+        Transacao transacao)
+    {
+        var divisao = await CriarConvitePadraoAsync(service, criador, convidado, transacao);
+        var participante = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
+        return await service.AceitarAsync(convidado.Id, participante.Id) ??
+            throw new InvalidOperationException("Divisão aceita não foi criada no teste.");
     }
 
     private static async Task<(SqliteTestDatabase Database, Usuario Criador, Usuario Convidado, Transacao Transacao, Usuario Outro)>

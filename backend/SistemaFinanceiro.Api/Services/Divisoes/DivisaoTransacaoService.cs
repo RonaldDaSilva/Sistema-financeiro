@@ -400,13 +400,289 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         }
 
         var transacaoOrigem = await ObterTransacaoOrigemAsync(divisao, cancellationToken);
-        if (transacaoOrigem is not null && !transacaoOrigem.IsPaga)
+        if (divisao.Status != DivisaoTransacaoStatus.Aceita &&
+            transacaoOrigem is not null &&
+            !transacaoOrigem.IsPaga)
         {
             _dbContext.Transacoes.Remove(transacaoOrigem);
         }
 
+        foreach (var participanteUsuarioId in divisao.Participantes
+            .Select(item => item.ParticipanteUsuarioId)
+            .Where(participanteUsuarioId => participanteUsuarioId.HasValue && participanteUsuarioId.Value != usuarioId)
+            .Select(participanteUsuarioId => participanteUsuarioId!.Value))
+        {
+            CriarNotificacao(
+                participanteUsuarioId,
+                TipoNotificacao.DivisaoCancelada,
+                "Divisão cancelada",
+                "Uma divisão aceita foi cancelada pelo criador para ocorrências futuras.",
+                divisao,
+                null,
+                divisao.VersaoAtual);
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    public async Task<DivisaoTransacaoResponse?> ProporAlteracaoAsync(
+        Guid usuarioId,
+        Guid divisaoId,
+        ProporAlteracaoDivisaoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var divisao = await ObterDivisaoDoCriadorAsync(usuarioId, divisaoId, cancellationToken);
+        if (divisao is null)
+        {
+            return null;
+        }
+
+        if (divisao.Status != DivisaoTransacaoStatus.Aceita)
+        {
+            throw new InvalidOperationException("Somente divisões aceitas podem receber proposta de alteração.");
+        }
+
+        if (divisao.Versoes.Any(versao => versao.Status == DivisaoTransacaoVersaoStatus.PropostaPendente))
+        {
+            throw new InvalidOperationException("Já existe uma alteração pendente para esta divisão.");
+        }
+
+        var transacaoOrigem = await ObterTransacaoOrigemAsync(divisao, cancellationToken);
+        var criador = ObterParticipanteCriador(divisao);
+        var participante = ObterParticipanteConvidadoAtivo(divisao);
+        var valorTotalProposto = request.ValorTotal ?? divisao.ValorTotal;
+        var percentualParticipanteProposto = request.PercentualConvidado ?? participante.Percentual;
+        var percentualCriadorProposto = 100m - percentualParticipanteProposto;
+        var valoresPropostos = DivisaoTransacaoRules.CalcularValores(
+            valorTotalProposto,
+            [percentualCriadorProposto, percentualParticipanteProposto]);
+        var versao = new DivisaoTransacaoVersao
+        {
+            UsuarioId = divisao.UsuarioId,
+            DivisaoTransacaoId = divisao.Id,
+            Versao = Math.Max(
+                divisao.VersaoAtual,
+                divisao.Versoes.Count == 0 ? divisao.VersaoAtual : divisao.Versoes.Max(item => item.Versao)) + 1,
+            Status = DivisaoTransacaoVersaoStatus.PropostaPendente,
+            Escopo = NormalizarEscopo(request.Escopo),
+            UsuarioSolicitanteId = usuarioId,
+            ValorTotalAnterior = divisao.ValorTotal,
+            ValorTotalProposto = valorTotalProposto,
+            PercentualCriadorAnterior = criador.Percentual,
+            PercentualCriadorProposto = percentualCriadorProposto,
+            ValorCriadorAnterior = criador.Valor,
+            ValorCriadorProposto = valoresPropostos[0],
+            PercentualParticipanteAnterior = participante.Percentual,
+            PercentualParticipanteProposto = percentualParticipanteProposto,
+            ValorParticipanteAnterior = participante.Valor,
+            ValorParticipanteProposto = valoresPropostos[1],
+            VencimentoAnterior = transacaoOrigem?.DataOcorrencia,
+            VencimentoProposto = request.Vencimento ?? transacaoOrigem?.DataOcorrencia,
+            QuantidadeParcelasAnterior = divisao.CompraParcelada?.QuantidadeParcelas,
+            QuantidadeParcelasProposta = request.QuantidadeParcelas ?? divisao.CompraParcelada?.QuantidadeParcelas,
+            RecorrenciaAnterior = transacaoOrigem?.IsFixa == true ? "Fixa" : null,
+            RecorrenciaProposta = NormalizarTexto(request.Recorrencia) ?? (transacaoOrigem?.IsFixa == true ? "Fixa" : null),
+            FrequenciaAnterior = null,
+            FrequenciaProposta = NormalizarTexto(request.Frequencia),
+            ResponsabilidadeAnterior = "Participante",
+            ResponsabilidadeProposta = NormalizarTexto(request.ResponsabilidadeParticipante) ?? "Participante",
+            CriadoEm = DateTimeOffset.UtcNow
+        };
+
+        divisao.Versoes.Add(versao);
+        divisao.Status = DivisaoTransacaoStatus.AlteracaoPendente;
+        divisao.AtualizadoEm = DateTimeOffset.UtcNow;
+        CriarNotificacao(
+            participante.ParticipanteUsuarioId!.Value,
+            TipoNotificacao.DivisaoAlterada,
+            "Alteração de divisão recebida",
+            $"Uma alteração de divisão foi proposta: sua parte passaria de {participante.Valor:C} para {versao.ValorParticipanteProposto:C}.",
+            divisao,
+            "ResponderAlteracaoDivisao",
+            versao.Versao);
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Mapear(divisao);
+    }
+
+    public async Task<DivisaoTransacaoResponse?> AceitarAlteracaoAsync(
+        Guid usuarioId,
+        Guid versaoId,
+        CancellationToken cancellationToken = default)
+    {
+        var versao = await ObterVersaoComDivisaoAsync(versaoId, cancellationToken);
+        if (versao is null)
+        {
+            return null;
+        }
+
+        var participante = ObterParticipanteConvidadoAtivo(versao.DivisaoTransacao);
+        if (participante.ParticipanteUsuarioId != usuarioId || participante.UsuarioId != usuarioId)
+        {
+            throw new InvalidOperationException("Alteração não pertence ao usuário autenticado.");
+        }
+
+        if (versao.Status != DivisaoTransacaoVersaoStatus.PropostaPendente)
+        {
+            throw new InvalidOperationException("Alteração não está pendente.");
+        }
+
+        await using var dbTransaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var divisao = versao.DivisaoTransacao;
+        var criador = ObterParticipanteCriador(divisao);
+        var transacaoOrigem = await ObterTransacaoOrigemAsync(divisao, cancellationToken);
+        var transacaoGerada = participante.TransacaoGeradaId.HasValue
+            ? await _dbContext.Transacoes
+                .IgnoreQueryFilters()
+                .SingleOrDefaultAsync(
+                    transacao => transacao.Id == participante.TransacaoGeradaId.Value,
+                    cancellationToken)
+            : null;
+
+        divisao.ValorTotal = versao.ValorTotalProposto;
+        divisao.VersaoAtual = versao.Versao;
+        divisao.Status = DivisaoTransacaoStatus.Aceita;
+        divisao.AtualizadoEm = DateTimeOffset.UtcNow;
+        criador.Percentual = versao.PercentualCriadorProposto;
+        criador.Valor = versao.ValorCriadorProposto;
+        criador.VersaoAceita = versao.Versao;
+        participante.Percentual = versao.PercentualParticipanteProposto;
+        participante.Valor = versao.ValorParticipanteProposto;
+        participante.VersaoAceita = versao.Versao;
+        participante.VersaoConvite = versao.Versao;
+        if (transacaoOrigem is not null && DeveAtualizarOcorrencia(transacaoOrigem, versao.Escopo))
+        {
+            transacaoOrigem.ValorTotalOriginal = versao.ValorTotalProposto;
+            transacaoOrigem.PercentualDivisao = versao.PercentualCriadorProposto;
+            transacaoOrigem.Valor = versao.ValorCriadorProposto;
+            if (versao.VencimentoProposto.HasValue)
+            {
+                transacaoOrigem.DataOcorrencia = versao.VencimentoProposto.Value;
+            }
+        }
+
+        if (transacaoGerada is not null && DeveAtualizarOcorrencia(transacaoGerada, versao.Escopo))
+        {
+            transacaoGerada.Valor = versao.ValorParticipanteProposto;
+            if (versao.VencimentoProposto.HasValue)
+            {
+                transacaoGerada.DataOcorrencia = versao.VencimentoProposto.Value;
+            }
+        }
+
+        versao.Status = DivisaoTransacaoVersaoStatus.Aceita;
+        versao.UsuarioRespondenteId = usuarioId;
+        versao.RespondidoEm = DateTimeOffset.UtcNow;
+        ResolverNotificacoesPendentes(usuarioId, divisao.Id, TipoNotificacao.DivisaoAlterada);
+        CriarNotificacao(
+            divisao.UsuarioCriadorId,
+            TipoNotificacao.AlteracaoDivisaoAceita,
+            "Alteração de divisão aceita",
+            "Uma alteração de divisão foi aceita pelo participante.",
+            divisao,
+            null,
+            versao.Versao);
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbTransaction.CommitAsync(cancellationToken);
+        return Mapear(divisao);
+    }
+
+    public async Task<DivisaoTransacaoResponse?> RecusarAlteracaoAsync(
+        Guid usuarioId,
+        Guid versaoId,
+        ResponderAlteracaoDivisaoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var versao = await ObterVersaoComDivisaoAsync(versaoId, cancellationToken);
+        if (versao is null)
+        {
+            return null;
+        }
+
+        var participante = ObterParticipanteConvidadoAtivo(versao.DivisaoTransacao);
+        if (participante.ParticipanteUsuarioId != usuarioId || participante.UsuarioId != usuarioId)
+        {
+            throw new InvalidOperationException("Alteração não pertence ao usuário autenticado.");
+        }
+
+        if (versao.Status != DivisaoTransacaoVersaoStatus.PropostaPendente)
+        {
+            throw new InvalidOperationException("Alteração não está pendente.");
+        }
+
+        versao.Status = DivisaoTransacaoVersaoStatus.Recusada;
+        versao.UsuarioRespondenteId = usuarioId;
+        versao.RespondidoEm = DateTimeOffset.UtcNow;
+        versao.MotivoResposta = NormalizarTexto(request.Motivo);
+        versao.DivisaoTransacao.Status = DivisaoTransacaoStatus.Aceita;
+        versao.DivisaoTransacao.AtualizadoEm = DateTimeOffset.UtcNow;
+        ResolverNotificacoesPendentes(usuarioId, versao.DivisaoTransacao.Id, TipoNotificacao.DivisaoAlterada);
+        CriarNotificacao(
+            versao.DivisaoTransacao.UsuarioCriadorId,
+            TipoNotificacao.AlteracaoDivisaoRecusada,
+            "Alteração de divisão recusada",
+            "Uma alteração de divisão foi recusada pelo participante.",
+            versao.DivisaoTransacao,
+            "DecidirAlteracaoDivisao",
+            versao.Versao);
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Mapear(versao.DivisaoTransacao);
+    }
+
+    public async Task<DivisaoTransacaoResponse?> ReenviarAlteracaoAsync(
+        Guid usuarioId,
+        Guid versaoId,
+        ReenviarAlteracaoDivisaoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var versao = await ObterVersaoComDivisaoAsync(versaoId, cancellationToken);
+        if (versao is null)
+        {
+            return null;
+        }
+
+        if (versao.DivisaoTransacao.UsuarioCriadorId != usuarioId)
+        {
+            throw new InvalidOperationException("Somente o criador pode reenviar alteração.");
+        }
+
+        if (versao.Status != DivisaoTransacaoVersaoStatus.Recusada)
+        {
+            throw new InvalidOperationException("Somente alterações recusadas podem ser reenviadas.");
+        }
+
+        var divisaoId = versao.DivisaoTransacaoId;
+        return await ProporAlteracaoAsync(usuarioId, divisaoId, request, cancellationToken);
+    }
+
+    public async Task<DivisaoTransacaoResponse?> ManterVersaoAnteriorAsync(
+        Guid usuarioId,
+        Guid versaoId,
+        CancellationToken cancellationToken = default)
+    {
+        var versao = await ObterVersaoComDivisaoAsync(versaoId, cancellationToken);
+        if (versao is null)
+        {
+            return null;
+        }
+
+        if (versao.DivisaoTransacao.UsuarioCriadorId != usuarioId)
+        {
+            throw new InvalidOperationException("Somente o criador pode decidir manter a versão anterior.");
+        }
+
+        if (versao.Status != DivisaoTransacaoVersaoStatus.Recusada)
+        {
+            throw new InvalidOperationException("Somente alterações recusadas podem ser encerradas mantendo a versão anterior.");
+        }
+
+        versao.DivisaoTransacao.Status = DivisaoTransacaoStatus.Aceita;
+        versao.DivisaoTransacao.AtualizadoEm = DateTimeOffset.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return Mapear(versao.DivisaoTransacao);
     }
 
     public async Task<int> ProcessarExpiracoesAsync(
@@ -557,6 +833,8 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             .IgnoreQueryFilters()
             .Include(participante => participante.DivisaoTransacao)
                 .ThenInclude(divisao => divisao.Participantes)
+            .Include(participante => participante.DivisaoTransacao)
+                .ThenInclude(divisao => divisao.Versoes)
             .SingleOrDefaultAsync(participante => participante.Id == participanteId, cancellationToken);
     }
 
@@ -568,10 +846,25 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         return await _dbContext.DivisoesTransacoes
             .IgnoreQueryFilters()
             .Include(divisao => divisao.Participantes)
+            .Include(divisao => divisao.Versoes)
+            .Include(divisao => divisao.CompraParcelada)
             .SingleOrDefaultAsync(
                 divisao => divisao.Id == divisaoId &&
                     divisao.UsuarioCriadorId == usuarioId,
                 cancellationToken);
+    }
+
+    private async Task<DivisaoTransacaoVersao?> ObterVersaoComDivisaoAsync(
+        Guid versaoId,
+        CancellationToken cancellationToken)
+    {
+        return await _dbContext.DivisoesTransacoesVersoes
+            .IgnoreQueryFilters()
+            .Include(versao => versao.DivisaoTransacao)
+                .ThenInclude(divisao => divisao.Participantes)
+            .Include(versao => versao.DivisaoTransacao)
+                .ThenInclude(divisao => divisao.Versoes)
+            .SingleOrDefaultAsync(versao => versao.Id == versaoId, cancellationToken);
     }
 
     private async Task<Transacao?> ObterTransacaoOrigemAsync(
@@ -592,6 +885,37 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         return divisao.Participantes.Single(participante =>
             participante.Ativo &&
             participante.TipoParticipante == TipoParticipanteDivisao.Criador);
+    }
+
+    private static DivisaoTransacaoParticipante ObterParticipanteConvidadoAtivo(DivisaoTransacao divisao)
+    {
+        return divisao.Participantes.Single(participante =>
+            participante.Ativo &&
+            participante.TipoParticipante != TipoParticipanteDivisao.Criador &&
+            participante.ParticipanteUsuarioId.HasValue);
+    }
+
+    private static string NormalizarEscopo(string escopo)
+    {
+        var normalizado = NormalizarTexto(escopo) ?? "EstaOcorrencia";
+        return normalizado is "EstaOcorrencia" or "EstaEProximas" or "TodaSerie"
+            ? normalizado
+            : throw new InvalidOperationException("Escopo de alteração inválido.");
+    }
+
+    private static bool DeveAtualizarOcorrencia(Transacao transacao, string escopo)
+    {
+        if (transacao.IsPaga)
+        {
+            return false;
+        }
+
+        if (escopo == "TodaSerie")
+        {
+            return true;
+        }
+
+        return transacao.DataOcorrencia >= DateOnly.FromDateTime(DateTime.Today);
     }
 
     private static DivisaoTransacaoStatus ObterStatusAposAceite(DivisaoTransacao divisao)
@@ -696,6 +1020,39 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                     ExpiraEm = participante.ExpiraEm,
                     TransacaoGeradaId = participante.TransacaoGeradaId,
                     Ativo = participante.Ativo
+                })
+                .ToList(),
+            Versoes = divisao.Versoes
+                .OrderBy(versao => versao.Versao)
+                .Select(versao => new DivisaoVersaoResponse
+                {
+                    Id = versao.Id,
+                    Versao = versao.Versao,
+                    Status = versao.Status,
+                    Escopo = versao.Escopo,
+                    ValorTotalAnterior = versao.ValorTotalAnterior,
+                    ValorTotalProposto = versao.ValorTotalProposto,
+                    PercentualCriadorAnterior = versao.PercentualCriadorAnterior,
+                    PercentualCriadorProposto = versao.PercentualCriadorProposto,
+                    ValorCriadorAnterior = versao.ValorCriadorAnterior,
+                    ValorCriadorProposto = versao.ValorCriadorProposto,
+                    PercentualParticipanteAnterior = versao.PercentualParticipanteAnterior,
+                    PercentualParticipanteProposto = versao.PercentualParticipanteProposto,
+                    ValorParticipanteAnterior = versao.ValorParticipanteAnterior,
+                    ValorParticipanteProposto = versao.ValorParticipanteProposto,
+                    VencimentoAnterior = versao.VencimentoAnterior,
+                    VencimentoProposto = versao.VencimentoProposto,
+                    QuantidadeParcelasAnterior = versao.QuantidadeParcelasAnterior,
+                    QuantidadeParcelasProposta = versao.QuantidadeParcelasProposta,
+                    RecorrenciaAnterior = versao.RecorrenciaAnterior,
+                    RecorrenciaProposta = versao.RecorrenciaProposta,
+                    FrequenciaAnterior = versao.FrequenciaAnterior,
+                    FrequenciaProposta = versao.FrequenciaProposta,
+                    ResponsabilidadeAnterior = versao.ResponsabilidadeAnterior,
+                    ResponsabilidadeProposta = versao.ResponsabilidadeProposta,
+                    CriadoEm = versao.CriadoEm,
+                    RespondidoEm = versao.RespondidoEm,
+                    MotivoResposta = versao.MotivoResposta
                 })
                 .ToList()
         };

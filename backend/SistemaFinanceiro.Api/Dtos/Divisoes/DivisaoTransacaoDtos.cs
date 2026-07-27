@@ -64,6 +64,43 @@ public sealed class ExcluirDivisaoRequest
     public string Escopo { get; set; } = "EstaOcorrencia";
 }
 
+public class ProporAlteracaoDivisaoRequest
+{
+    [Required]
+    [MaxLength(40)]
+    public string Escopo { get; set; } = "EstaOcorrencia";
+
+    [Range(0.01, 999999999999.99)]
+    public decimal? ValorTotal { get; set; }
+
+    [Range(0.01, 99.99)]
+    public decimal? PercentualConvidado { get; set; }
+
+    public DateOnly? Vencimento { get; set; }
+
+    [Range(1, 600)]
+    public int? QuantidadeParcelas { get; set; }
+
+    [MaxLength(40)]
+    public string? Recorrencia { get; set; }
+
+    [MaxLength(40)]
+    public string? Frequencia { get; set; }
+
+    [MaxLength(80)]
+    public string? ResponsabilidadeParticipante { get; set; }
+}
+
+public sealed class ResponderAlteracaoDivisaoRequest
+{
+    [MaxLength(500)]
+    public string? Motivo { get; set; }
+}
+
+public sealed class ReenviarAlteracaoDivisaoRequest : ProporAlteracaoDivisaoRequest
+{
+}
+
 public sealed class DivisaoTransacaoResponse
 {
     public Guid Id { get; set; }
@@ -76,6 +113,7 @@ public sealed class DivisaoTransacaoResponse
     public DateTimeOffset CriadoEm { get; set; }
     public DateTimeOffset AtualizadoEm { get; set; }
     public IReadOnlyList<DivisaoParticipanteResponse> Participantes { get; set; } = [];
+    public IReadOnlyList<DivisaoVersaoResponse> Versoes { get; set; } = [];
 }
 
 public sealed class DivisaoParticipanteResponse
@@ -90,4 +128,35 @@ public sealed class DivisaoParticipanteResponse
     public DateTimeOffset? ExpiraEm { get; set; }
     public Guid? TransacaoGeradaId { get; set; }
     public bool Ativo { get; set; }
+}
+
+public sealed class DivisaoVersaoResponse
+{
+    public Guid Id { get; set; }
+    public int Versao { get; set; }
+    public DivisaoTransacaoVersaoStatus Status { get; set; }
+    public string Escopo { get; set; } = string.Empty;
+    public decimal ValorTotalAnterior { get; set; }
+    public decimal ValorTotalProposto { get; set; }
+    public decimal PercentualCriadorAnterior { get; set; }
+    public decimal PercentualCriadorProposto { get; set; }
+    public decimal ValorCriadorAnterior { get; set; }
+    public decimal ValorCriadorProposto { get; set; }
+    public decimal PercentualParticipanteAnterior { get; set; }
+    public decimal PercentualParticipanteProposto { get; set; }
+    public decimal ValorParticipanteAnterior { get; set; }
+    public decimal ValorParticipanteProposto { get; set; }
+    public DateOnly? VencimentoAnterior { get; set; }
+    public DateOnly? VencimentoProposto { get; set; }
+    public int? QuantidadeParcelasAnterior { get; set; }
+    public int? QuantidadeParcelasProposta { get; set; }
+    public string? RecorrenciaAnterior { get; set; }
+    public string? RecorrenciaProposta { get; set; }
+    public string? FrequenciaAnterior { get; set; }
+    public string? FrequenciaProposta { get; set; }
+    public string? ResponsabilidadeAnterior { get; set; }
+    public string? ResponsabilidadeProposta { get; set; }
+    public DateTimeOffset CriadoEm { get; set; }
+    public DateTimeOffset? RespondidoEm { get; set; }
+    public string? MotivoResposta { get; set; }
 }

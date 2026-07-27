@@ -22,4 +22,5 @@ public sealed class DivisaoTransacao : IHasGuidId, IMustHaveTenant
     public Transacao? TransacaoOrigem { get; set; }
     public CompraParcelada? CompraParcelada { get; set; }
     public ICollection<DivisaoTransacaoParticipante> Participantes { get; set; } = new List<DivisaoTransacaoParticipante>();
+    public ICollection<DivisaoTransacaoVersao> Versoes { get; set; } = new List<DivisaoTransacaoVersao>();
 }

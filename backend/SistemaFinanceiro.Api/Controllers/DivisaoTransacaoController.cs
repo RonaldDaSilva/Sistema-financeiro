@@ -178,6 +178,119 @@ public sealed class DivisaoTransacaoController : ControllerBase
         }
     }
 
+    [HttpPost("{divisaoId:guid}/alteracoes")]
+    public async Task<ActionResult<DivisaoTransacaoResponse>> ProporAlteracao(
+        Guid divisaoId,
+        ProporAlteracaoDivisaoRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var divisao = await _service.ProporAlteracaoAsync(usuarioId.Value, divisaoId, request, cancellationToken);
+            return divisao is null ? NotFound() : Ok(divisao);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
+    [HttpPost("alteracoes/{versaoId:guid}/aceitar")]
+    public async Task<ActionResult<DivisaoTransacaoResponse>> AceitarAlteracao(
+        Guid versaoId,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var divisao = await _service.AceitarAlteracaoAsync(usuarioId.Value, versaoId, cancellationToken);
+            return divisao is null ? NotFound() : Ok(divisao);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
+    [HttpPost("alteracoes/{versaoId:guid}/recusar")]
+    public async Task<ActionResult<DivisaoTransacaoResponse>> RecusarAlteracao(
+        Guid versaoId,
+        ResponderAlteracaoDivisaoRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var divisao = await _service.RecusarAlteracaoAsync(usuarioId.Value, versaoId, request, cancellationToken);
+            return divisao is null ? NotFound() : Ok(divisao);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
+    [HttpPost("alteracoes/{versaoId:guid}/reenviar")]
+    public async Task<ActionResult<DivisaoTransacaoResponse>> ReenviarAlteracao(
+        Guid versaoId,
+        ReenviarAlteracaoDivisaoRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var divisao = await _service.ReenviarAlteracaoAsync(usuarioId.Value, versaoId, request, cancellationToken);
+            return divisao is null ? NotFound() : Ok(divisao);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
+    [HttpPost("alteracoes/{versaoId:guid}/manter-anterior")]
+    public async Task<ActionResult<DivisaoTransacaoResponse>> ManterVersaoAnterior(
+        Guid versaoId,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var divisao = await _service.ManterVersaoAnteriorAsync(usuarioId.Value, versaoId, cancellationToken);
+            return divisao is null ? NotFound() : Ok(divisao);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
     private async Task<ActionResult<DivisaoTransacaoResponse>> AceitarInterno(
         Guid participanteId,
         ClassificarAceiteDivisaoRequest? request,

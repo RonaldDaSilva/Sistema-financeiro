@@ -12,4 +12,9 @@ public interface IDivisaoTransacaoService
     Task<DivisaoTransacaoResponse?> ReenviarAsync(Guid usuarioId, Guid divisaoId, ReenviarDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<bool> ExcluirAsync(Guid usuarioId, Guid divisaoId, ExcluirDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<int> ProcessarExpiracoesAsync(DateTimeOffset agora, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> ProporAlteracaoAsync(Guid usuarioId, Guid divisaoId, ProporAlteracaoDivisaoRequest request, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> AceitarAlteracaoAsync(Guid usuarioId, Guid versaoId, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> RecusarAlteracaoAsync(Guid usuarioId, Guid versaoId, ResponderAlteracaoDivisaoRequest request, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> ReenviarAlteracaoAsync(Guid usuarioId, Guid versaoId, ReenviarAlteracaoDivisaoRequest request, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> ManterVersaoAnteriorAsync(Guid usuarioId, Guid versaoId, CancellationToken cancellationToken = default);
 }
