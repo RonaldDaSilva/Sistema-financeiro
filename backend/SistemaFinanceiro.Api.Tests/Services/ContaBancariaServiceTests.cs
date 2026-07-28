@@ -59,7 +59,7 @@ public sealed class ContaBancariaServiceTests
     }
 
     [Fact]
-    public async Task ObterDistribuicaoAsync_DespesaDivididaPagaNaConta_DebitaValorTotal()
+    public async Task ObterDistribuicaoAsync_DespesaDivididaManualPagaNaConta_DebitaMinhaParte()
     {
         var usuarioId = Guid.NewGuid();
         using var database = new SqliteTestDatabase(usuarioId);
@@ -88,6 +88,57 @@ public sealed class ContaBancariaServiceTests
             FormaPagamento = "Pix",
             ContaBancaria = conta,
             IsPaga = true
+        });
+        await database.Context.SaveChangesAsync();
+
+        var service = new ContaBancariaService(database.Context);
+
+        var distribuicao = await service.ObterDistribuicaoAsync(usuarioId);
+
+        var contaPrincipal = Assert.Single(distribuicao);
+        Assert.Equal(880m, contaPrincipal.SaldoAtual);
+    }
+
+    [Fact]
+    public async Task ObterDistribuicaoAsync_DespesaDivididaVinculadaPagaNaConta_DebitaValorTotal()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var conta = new ContaBancaria
+        {
+            UsuarioId = usuarioId,
+            NomeCustomizado = "Conta principal",
+            CodigoBanco = "001",
+            SaldoInicial = 1000m
+        };
+        var transacao = new Transacao
+        {
+            UsuarioId = usuarioId,
+            CodigoExibicao = 1,
+            Tipo = TipoTransacao.Despesa,
+            Valor = 120m,
+            ValorTotalOriginal = 200m,
+            PercentualDivisao = 60m,
+            IsDividida = true,
+            DataOcorrencia = new DateOnly(2026, 7, 18),
+            Descricao = "Jantar dividido",
+            FormaPagamento = "Pix",
+            ContaBancaria = conta,
+            IsPaga = true
+        };
+
+        database.Context.ContasBancarias.Add(conta);
+        database.Context.Transacoes.Add(transacao);
+        database.Context.DivisoesTransacoes.Add(new DivisaoTransacao
+        {
+            UsuarioId = usuarioId,
+            UsuarioCriadorId = usuarioId,
+            TransacaoOrigem = transacao,
+            ValorTotal = 200m,
+            Status = DivisaoTransacaoStatus.Aceita,
+            VersaoAtual = 1
         });
         await database.Context.SaveChangesAsync();
 
