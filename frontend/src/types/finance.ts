@@ -259,6 +259,12 @@ export type CartaoCredito = {
   proximaFaturaVencimento: string | null;
 };
 
+export type CartaoCreditoOpcao = {
+  id: string;
+  apelidoCartao: string;
+  banco: string;
+};
+
 export type ContaBancaria = {
   id: string;
   nomeCustomizado: string;

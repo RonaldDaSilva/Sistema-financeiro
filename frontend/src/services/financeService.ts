@@ -4,6 +4,7 @@ import type {
   AnteciparParcelaRequest,
   AjustarSaldoContaRequest,
   CartaoCredito,
+  CartaoCreditoOpcao,
   ContaBancaria,
   ContaBancariaRequest,
   ContaDistribuicao,
@@ -587,6 +588,14 @@ export async function excluirCategoria(id: string) {
 
 export async function listarCartoesCredito(signal?: AbortSignal) {
   const { data } = await api.get<CartaoCredito[]>('/api/cartoes-credito', { signal });
+  return data;
+}
+
+export async function listarCartoesCreditoOpcoes(signal?: AbortSignal) {
+  const { data } = await api.get<CartaoCreditoOpcao[]>(
+    '/api/cartoes-credito/opcoes',
+    { signal },
+  );
   return data;
 }
 

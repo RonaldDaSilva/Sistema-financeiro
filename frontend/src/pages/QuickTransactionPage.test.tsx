@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   listarReembolsosPendentes: vi.fn(),
   resolverConvidadoDivisao: vi.fn(),
   criarConviteDivisao: vi.fn(),
-  useCartoes: vi.fn(),
+  useCartoesOpcoes: vi.fn(),
 }));
 
 vi.mock("../services/financeService", () => ({
@@ -54,7 +54,7 @@ vi.mock("../hooks/queries/useFinanceQueries", () => ({
     isLoading: false,
     error: null,
   }),
-  useCartoes: mocks.useCartoes,
+  useCartoesOpcoes: mocks.useCartoesOpcoes,
 }));
 
 vi.mock("../hooks/queries/useNotificationQueries", () => ({
@@ -95,7 +95,7 @@ describe("QuickTransactionPage", () => {
   });
 
   it("renderiza o layout mínimo sem elementos da Dashboard", () => {
-    mocks.useCartoes.mockReturnValue({ data: [], isLoading: false, error: null });
+    mocks.useCartoesOpcoes.mockReturnValue({ data: [], isLoading: false, error: null });
 
     renderPage();
 
@@ -108,7 +108,7 @@ describe("QuickTransactionPage", () => {
   it("salva e oferece ações rápidas de continuação", async () => {
     const user = userEvent.setup();
     mocks.criarTransacao.mockResolvedValue({ id: "tx-1" });
-    mocks.useCartoes.mockReturnValue({ data: [], isLoading: false, error: null });
+    mocks.useCartoesOpcoes.mockReturnValue({ data: [], isLoading: false, error: null });
 
     renderPage();
 
@@ -126,14 +126,14 @@ describe("QuickTransactionPage", () => {
 
   it("não carrega cartões antes de serem necessários", async () => {
     const user = userEvent.setup();
-    mocks.useCartoes.mockReturnValue({ data: [], isLoading: false, error: null });
+    mocks.useCartoesOpcoes.mockReturnValue({ data: [], isLoading: false, error: null });
 
     renderPage();
 
-    expect(mocks.useCartoes).toHaveBeenCalledWith(false);
+    expect(mocks.useCartoesOpcoes).toHaveBeenCalledWith(false);
 
     await user.selectOptions(screen.getByLabelText("Forma de pagamento"), "Cartão de crédito");
 
-    await waitFor(() => expect(mocks.useCartoes).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(mocks.useCartoesOpcoes).toHaveBeenCalledWith(true));
   });
 });

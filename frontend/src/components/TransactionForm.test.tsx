@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TransactionForm } from "./TransactionForm";
-import type { CartaoCredito, Categoria, ContaBancaria } from "../types/finance";
+import type { CartaoCreditoOpcao, Categoria, ContaBancaria } from "../types/finance";
 
 const serviceMocks = vi.hoisted(() => ({
   listarContatosDivisao: vi.fn(),
@@ -37,37 +37,11 @@ const contas: ContaBancaria[] = [
   },
 ];
 
-const cartoes: CartaoCredito[] = [
+const cartoes: CartaoCreditoOpcao[] = [
   {
     id: "cartao-1",
-    usuarioId: "user-1",
     apelidoCartao: "Cartão principal",
     banco: "Banco",
-    diaVencimento: 10,
-    melhorDiaCompra: 1,
-    limiteTotal: 1000,
-    contaBancariaId: "conta-1",
-    contaBancariaNome: "Conta principal",
-    isArquivado: false,
-    valorFaturaAtual: 0,
-    valorFaturasFechadasNaoPagas: 0,
-    valorProximasFaturas: 0,
-    quantidadeParcelasFuturas: 0,
-    valorParcelasFuturas: 0,
-    valorOutrosCompromissos: 0,
-    valorUtilizado: 0,
-    limiteDisponivel: 1000,
-    percentualUtilizado: 0,
-    faturaAtual: 0,
-    statusFaturaAtual: "SemFatura",
-    dataFechamentoAtual: null,
-    dataVencimentoAtual: null,
-    diasParaFechamento: null,
-    diasParaVencimento: null,
-    comprasParceladasFuturas: 0,
-    limiteComprometidoFuturo: 0,
-    proximaFaturaValor: 0,
-    proximaFaturaVencimento: null,
   },
 ];
 

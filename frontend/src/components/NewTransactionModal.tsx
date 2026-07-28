@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import { TransactionForm } from "./TransactionForm";
 import type {
   CartaoCredito,
+  CartaoCreditoOpcao,
   Categoria,
   ContaBancaria,
   CriarCompraParceladaRequest,
@@ -12,7 +13,7 @@ import type {
 type NewTransactionModalProps = {
   isOpen: boolean;
   categorias: Categoria[];
-  cartoes: CartaoCredito[];
+  cartoes: Array<CartaoCredito | CartaoCreditoOpcao>;
   contas: ContaBancaria[];
   percentualPadraoDivisao: number;
   initialTransaction?: ExtratoMensalItem | null;

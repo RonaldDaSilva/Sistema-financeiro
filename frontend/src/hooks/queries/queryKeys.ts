@@ -44,6 +44,7 @@ export const queryKeys = {
   contatosDivisao: ["contatos-divisao"] as const,
   reembolsosDivisaoPendentes: ["divisoes-transacoes", "reembolsos", "pendentes"] as const,
   cartoes: ["cartoes"] as const,
+  cartoesOpcoes: ["cartoes", "opcoes"] as const,
   contas: ["contas"] as const,
   distribuicaoContas: ["distribuicao-contas"] as const,
   dashboardScope: ["dashboard"] as const,

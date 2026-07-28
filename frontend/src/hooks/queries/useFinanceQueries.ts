@@ -241,6 +241,17 @@ export function useCartoes(enabled = true) {
   });
 }
 
+export function useCartoesOpcoes(enabled = true) {
+  const canFetch = hasUsableStoredAuth();
+
+  return useQuery({
+    queryKey: queryKeys.cartoesOpcoes,
+    queryFn: ({ signal }) => financeService.listarCartoesCreditoOpcoes(signal),
+    enabled: enabled && canFetch,
+    staleTime: 20 * 60 * 1000,
+  });
+}
+
 export function useContas(enabled = true) {
   const canFetch = hasUsableStoredAuth();
 

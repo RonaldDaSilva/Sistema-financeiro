@@ -25,7 +25,7 @@ import { TransactionList } from "../components/TransactionList";
 import { DashboardInicioPanel } from "../components/dashboard/DashboardInicioPanel";
 import { useAuth } from "../contexts/useAuth";
 import {
-  useCartoes,
+  useCartoesOpcoes,
   useCategorias,
   useContas,
   useExtratoMensalPaginado,
@@ -44,6 +44,7 @@ import type {
   CriarTransacaoRequest,
   Categoria,
   CartaoCredito,
+  CartaoCreditoOpcao,
   CampoOrdenacaoExtrato,
   DirecaoOrdenacao,
   ExtratoMensal,
@@ -131,7 +132,7 @@ export function DashboardPage() {
     ],
   );
   const categoriasQuery = useCategorias();
-  const cartoesQuery = useCartoes(isModalOpen);
+  const cartoesQuery = useCartoesOpcoes(isModalOpen);
   const contasQuery = useContas(isModalOpen || Boolean(payingTransaction));
   const configuracoesQuery = useConfiguracoesNotificacao(isModalOpen);
   const extratosQueries = useExtratosMensais(mesesPeriodo, apenasDivididas);
@@ -237,6 +238,7 @@ export function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
       queryClient.invalidateQueries({ queryKey: queryKeys.faturasScope }),
       queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.cartoesOpcoes }),
       queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
       queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),
@@ -317,6 +319,7 @@ export function DashboardPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
         queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
         queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.cartoesOpcoes }),
         queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
         queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),
       ]);
@@ -1249,7 +1252,7 @@ function criarItemOtimista(
   request: CriarTransacaoRequest,
   previous: ExtratoMensalItem | null,
   categorias: Categoria[],
-  cartoes: CartaoCredito[],
+  cartoes: Array<CartaoCredito | CartaoCreditoOpcao>,
 ): ExtratoMensalItem {
   const categoria = categorias.find((item) => item.id === request.categoriaId);
   const cartao = cartoes.find((item) => item.id === request.cartaoCreditoId);

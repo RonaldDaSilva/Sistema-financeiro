@@ -6,6 +6,7 @@ import * as financeService from "../services/financeService";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import type {
   CartaoCredito,
+  CartaoCreditoOpcao,
   Categoria,
   ContaBancaria,
   CriarCompraParceladaRequest,
@@ -24,7 +25,7 @@ import {
 export type TransactionFormProps = {
   variant: "modal" | "page";
   categorias: Categoria[];
-  cartoes: CartaoCredito[];
+  cartoes: Array<CartaoCredito | CartaoCreditoOpcao>;
   contas: ContaBancaria[];
   percentualPadraoDivisao: number;
   initialTransaction?: ExtratoMensalItem | null;

@@ -54,6 +54,23 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             .ToList();
     }
 
+    public async Task<IReadOnlyList<CartaoCreditoOpcaoResponse>> ListarOpcoesAsync(
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.CartoesCredito
+            .AsNoTracking()
+            .Where(cartao => cartao.UsuarioId == usuarioId && !cartao.IsArquivado)
+            .OrderBy(cartao => cartao.ApelidoCartao)
+            .Select(cartao => new CartaoCreditoOpcaoResponse
+            {
+                Id = cartao.Id,
+                ApelidoCartao = cartao.ApelidoCartao,
+                Banco = cartao.Banco
+            })
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<CartaoCreditoResponse?> ObterPorIdAsync(Guid id, Guid usuarioId, CancellationToken cancellationToken = default)
     {
         var cartao = await BuscarCartao(id, usuarioId, cancellationToken);

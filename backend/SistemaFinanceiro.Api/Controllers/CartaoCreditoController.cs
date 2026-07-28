@@ -31,6 +31,19 @@ public sealed class CartaoCreditoController : ControllerBase
         return Ok(await _cartaoCreditoService.ListarAsync(usuarioId.Value, cancellationToken));
     }
 
+    [HttpGet("opcoes")]
+    public async Task<ActionResult<IReadOnlyList<CartaoCreditoOpcaoResponse>>> ListarOpcoes(
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized(new { message = "Usuário não identificado no token." });
+        }
+
+        return Ok(await _cartaoCreditoService.ListarOpcoesAsync(usuarioId.Value, cancellationToken));
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<CartaoCreditoResponse>> ObterPorId(Guid id, CancellationToken cancellationToken)
     {

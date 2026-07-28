@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { queryKeys } from "./queryKeys";
 
 describe("queryKeys.relatorios", () => {
+  it("mantém uma chave separada para opções leves de cartões", () => {
+    expect(queryKeys.cartoesOpcoes).toEqual(["cartoes", "opcoes"]);
+    expect(queryKeys.cartoesOpcoes).not.toEqual(queryKeys.cartoes);
+  });
+
   it("inclui secoes normalizadas para preservar cache por aba", () => {
     const keyA = queryKeys.relatorios(
       "2026-01-01",

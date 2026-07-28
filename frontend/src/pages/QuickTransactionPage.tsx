@@ -7,7 +7,7 @@ import {
   type TransactionFormSavedSummary,
 } from "../components/TransactionForm";
 import {
-  useCartoes,
+  useCartoesOpcoes,
   useCategorias,
   useContas,
 } from "../hooks/queries/useFinanceQueries";
@@ -40,7 +40,7 @@ export function QuickTransactionPage() {
 
   const categoriasQuery = useCategorias();
   const contasQuery = useContas(true);
-  const cartoesQuery = useCartoes(precisaCartoes);
+  const cartoesQuery = useCartoesOpcoes(precisaCartoes);
   const configuracoesQuery = useConfiguracoesNotificacao(true);
 
   const isInitialLoading =
@@ -56,6 +56,7 @@ export function QuickTransactionPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
       queryClient.invalidateQueries({ queryKey: queryKeys.faturasScope }),
       queryClient.invalidateQueries({ queryKey: queryKeys.cartoes }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.cartoesOpcoes }),
       queryClient.invalidateQueries({ queryKey: queryKeys.contas }),
       queryClient.invalidateQueries({ queryKey: queryKeys.distribuicaoContas }),
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),

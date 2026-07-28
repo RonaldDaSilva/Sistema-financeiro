@@ -1,5 +1,7 @@
 using SistemaFinanceiro.Api.Data;
+using SistemaFinanceiro.Api.Dtos;
 using SistemaFinanceiro.Api.Dtos.CartoesCredito;
+using SistemaFinanceiro.Api.Dtos.Transacoes;
 using SistemaFinanceiro.Api.Models;
 using SistemaFinanceiro.Api.Services.CartoesCredito;
 using SistemaFinanceiro.Api.Services.Transacoes;
@@ -298,6 +300,75 @@ public sealed class CartaoCreditoServiceTests
         AssertDecomposicao(response);
     }
 
+    [Fact]
+    public async Task ListarOpcoesAsync_RetornaSomenteAtivosDoUsuarioSemAcionarFaturas()
+    {
+        var usuarioId = Guid.NewGuid();
+        var outroUsuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+        await SeedUsuarioAsync(database.Context, outroUsuarioId);
+
+        database.Context.CartoesCredito.AddRange(
+            new CartaoCredito
+            {
+                UsuarioId = usuarioId,
+                ApelidoCartao = "Zeta",
+                Banco = "Banco Z",
+                DiaVencimento = 10,
+                MelhorDiaCompra = 5,
+                LimiteTotal = 1000m
+            },
+            new CartaoCredito
+            {
+                UsuarioId = usuarioId,
+                ApelidoCartao = "Alpha",
+                Banco = "Banco A",
+                DiaVencimento = 10,
+                MelhorDiaCompra = 5,
+                LimiteTotal = 1000m
+            },
+            new CartaoCredito
+            {
+                UsuarioId = usuarioId,
+                ApelidoCartao = "Arquivado",
+                Banco = "Banco B",
+                DiaVencimento = 10,
+                MelhorDiaCompra = 5,
+                LimiteTotal = 1000m,
+                IsArquivado = true
+            },
+            new CartaoCredito
+            {
+                UsuarioId = outroUsuarioId,
+                ApelidoCartao = "Outro tenant",
+                Banco = "Banco C",
+                DiaVencimento = 10,
+                MelhorDiaCompra = 5,
+                LimiteTotal = 1000m
+            });
+        await database.Context.SaveChangesAsync();
+
+        var transacaoService = new TransacaoServiceQueFalhaAoCalcularFatura();
+        var service = new CartaoCreditoService(database.Context, transacaoService);
+
+        var opcoes = await service.ListarOpcoesAsync(usuarioId);
+
+        Assert.Collection(
+            opcoes,
+            item =>
+            {
+                Assert.Equal("Alpha", item.ApelidoCartao);
+                Assert.Equal("Banco A", item.Banco);
+            },
+            item =>
+            {
+                Assert.Equal("Zeta", item.ApelidoCartao);
+                Assert.Equal("Banco Z", item.Banco);
+            });
+        Assert.Equal(0, transacaoService.ChamadasGetFaturasDoMes);
+    }
+
     private static CartaoCreditoService CriarService(AppDbContext context)
     {
         var transacaoService = new TransacaoService(context);
@@ -383,5 +454,79 @@ public sealed class CartaoCreditoServiceTests
         });
 
         await context.SaveChangesAsync();
+    }
+
+    private sealed class TransacaoServiceQueFalhaAoCalcularFatura : ITransacaoService
+    {
+        public int ChamadasGetFaturasDoMes { get; private set; }
+
+        public Task<IReadOnlyList<FaturaConsolidadaResponse>> GetFaturasDoMesAsync(
+            int mes,
+            int ano,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default)
+        {
+            ChamadasGetFaturasDoMes++;
+            throw new InvalidOperationException("O endpoint de opções não deve acionar o motor de faturas.");
+        }
+
+        public Task<ExtratoMensalResponse> GetExtratoMensalAsync(
+            int mes,
+            int ano,
+            Guid usuarioId,
+            bool? apenasDivididas = null,
+            StatusFiltro? status = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<PagedResponse<ExtratoMensalItemResponse>> GetExtratoMensalPaginadoAsync(
+            ExtratoPaginadoRequest request,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<Guid> CriarAsync(
+            CriarTransacaoRequest request,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<Guid?> AtualizarAsync(
+            Guid id,
+            CriarTransacaoRequest request,
+            Guid usuarioId,
+            bool replicarFuturas = true,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<TransacaoResponse>> AnteciparParcelaAsync(
+            AnteciparParcelaRequest request,
+            Guid usuarioId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<bool> ExcluirAsync(
+            Guid id,
+            Guid usuarioId,
+            DateOnly? dataOcorrencia = null,
+            bool replicarFuturas = true,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<bool?> AlternarStatusPagamentoAsync(
+            Guid id,
+            Guid usuarioId,
+            DateOnly? dataOcorrencia = null,
+            AlterarStatusPagamentoRequest? request = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<bool?> AlternarStatusFaturaAsync(
+            Guid cartaoCreditoId,
+            DateOnly dataVencimento,
+            Guid usuarioId,
+            PagarFaturaRequest? request = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }
