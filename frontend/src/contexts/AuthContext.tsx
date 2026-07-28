@@ -8,6 +8,8 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import * as authService from '../services/authService';
+import { renovarSessaoAtual } from '../services/api';
+import { authDebugLog } from '../services/authRefreshCoordinator';
 import {
   AUTH_STORAGE_EVENT,
   clearStoredAuth,
@@ -82,6 +84,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const storedSession = getStoredAuth();
 
       if (!storedSession) {
+        authDebugLog('restauração sem sessão local');
         if (isMounted) {
           setSession(null);
           setIsAuthRestoring(false);
@@ -90,6 +93,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       if (isAccessTokenUsable(storedSession)) {
+        authDebugLog('restauração usando access token válido');
         if (isMounted) {
           setSession(storedSession);
           setIsAuthRestoring(false);
@@ -98,6 +102,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       if (!isSessionUsable(storedSession)) {
+        authDebugLog('sessão absoluta ou refresh expirado durante restauração');
         clearLocalSession();
         if (isMounted) {
           setIsAuthRestoring(false);
@@ -106,17 +111,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       try {
-        const restoredSession = await authService.refreshSession(storedSession.refreshToken);
-        const sessionWithActivity = {
-          ...restoredSession,
-          lastActivityAt: new Date().toISOString(),
-        };
-
-        setStoredAuth(sessionWithActivity);
+        authDebugLog('restauração tentando refresh silencioso');
+        const sessionWithActivity = await renovarSessaoAtual();
         if (isMounted) {
           setSession(sessionWithActivity);
         }
       } catch {
+        authDebugLog('refresh rejeitado durante restauração');
         clearLocalSession();
       } finally {
         if (isMounted) {

@@ -4,9 +4,8 @@ import {
   clearStoredAuth,
   getStoredAuth,
   isAccessTokenUsable,
-  isSessionUsable,
-  setStoredAuth,
 } from './authStorage';
+import { authDebugLog, refreshSessionCoordinated } from './authRefreshCoordinator';
 import { sanitizeInternalRedirect } from '../utils/redirect';
 
 const apiBaseUrl =
@@ -63,35 +62,24 @@ function tokenExpiraEmBreve(expiraEm: string) {
   return new Date(expiraEm).getTime() - Date.now() <= 60_000;
 }
 
-async function renovarSessaoAtual() {
+export async function renovarSessaoAtual() {
   if (refreshPromise) {
     return refreshPromise;
   }
 
   const auth = getStoredAuth();
 
-  if (!auth || !isSessionUsable(auth)) {
-    clearStoredAuth();
+  if (!auth) {
     return null;
   }
 
-  refreshPromise = publicApi
-    .post<AuthResponse>('/api/auth/refresh', {
-      refreshToken: auth.refreshToken,
-    })
-    .then((response) => {
-      const nextSession = {
-        ...response.data,
-        lastActivityAt: new Date().toISOString(),
-      };
+  refreshPromise = refreshSessionCoordinated(async (refreshToken) => {
+    const response = await publicApi.post<AuthResponse>('/api/auth/refresh', {
+      refreshToken,
+    });
 
-      setStoredAuth(nextSession);
-      return nextSession;
-    })
-    .catch(() => {
-      clearStoredAuth();
-      return null;
-    })
+    return response.data;
+  })
     .finally(() => {
       refreshPromise = null;
     });
@@ -107,6 +95,7 @@ api.interceptors.request.use(async (config) => {
   let auth = getStoredAuth();
 
   if (auth?.accessToken && (!isAccessTokenUsable(auth) || tokenExpiraEmBreve(auth.accessTokenExpiraEm))) {
+    authDebugLog('access token expirado ou próximo de expirar');
     auth = await renovarSessaoAtual();
   }
 
