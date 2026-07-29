@@ -11,6 +11,7 @@ import type {
   Categoria,
   ContatoDivisao,
   CriarCompraParceladaRequest,
+  CriarConviteDivisaoRequest,
   CriarTransacaoRequest,
   DashboardInicio,
   DivisaoTransacao,
@@ -313,13 +314,7 @@ export async function resolverConvidadoDivisao(email: string) {
   return data;
 }
 
-export async function criarConviteDivisao(request: {
-  transacaoOrigemId: string;
-  emailConvidado: string;
-  percentualConvidado: number;
-  salvarContato: boolean;
-  apelidoContato?: string | null;
-}) {
+export async function criarConviteDivisao(request: CriarConviteDivisaoRequest) {
   const { data } = await api.post<DivisaoTransacao>(
     '/api/divisoes-transacoes',
     request,

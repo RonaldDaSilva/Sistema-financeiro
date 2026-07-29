@@ -2,6 +2,7 @@ import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calendar, CreditCard, FileText, Landmark, Search, Tag, Users } from "lucide-react";
+import { InfoTooltip } from "./InfoTooltip";
 import * as financeService from "../services/financeService";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import type {
@@ -170,6 +171,8 @@ export function TransactionForm({
     Math.round((percentualMinhaParte + percentualConvidado + percentualExterno) * 100) / 100;
   const divisaoVinculadaAtiva =
     tipo === "despesa" && isDividida && modoDivisao === "vinculada";
+  const descricaoConvidado =
+    convidadoResolvido?.nomeExibicao || convidadoResolvido?.emailMascarado || "Convidado";
 
   useEffect(() => {
     if (categoriasOrdenadas.length > 0 && !categoriaId) {
@@ -318,6 +321,9 @@ export function TransactionForm({
     try {
       const numericValue = parseBrlCurrency(valor);
       const numericPercentual = parsePercentual(percentualDivisao);
+      const numericPercentualExterno = temParteExterna
+        ? parsePercentual(percentualParteExterna)
+        : 0;
       const numericMeuValor = isDividida
         ? calcularParteNumerica(numericValue, numericPercentual)
         : numericValue;
@@ -336,9 +342,15 @@ export function TransactionForm({
       }
 
       if (divisaoVinculadaAtiva) {
-        if (isEditing || isEditingCompraParcelada || isParcelada) {
+        if (isEditing || isEditingCompraParcelada) {
           throw new Error(
-            "A divisão vinculada nesta etapa está disponível para despesas avulsas. Para fixas ou parceladas, o percentual informado continua valendo para cada ocorrência.",
+            "Para alterar uma divisão vinculada existente, use o fluxo de alteração da divisão.",
+          );
+        }
+
+        if (isParcelada) {
+          throw new Error(
+            "O contrato atual cria convite a partir de uma transação avulsa ou fixa. Para parceladas, use a divisão manual até o backend expor o vínculo da compra parcelada.",
           );
         }
 
@@ -346,7 +358,12 @@ export function TransactionForm({
           throw new Error("Busque e selecione uma pessoa antes de salvar a divisão vinculada.");
         }
 
-        if (percentualConvidado <= 0 || somaPercentualDivisao !== 100) {
+        if (
+          numericPercentual <= 0 ||
+          percentualConvidado <= 0 ||
+          (temParteExterna && numericPercentualExterno <= 0) ||
+          somaPercentualDivisao !== 100
+        ) {
           throw new Error("A soma entre você, convidado e parte externa deve fechar em 100%.");
         }
       }
@@ -452,10 +469,22 @@ export function TransactionForm({
           if (divisaoVinculadaAtiva && transacaoCriada?.id) {
             await financeService.criarConviteDivisao({
               transacaoOrigemId: transacaoCriada.id,
-              emailConvidado: emailConvidado.trim(),
-              percentualConvidado,
-              salvarContato,
-              apelidoContato: apelidoContato.trim() || null,
+              participantesUsuarios: [
+                {
+                  email: emailConvidado.trim(),
+                  percentual: percentualConvidado,
+                  salvarContato,
+                  apelidoContato: apelidoContato.trim() || null,
+                },
+              ],
+              participantesExternos: temParteExterna
+                ? [
+                    {
+                      percentual: numericPercentualExterno,
+                      nome: null,
+                    },
+                  ]
+                : [],
             });
             await Promise.all([
               queryClient.invalidateQueries({ queryKey: queryKeys.contatosDivisao }),
@@ -754,6 +783,7 @@ export function TransactionForm({
                   contatos={contatosDivisaoQuery.data ?? []}
                   emailConvidado={emailConvidado}
                   isBuscando={resolverConvidadoMutation.isPending}
+                  isCarregandoContatos={contatosDivisaoQuery.isLoading}
                   isParcelada={isParcelada || isFixa}
                   percentualConvidado={percentualConvidado}
                   percentualExterno={percentualExterno}
@@ -787,6 +817,7 @@ export function TransactionForm({
                 isCartao={formaPagamento === "Cartão de crédito" || (isParcelada && !isCarne)}
                 isParcelada={isParcelada}
                 modo={modoDivisao}
+                nomeConvidado={descricaoConvidado}
                 percentualConvidado={percentualConvidado}
                 quantidadeParcelas={quantidadeParcelas || parcelasRestantes}
                 temParteExterna={temParteExterna}
@@ -1129,6 +1160,7 @@ function LinkedDivisionPanel({
   contatos,
   emailConvidado,
   isBuscando,
+  isCarregandoContatos,
   isParcelada,
   percentualConvidado,
   percentualExterno,
@@ -1158,6 +1190,7 @@ function LinkedDivisionPanel({
   }>;
   emailConvidado: string;
   isBuscando: boolean;
+  isCarregandoContatos: boolean;
   isParcelada: boolean;
   percentualConvidado: number;
   percentualExterno: number;
@@ -1239,6 +1272,18 @@ function LinkedDivisionPanel({
         </div>
       )}
 
+      {isCarregandoContatos && (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+          Carregando contatos salvos...
+        </p>
+      )}
+
+      {!isCarregandoContatos && recentes.length === 0 && !resultadoBusca && (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+          Adicionar pelo e-mail
+        </p>
+      )}
+
       {resultadoBusca && (
         <div
           className={`rounded-xl border px-3 py-2 text-sm ${
@@ -1290,6 +1335,7 @@ function LinkedDivisionPanel({
             </span>
             <div className="relative max-w-40">
               <input
+                aria-label="Percentual da parte externa"
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                 inputMode="decimal"
                 value={String(percentualExterno).replace(".", ",")}
@@ -1321,7 +1367,7 @@ function LinkedDivisionPanel({
 
       {isParcelada && (
         <p className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-900 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-100">
-          O percentual informado vale para cada ocorrência. Um único aceite será aplicado à série quando o backend expuser esse vínculo para parceladas/fixas.
+          O percentual informado vale para cada ocorrência. Em despesas fixas, um único aceite vale para as ocorrências futuras da série.
         </p>
       )}
 
@@ -1339,6 +1385,7 @@ function DivisionSummary({
   isCartao,
   isParcelada,
   modo,
+  nomeConvidado,
   percentualConvidado,
   quantidadeParcelas,
   temParteExterna,
@@ -1350,6 +1397,7 @@ function DivisionSummary({
   isCartao: boolean;
   isParcelada: boolean;
   modo: "manual" | "vinculada";
+  nomeConvidado: string;
   percentualConvidado: number;
   quantidadeParcelas: number;
   temParteExterna: boolean;
@@ -1359,34 +1407,53 @@ function DivisionSummary({
   valorTotal: number;
 }) {
   const aReceber = modo === "vinculada" ? valorConvidado + valorExterno : 0;
+  const quantidadeParcelasSegura = Math.max(1, quantidadeParcelas || 1);
+  const valorParcela = isParcelada ? valorTotal / quantidadeParcelasSegura : valorTotal;
+  const valorMinhaParteParcela = isParcelada ? valorMinhaParte / quantidadeParcelasSegura : valorMinhaParte;
+  const valorConvidadoParcela = isParcelada ? valorConvidado / quantidadeParcelasSegura : valorConvidado;
+  const valorExternoParcela = isParcelada ? valorExterno / quantidadeParcelasSegura : valorExterno;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-900 dark:text-white">
         <Users size={16} />
         Resumo
+        {isCartao && modo === "vinculada" && (
+          <InfoTooltip label="Como a divisão aparece na fatura">
+            O valor total será cobrado na sua fatura. Nos seus relatórios de gastos será considerada apenas a sua parte.
+          </InfoTooltip>
+        )}
       </div>
       <div className="space-y-2 text-sm">
-        <SummaryRow label={isCartao ? "Fatura total" : "Total"} value={valorTotal} />
-        <SummaryRow label={isCartao ? "Seu consumo" : "Sua parte"} value={valorMinhaParte} />
+        <SummaryRow label={isCartao ? "Valor na fatura" : "Total da despesa"} value={valorTotal} />
+        <SummaryRow label={isCartao ? "Seu gasto pessoal" : "Sua parte"} value={valorMinhaParte} />
         {modo === "vinculada" && (
           <>
-            <SummaryRow label="Convidado" detail={`${percentualConvidado.toLocaleString("pt-BR")}%`} value={valorConvidado} />
+            <SummaryRow label={nomeConvidado} detail={`${percentualConvidado.toLocaleString("pt-BR")}%`} value={valorConvidado} />
             {temParteExterna && <SummaryRow label="Parte externa" value={valorExterno} />}
-            <SummaryRow label="A receber" strong value={aReceber} />
+            <SummaryRow label={isCartao ? "Parte de terceiros" : "A receber"} strong value={aReceber} />
           </>
         )}
       </div>
       {isCartao && modo === "vinculada" && (
         <p className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-          A fatura permanece pelo valor total; seu consumo pessoal usa apenas sua parte.
+          Compra total: {formatCurrency(valorTotal)}. Na fatura: {formatCurrency(valorTotal)}. Nos seus gastos: {formatCurrency(valorMinhaParte)}.
         </p>
       )}
       {isParcelada && valorTotal > 0 && (
-        <p className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-          {quantidadeParcelas} parcelas de {formatCurrency(valorTotal)}. Sua parte mensal:{" "}
-          {formatCurrency(valorMinhaParte)}.
-        </p>
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+          <p>
+            {quantidadeParcelasSegura} parcelas de {formatCurrency(valorParcela)}.
+          </p>
+          <p>Sua parte mensal: {formatCurrency(valorMinhaParteParcela)}.</p>
+          {modo === "vinculada" && (
+            <p>
+              {nomeConvidado}: {formatCurrency(valorConvidadoParcela)}
+              {temParteExterna ? ` · Parte externa: ${formatCurrency(valorExternoParcela)}` : ""}
+            </p>
+          )}
+          <p>Os percentuais serão aplicados separadamente em cada parcela.</p>
+        </div>
       )}
     </div>
   );

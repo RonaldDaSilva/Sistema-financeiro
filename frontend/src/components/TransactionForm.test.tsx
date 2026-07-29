@@ -176,11 +176,106 @@ describe("TransactionForm", () => {
     expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(
       expect.objectContaining({
         transacaoOrigemId: "tx-1",
-        emailConvidado: "maria@email.com",
-        percentualConvidado: 40,
-        salvarContato: true,
+        participantesUsuarios: [
+          expect.objectContaining({
+            email: "maria@email.com",
+            percentual: 40,
+            salvarContato: true,
+          }),
+        ],
+        participantesExternos: [],
       }),
     );
+  });
+
+  it("envia participante externo no convite vinculado", async () => {
+    const user = userEvent.setup();
+    const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
+
+    renderForm({ onCreateTransacao });
+
+    await user.type(screen.getByPlaceholderText("0,00"), "20000");
+    await user.type(screen.getByLabelText("Descrição"), "Restaurante");
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.clear(screen.getByLabelText("Minha parte"));
+    await user.type(screen.getByLabelText("Minha parte"), "60");
+    await user.type(
+      screen.getByPlaceholderText("Buscar contato ou informar e-mail"),
+      "maria@email.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+    await screen.findByText("Salvar nos meus contatos");
+    await user.click(screen.getByLabelText("Existe também uma parte de pessoa externa"));
+    await user.clear(screen.getByDisplayValue("0"));
+    await user.type(screen.getByLabelText("Percentual da parte externa"), "10");
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+
+    await waitFor(() => expect(serviceMocks.criarConviteDivisao).toHaveBeenCalled());
+    expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(
+      expect.objectContaining({
+        participantesUsuarios: [
+          expect.objectContaining({
+            email: "maria@email.com",
+            percentual: 30,
+          }),
+        ],
+        participantesExternos: [
+          {
+            percentual: 10,
+            nome: null,
+          },
+        ],
+      }),
+    );
+  });
+
+  it("mostra fatura total e parte pessoal em compra dividida no cartão", async () => {
+    const user = userEvent.setup();
+
+    renderForm();
+
+    await user.type(screen.getByPlaceholderText("0,00"), "20000");
+    await user.type(screen.getByLabelText("Descrição"), "Restaurante");
+    await user.selectOptions(screen.getByLabelText("Forma de pagamento"), "Cartão de crédito");
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.clear(screen.getByLabelText("Minha parte"));
+    await user.type(screen.getByLabelText("Minha parte"), "60");
+
+    expect(screen.getByText("Valor na fatura")).toBeInTheDocument();
+    expect(screen.getByText("Seu gasto pessoal")).toBeInTheDocument();
+    expect(screen.getByText("Parte de terceiros")).toBeInTheDocument();
+    expect(screen.getAllByText("R$ 200,00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("R$ 120,00").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Fatura = R$ 120,00")).not.toBeInTheDocument();
+  });
+
+  it("bloqueia soma inválida na divisão vinculada", async () => {
+    const user = userEvent.setup();
+    const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
+
+    renderForm({ onCreateTransacao });
+
+    await user.type(screen.getByPlaceholderText("0,00"), "20000");
+    await user.type(screen.getByLabelText("Descrição"), "Restaurante");
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.clear(screen.getByLabelText("Minha parte"));
+    await user.type(screen.getByLabelText("Minha parte"), "95");
+    await user.type(
+      screen.getByPlaceholderText("Buscar contato ou informar e-mail"),
+      "maria@email.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+    await screen.findByText("Salvar nos meus contatos");
+    await user.click(screen.getByLabelText("Existe também uma parte de pessoa externa"));
+    await user.clear(screen.getByDisplayValue("0"));
+    await user.type(screen.getByLabelText("Percentual da parte externa"), "10");
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+
+    expect(await screen.findByText("A soma entre você, convidado e parte externa deve fechar em 100%.")).toBeInTheDocument();
+    expect(onCreateTransacao).not.toHaveBeenCalled();
   });
 
   it("vincula receita a reembolso pendente", async () => {

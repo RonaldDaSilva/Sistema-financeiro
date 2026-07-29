@@ -371,6 +371,24 @@ export type ResolverConvidadoDivisaoResponse = {
   identificador: string | null;
 };
 
+export type CriarConviteDivisaoRequest = {
+  transacaoOrigemId: string;
+  emailConvidado?: string;
+  percentualConvidado?: number | null;
+  salvarContato?: boolean;
+  apelidoContato?: string | null;
+  participantesUsuarios?: Array<{
+    email: string;
+    percentual: number;
+    salvarContato: boolean;
+    apelidoContato?: string | null;
+  }>;
+  participantesExternos?: Array<{
+    percentual: number;
+    nome?: string | null;
+  }>;
+};
+
 export type DivisaoParticipante = {
   id: string;
   participanteUsuarioId: string | null;
