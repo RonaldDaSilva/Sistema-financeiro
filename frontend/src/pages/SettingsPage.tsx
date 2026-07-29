@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "../components/AppLayout";
 import { useConfirmDialog } from "../components/ConfirmDialog";
@@ -7,7 +7,9 @@ import { useAuth } from "../contexts/useAuth";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import { useConfiguracoesNotificacao } from "../hooks/queries/useNotificationQueries";
 import * as notificationService from "../services/notificationService";
+import * as financeService from "../services/financeService";
 import * as userService from "../services/userService";
+import type { ContatoDivisao } from "../types/finance";
 import type { ConfiguracoesNotificacao } from "../types/notification";
 import {
   appPalettes,
@@ -40,6 +42,14 @@ export function SettingsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [contatoEditandoId, setContatoEditandoId] = useState<string | null>(null);
+  const [apelidoContatoInput, setApelidoContatoInput] = useState("");
+  const contatosQuery = useQuery({
+    queryKey: queryKeys.contatosDivisao,
+    queryFn: ({ signal }) => financeService.listarContatosDivisao(signal),
+    staleTime: 10 * 60 * 1000,
+  });
+  const contatosOrdenados = ordenarContatos(contatosQuery.data ?? []);
 
   useEffect(() => {
     if (!configuracoesQuery.data) {
@@ -75,6 +85,33 @@ export function SettingsPage() {
               "Não foi possível salvar as configurações de notificações.",
             ),
       );
+    },
+  });
+
+  const atualizarContatoMutation = useMutation({
+    mutationFn: ({ id, apelido }: { id: string; apelido?: string | null }) =>
+      financeService.atualizarContatoDivisao(id, { apelido }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contatosDivisao });
+      setContatoEditandoId(null);
+      setApelidoContatoInput("");
+      setMessage("Contato atualizado.");
+      setError(null);
+    },
+    onError: (requestError) => {
+      setError(extractMessage(requestError, "Não foi possível atualizar o contato."));
+    },
+  });
+
+  const removerContatoMutation = useMutation({
+    mutationFn: financeService.removerContatoDivisao,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.contatosDivisao });
+      setMessage("Contato removido. Divisões existentes foram preservadas.");
+      setError(null);
+    },
+    onError: (requestError) => {
+      setError(extractMessage(requestError, "Não foi possível remover o contato."));
     },
   });
 
@@ -163,6 +200,35 @@ export function SettingsPage() {
     } finally {
       setIsDeleting(false);
     }
+  }
+
+  function iniciarEdicaoContato(contato: ContatoDivisao) {
+    setContatoEditandoId(contato.id);
+    setApelidoContatoInput(contato.apelido ?? "");
+    setMessage(null);
+    setError(null);
+  }
+
+  function salvarContatoEditado(contatoId: string) {
+    atualizarContatoMutation.mutate({
+      id: contatoId,
+      apelido: apelidoContatoInput.trim() || null,
+    });
+  }
+
+  async function removerContato(contato: ContatoDivisao) {
+    const confirmed = await confirm({
+      title: "Remover contato",
+      message:
+        "Remover contato não cancela divisões existentes. Ele apenas deixa de aparecer como contato salvo. Continuar?",
+      confirmLabel: "Remover",
+      variant: "danger",
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    removerContatoMutation.mutate(contato.id);
   }
 
   return (
@@ -334,6 +400,128 @@ export function SettingsPage() {
           </div>
         </form>
 
+        <section className="rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                Contatos para divisão
+              </h3>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                Contatos salvos aparecem primeiro no formulário de divisão.
+              </p>
+            </div>
+            {contatosQuery.isFetching && (
+              <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                Atualizando...
+              </span>
+            )}
+          </div>
+
+          {contatosQuery.isError ? (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              Não foi possível carregar os contatos.
+              <button
+                className="ml-2 font-bold underline"
+                type="button"
+                onClick={() => contatosQuery.refetch()}
+              >
+                Tentar novamente
+              </button>
+            </div>
+          ) : contatosQuery.isLoading ? (
+            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+              Carregando contatos...
+            </p>
+          ) : contatosOrdenados.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+              Nenhum contato salvo ainda.
+            </p>
+          ) : (
+            <div className="mt-5 divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+              {contatosOrdenados.map((contato) => (
+                <article
+                  className="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                  key={contato.id}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-bold text-slate-900 dark:text-white">
+                      {contato.apelido || contato.nomeExibicao}
+                    </p>
+                    {contato.apelido && (
+                      <p className="mt-0.5 truncate text-sm text-slate-500 dark:text-slate-400">
+                        {contato.nomeExibicao}
+                      </p>
+                    )}
+                    <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                      {contato.emailMascarado}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Último uso:{" "}
+                      {contato.ultimoUsoEm
+                        ? formatDateTime(contato.ultimoUsoEm)
+                        : "ainda não usado"}
+                    </p>
+                    {contatoEditandoId === contato.id && (
+                      <label className="mt-3 block max-w-sm">
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                          Apelido
+                        </span>
+                        <input
+                          className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                          value={apelidoContatoInput}
+                          onChange={(event) => setApelidoContatoInput(event.target.value)}
+                        />
+                      </label>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                    {contatoEditandoId === contato.id ? (
+                      <>
+                        <button
+                          className="rounded-xl bg-[var(--app-accent)] px-4 py-2 text-sm font-bold text-[var(--app-accent-contrast)] disabled:opacity-60 dark:bg-white dark:text-slate-950"
+                          type="button"
+                          disabled={atualizarContatoMutation.isPending}
+                          onClick={() => salvarContatoEditado(contato.id)}
+                        >
+                          Salvar
+                        </button>
+                        <button
+                          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                          type="button"
+                          onClick={() => {
+                            setContatoEditandoId(null);
+                            setApelidoContatoInput("");
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                          type="button"
+                          onClick={() => iniciarEdicaoContato(contato)}
+                        >
+                          Editar apelido
+                        </button>
+                        <button
+                          className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700 disabled:opacity-60 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
+                          type="button"
+                          disabled={removerContatoMutation.isPending}
+                          onClick={() => removerContato(contato)}
+                        >
+                          Remover
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
         <form
           className="rounded-3xl border border-red-200 bg-[var(--app-card)] p-8 shadow-sm dark:border-red-900 dark:bg-slate-900"
           onSubmit={handleExcluirConta}
@@ -464,5 +652,28 @@ function parsePercentual(value: string) {
 
 function formatarPercentualInput(value: number) {
   return String(value).replace(".", ",");
+}
+
+function ordenarContatos(contatos: ContatoDivisao[]) {
+  return [...contatos].sort((a, b) => {
+    const ultimoUsoA = a.ultimoUsoEm ? new Date(a.ultimoUsoEm).getTime() : 0;
+    const ultimoUsoB = b.ultimoUsoEm ? new Date(b.ultimoUsoEm).getTime() : 0;
+    if (ultimoUsoA !== ultimoUsoB) {
+      return ultimoUsoB - ultimoUsoA;
+    }
+
+    return (a.apelido || a.nomeExibicao).localeCompare(
+      b.apelido || b.nomeExibicao,
+      "pt-BR",
+      { sensitivity: "base" },
+    );
+  });
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 

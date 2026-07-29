@@ -405,6 +405,33 @@ export async function recusarAlteracaoDivisao(
   return data;
 }
 
+export async function reenviarAlteracaoDivisao(
+  versaoId: string,
+  request: {
+    escopo?: string;
+    valorTotal?: number | null;
+    percentualConvidado?: number | null;
+    vencimento?: string | null;
+    quantidadeParcelas?: number | null;
+    recorrencia?: string | null;
+    frequencia?: string | null;
+    responsabilidadeParticipante?: string | null;
+  } = {},
+) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/alteracoes/${versaoId}/reenviar`,
+    request,
+  );
+  return data;
+}
+
+export async function manterVersaoAnteriorDivisao(versaoId: string) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/alteracoes/${versaoId}/manter-anterior`,
+  );
+  return data;
+}
+
 export async function listarReembolsosPendentes(signal?: AbortSignal) {
   const { data } = await api.get<ReembolsoDivisao[]>(
     '/api/divisoes-transacoes/reembolsos/pendentes',

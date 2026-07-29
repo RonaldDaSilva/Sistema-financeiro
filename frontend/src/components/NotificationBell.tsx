@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import * as notificationService from "../services/notificationService";
 import * as financeService from "../services/financeService";
@@ -20,9 +20,33 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
   const [divisaoAberta, setDivisaoAberta] = useState<DivisaoTransacao | null>(null);
   const [notificacaoAberta, setNotificacaoAberta] = useState<Notificacao | null>(null);
   const [isActionLoading, setIsActionLoading] = useState(false);
+  const [classificacaoAberta, setClassificacaoAberta] = useState(false);
+  const [categoriaId, setCategoriaId] = useState("");
+  const [contaBancariaId, setContaBancariaId] = useState("");
+  const [cartaoCreditoId, setCartaoCreditoId] = useState("");
+  const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
   const { data: notificacoes = [], isLoading } = useNotificacoesNaoLidas(
     canLoadNotifications || isOpen,
   );
+  const classificacaoQueryEnabled = classificacaoAberta && Boolean(divisaoAberta);
+  const categoriasQuery = useQuery({
+    queryKey: queryKeys.categorias,
+    queryFn: ({ signal }) => financeService.listarCategorias(signal),
+    enabled: classificacaoQueryEnabled,
+    staleTime: 10 * 60 * 1000,
+  });
+  const contasQuery = useQuery({
+    queryKey: queryKeys.contas,
+    queryFn: ({ signal }) => financeService.listarContasBancarias(signal),
+    enabled: classificacaoQueryEnabled,
+    staleTime: 10 * 60 * 1000,
+  });
+  const cartoesQuery = useQuery({
+    queryKey: queryKeys.cartoesOpcoes,
+    queryFn: ({ signal }) => financeService.listarCartoesCreditoOpcoes(signal),
+    enabled: classificacaoQueryEnabled,
+    staleTime: 20 * 60 * 1000,
+  });
   const menuRef = useRef<HTMLDivElement | null>(null);
   const marcarComoLidasMutation = useMutation({
     mutationFn: notificationService.marcarTodasComoLidas,
@@ -63,11 +87,13 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
   async function abrirDivisao(notificacao: Notificacao) {
     if (!notificacao.entidadeId) return;
     setError(null);
+    setMensagemSucesso(null);
     setIsActionLoading(true);
     try {
       const divisao = await financeService.obterDivisaoTransacao(notificacao.entidadeId);
       setDivisaoAberta(divisao);
       setNotificacaoAberta(notificacao);
+      queryClient.setQueryData(queryKeys.divisaoTransacao(notificacao.entidadeId), divisao);
     } catch {
       setError("Não foi possível carregar os detalhes da divisão.");
     } finally {
@@ -75,9 +101,31 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
     }
   }
 
-  async function executarAcaoDivisao(acao: "aceitar" | "aceitar-classificar" | "recusar" | "assumir" | "reenviar" | "excluir" | "aceitar-alteracao" | "recusar-alteracao") {
+  async function executarAcaoDivisao(
+    acao:
+      | "aceitar"
+      | "aceitar-classificar"
+      | "recusar"
+      | "assumir"
+      | "reenviar"
+      | "excluir"
+      | "aceitar-alteracao"
+      | "recusar-alteracao"
+      | "manter-anterior"
+      | "reenviar-alteracao",
+  ) {
     if (!divisaoAberta) return;
     setError(null);
+    setMensagemSucesso(null);
+    if (acao === "recusar" && !window.confirm("Essa despesa não será adicionada ao seu extrato. O criador será notificado.")) {
+      return;
+    }
+    if (acao === "assumir" && !window.confirm(`Você passará a assumir ${formatCurrency(valorRecusado(divisaoAberta))} desta despesa.`)) {
+      return;
+    }
+    if (acao === "excluir" && !window.confirm("Participantes que já aceitaram serão notificados. Continuar com a exclusão?")) {
+      return;
+    }
     setIsActionLoading(true);
     try {
       const participantePendente = divisaoAberta.participantes.find((participante) =>
@@ -89,35 +137,57 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
 
       if (acao === "aceitar" && participantePendente) {
         await financeService.aceitarDivisao(participantePendente.id);
+        setMensagemSucesso("Divisão aceita.");
       } else if (acao === "aceitar-classificar" && participantePendente) {
-        await financeService.aceitarClassificarDivisao(participantePendente.id, {});
+        await financeService.aceitarClassificarDivisao(participantePendente.id, {
+          categoriaId: categoriaId || null,
+          contaBancariaId: contaBancariaId || null,
+          cartaoCreditoId: cartaoCreditoId || null,
+        });
+        setMensagemSucesso("Divisão aceita e classificada.");
       } else if (acao === "recusar" && participantePendente) {
         await financeService.recusarDivisao(participantePendente.id);
+        setMensagemSucesso("Divisão recusada.");
       } else if (acao === "assumir") {
         await financeService.assumirValorDivisao(divisaoAberta.id);
+        setMensagemSucesso("Valor assumido.");
       } else if (acao === "reenviar") {
         await financeService.reenviarDivisao(divisaoAberta.id);
+        setMensagemSucesso("Convite reenviado.");
       } else if (acao === "excluir") {
         await financeService.excluirDivisao(divisaoAberta.id);
+        setMensagemSucesso("Divisão cancelada.");
       } else if (acao === "aceitar-alteracao" && alteracaoPendente) {
         await financeService.aceitarAlteracaoDivisao(alteracaoPendente.id);
+        setMensagemSucesso("Alteração aceita.");
       } else if (acao === "recusar-alteracao" && alteracaoPendente) {
         await financeService.recusarAlteracaoDivisao(alteracaoPendente.id);
+        setMensagemSucesso("Alteração recusada.");
+      } else if (acao === "manter-anterior" && alteracaoPendente) {
+        await financeService.manterVersaoAnteriorDivisao(alteracaoPendente.id);
+        setMensagemSucesso("Versão anterior mantida.");
+      } else if (acao === "reenviar-alteracao" && alteracaoPendente) {
+        await financeService.reenviarAlteracaoDivisao(alteracaoPendente.id);
+        setMensagemSucesso("Alteração reenviada.");
       }
 
+      const invalidacoes = invalidacoesPorAcao(acao, divisaoAberta.id);
       setDivisaoAberta(null);
       setNotificacaoAberta(null);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.notificacoesNaoLidas }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),
-      ]);
+      setClassificacaoAberta(false);
+      await Promise.all(invalidacoes.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
     } catch {
       setError("Não foi possível executar a ação da divisão.");
     } finally {
       setIsActionLoading(false);
     }
+  }
+
+  function abrirClassificacao() {
+    setClassificacaoAberta(true);
+    setCategoriaId(categoriasQuery.data?.[0]?.id ?? "");
+    setContaBancariaId("");
+    setCartaoCreditoId("");
   }
 
   const dropdownClass =
@@ -163,6 +233,11 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
             {error && (
               <p className="border-b border-red-100 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200" role="alert">
                 {error}
+              </p>
+            )}
+            {mensagemSucesso && (
+              <p className="border-b border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100" role="status">
+                {mensagemSucesso}
               </p>
             )}
             {isLoading && notificacoes.length === 0 ? (
@@ -236,14 +311,14 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
             <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
               {notificacaoAberta.mensagem}
             </p>
-            <DivisionNotificationDetails divisao={divisaoAberta} />
+            <DivisionNotificationDetails divisao={divisaoAberta} notificacao={notificacaoAberta} />
             <div className="mt-5 grid gap-2 sm:grid-cols-3">
               {notificacaoAberta.acaoPendente === "ResponderDivisao" && (
                 <>
                   <ActionButton disabled={isActionLoading} onClick={() => executarAcaoDivisao("aceitar")}>
                     Aceitar
                   </ActionButton>
-                  <ActionButton disabled={isActionLoading} onClick={() => executarAcaoDivisao("aceitar-classificar")}>
+                  <ActionButton disabled={isActionLoading} onClick={abrirClassificacao}>
                     Aceitar e classificar
                   </ActionButton>
                   <ActionButton tone="danger" disabled={isActionLoading} onClick={() => executarAcaoDivisao("recusar")}>
@@ -267,7 +342,8 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
                   </p>
                 </>
               )}
-              {notificacaoAberta.acaoPendente === "ResponderAlteracaoDivisao" && (
+              {(notificacaoAberta.acaoPendente === "ResponderAlteracaoDivisao" ||
+                notificacaoAberta.tipoNotificacao === "DivisaoAlterada") && (
                 <>
                   <ActionButton disabled={isActionLoading} onClick={() => executarAcaoDivisao("aceitar-alteracao")}>
                     Aceitar alteração
@@ -280,6 +356,75 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
                   </p>
                 </>
               )}
+              {notificacaoAberta.tipoNotificacao === "AlteracaoDivisaoRecusada" && (
+                <>
+                  <ActionButton disabled={isActionLoading} onClick={() => executarAcaoDivisao("manter-anterior")}>
+                    Manter versão anterior
+                  </ActionButton>
+                  <ActionButton disabled={isActionLoading} onClick={() => executarAcaoDivisao("reenviar-alteracao")}>
+                    Reenviar alteração
+                  </ActionButton>
+                  <ActionButton tone="danger" disabled={isActionLoading} onClick={() => executarAcaoDivisao("excluir")}>
+                    Cancelar divisão
+                  </ActionButton>
+                  <p className="sm:col-span-3 text-xs text-slate-500 dark:text-slate-400">
+                    A divisão anterior continua ativa.
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {classificacaoAberta && divisaoAberta && (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:items-center">
+          <div className="w-full max-w-md rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <h2 className="text-xl font-black text-slate-950 dark:text-white">
+              Aceitar e classificar
+            </h2>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              As opções pertencem à sua conta. Nenhuma conta, cartão ou categoria privada do criador é copiada.
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Categoria</span>
+                <select className={selectClass} value={categoriaId} onChange={(event) => setCategoriaId(event.target.value)}>
+                  <option value="">Sem categoria</option>
+                  {(categoriasQuery.data ?? []).map((categoria) => (
+                    <option key={categoria.id} value={categoria.id}>{categoria.nome}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Conta</span>
+                <select className={selectClass} value={contaBancariaId} onChange={(event) => setContaBancariaId(event.target.value)}>
+                  <option value="">Não informar</option>
+                  {(contasQuery.data ?? []).map((conta) => (
+                    <option key={conta.id} value={conta.id}>{conta.nomeCustomizado}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Cartão</span>
+                <select className={selectClass} value={cartaoCreditoId} onChange={(event) => setCartaoCreditoId(event.target.value)}>
+                  <option value="">Não informar</option>
+                  {(cartoesQuery.data ?? []).map((cartao) => (
+                    <option key={cartao.id} value={cartao.id}>{cartao.apelidoCartao}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                Status inicial: pendente.
+              </p>
+            </div>
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <button className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200" type="button" onClick={() => setClassificacaoAberta(false)}>
+                Voltar
+              </button>
+              <button className="min-h-11 rounded-xl bg-[var(--app-accent)] px-4 text-sm font-black text-[var(--app-accent-contrast)] disabled:opacity-60 dark:bg-white dark:text-slate-950" type="button" disabled={isActionLoading || categoriasQuery.isLoading} onClick={() => executarAcaoDivisao("aceitar-classificar")}>
+                Aceitar e adicionar
+              </button>
             </div>
           </div>
         </div>
@@ -288,7 +433,13 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
   );
 }
 
-function DivisionNotificationDetails({ divisao }: { divisao: DivisaoTransacao }) {
+function DivisionNotificationDetails({
+  divisao,
+  notificacao,
+}: {
+  divisao: DivisaoTransacao;
+  notificacao: Notificacao;
+}) {
   const convidado = divisao.participantes.find(
     (participante) =>
       participante.tipoParticipante !== "Criador" &&
@@ -299,6 +450,7 @@ function DivisionNotificationDetails({ divisao }: { divisao: DivisaoTransacao })
   return (
     <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950">
       <DetailRow label="Valor total" value={formatCurrency(divisao.valorTotal)} />
+      <DetailRow label="Descrição" value={notificacao.mensagem} />
       {convidado && (
         <>
           <DetailRow label="Sua parte" value={formatCurrency(convidado.valor)} />
@@ -366,6 +518,71 @@ function obterAlteracaoPendente(divisao: DivisaoTransacao): DivisaoVersao | null
 function isStatus(value: string | number, text: string, numeric: number) {
   return value === text || value === numeric;
 }
+
+function valorRecusado(divisao: DivisaoTransacao) {
+  const recusadoOuExpirado = divisao.participantes.filter(
+    (participante) =>
+      participante.tipoParticipante !== "Criador" &&
+      participante.tipoParticipante !== 1 &&
+      (isStatus(participante.status, "Recusado", 3) ||
+        isStatus(participante.status, "Expirado", 5)),
+  );
+
+  const participantes =
+    recusadoOuExpirado.length > 0
+      ? recusadoOuExpirado
+      : divisao.participantes.filter(
+          (participante) =>
+            participante.tipoParticipante !== "Criador" &&
+            participante.tipoParticipante !== 1,
+        );
+
+  return participantes.reduce((total, participante) => total + participante.valor, 0);
+}
+
+function invalidacoesPorAcao(acao: string, divisaoId: string) {
+  const keys: Array<readonly unknown[]> = [
+    queryKeys.notificacoesNaoLidas,
+    queryKeys.divisaoTransacao(divisaoId),
+  ];
+
+  if (acao === "recusar" || acao === "reenviar" || acao === "reenviar-alteracao") {
+    return keys;
+  }
+
+  if (acao === "excluir" || acao === "assumir") {
+    return [
+      ...keys,
+      queryKeys.extratoScope,
+      queryKeys.extratoPaginadoScope,
+      queryKeys.dashboardScope,
+      queryKeys.relatoriosScope,
+      queryKeys.faturasScope,
+    ];
+  }
+
+  if (acao === "aceitar-alteracao") {
+    return [
+      ...keys,
+      queryKeys.extratoScope,
+      queryKeys.extratoPaginadoScope,
+      queryKeys.dashboardScope,
+      queryKeys.relatoriosScope,
+      queryKeys.faturasScope,
+    ];
+  }
+
+  return [
+    ...keys,
+    queryKeys.extratoScope,
+    queryKeys.extratoPaginadoScope,
+    queryKeys.dashboardScope,
+    queryKeys.relatoriosScope,
+  ];
+}
+
+const selectClass =
+  "w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none transition-all focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white";
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("pt-BR", {

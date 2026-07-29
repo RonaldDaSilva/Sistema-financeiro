@@ -42,6 +42,7 @@ export const queryKeys = {
   perfilUsuario: ["usuario", "perfil"] as const,
   categorias: ["categorias"] as const,
   contatosDivisao: ["contatos-divisao"] as const,
+  divisaoTransacao: (id: string) => ["divisoes-transacoes", id] as const,
   reembolsosDivisaoPendentes: ["divisoes-transacoes", "reembolsos", "pendentes"] as const,
   cartoes: ["cartoes"] as const,
   cartoesOpcoes: ["cartoes", "opcoes"] as const,
