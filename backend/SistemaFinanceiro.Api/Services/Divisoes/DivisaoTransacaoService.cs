@@ -74,8 +74,23 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         CriarConviteDivisaoRequest request,
         CancellationToken cancellationToken = default)
     {
-        var email = NormalizarEmail(request.EmailConvidado);
-        var convidado = await ResolverUsuarioConvidadoAsync(usuarioId, email, cancellationToken);
+        var participantesUsuariosRequest = NormalizarParticipantesUsuarios(request);
+        var participantesExternosRequest = (request.ParticipantesExternos ?? [])
+            .Where(participante => participante.Percentual > 0)
+            .ToList();
+        if (participantesUsuariosRequest.Count == 0 && participantesExternosRequest.Count == 0)
+        {
+            throw new InvalidOperationException("Informe ao menos um participante da divisão.");
+        }
+
+        var convidados = new List<(Usuario Usuario, CriarParticipanteUsuarioDivisaoRequest Request)>();
+        foreach (var participanteRequest in participantesUsuariosRequest)
+        {
+            var email = NormalizarEmail(participanteRequest.Email);
+            var convidado = await ResolverUsuarioConvidadoAsync(usuarioId, email, cancellationToken);
+            convidados.Add((convidado, participanteRequest));
+        }
+
         var transacao = await _dbContext.Transacoes
             .SingleOrDefaultAsync(
                 item => item.Id == request.TransacaoOrigemId &&
@@ -89,8 +104,13 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         await using var dbTransaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         var agora = DateTimeOffset.UtcNow;
         var valorTotal = transacao.ValorTotalOriginal ?? transacao.Valor;
-        var percentualCriador = 100m - request.PercentualConvidado;
-        var valores = DivisaoTransacaoRules.CalcularValores(valorTotal, [percentualCriador, request.PercentualConvidado]);
+        var percentualTerceiros = convidados.Sum(item => item.Request.Percentual) +
+            participantesExternosRequest.Sum(item => item.Percentual);
+        var percentualCriador = 100m - percentualTerceiros;
+        var percentuais = new List<decimal> { percentualCriador };
+        percentuais.AddRange(convidados.Select(item => item.Request.Percentual));
+        percentuais.AddRange(participantesExternosRequest.Select(item => item.Percentual));
+        var valores = DivisaoTransacaoRules.CalcularValores(valorTotal, percentuais);
 
         transacao.IsDividida = true;
         transacao.ValorTotalOriginal = valorTotal;
@@ -103,7 +123,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             UsuarioCriadorId = usuarioId,
             TransacaoOrigemId = transacao.Id,
             ValorTotal = valorTotal,
-            Status = DivisaoTransacaoStatus.Pendente,
+            Status = convidados.Count > 0 ? DivisaoTransacaoStatus.Pendente : DivisaoTransacaoStatus.Aceita,
             VersaoAtual = 1,
             CriadoEm = agora,
             AtualizadoEm = agora
@@ -122,36 +142,70 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             VersaoConvite = 1,
             Ativo = true
         });
-        divisao.Participantes.Add(new DivisaoTransacaoParticipante
+
+        var indiceValor = 1;
+        foreach (var (convidado, participanteRequest) in convidados)
         {
-            UsuarioId = convidado.Id,
-            ParticipanteUsuarioId = convidado.Id,
-            TipoParticipante = TipoParticipanteDivisao.UsuarioSistema,
-            Percentual = request.PercentualConvidado,
-            Valor = valores[1],
-            Status = DivisaoTransacaoParticipanteStatus.Pendente,
-            ExpiraEm = DivisaoTransacaoRules.CalcularExpiracaoConvite(transacao.DataOcorrencia, agora),
-            VersaoConvite = 1,
-            Ativo = true
-        });
+            divisao.Participantes.Add(new DivisaoTransacaoParticipante
+            {
+                UsuarioId = convidado.Id,
+                ParticipanteUsuarioId = convidado.Id,
+                TipoParticipante = TipoParticipanteDivisao.UsuarioSistema,
+                Percentual = participanteRequest.Percentual,
+                Valor = valores[indiceValor],
+                Status = DivisaoTransacaoParticipanteStatus.Pendente,
+                ExpiraEm = DivisaoTransacaoRules.CalcularExpiracaoConvite(transacao.DataOcorrencia, agora),
+                VersaoConvite = 1,
+                Ativo = true
+            });
+            indiceValor++;
+        }
+
+        foreach (var participanteRequest in participantesExternosRequest)
+        {
+            divisao.Participantes.Add(new DivisaoTransacaoParticipante
+            {
+                UsuarioId = usuarioId,
+                TipoParticipante = TipoParticipanteDivisao.Externo,
+                Percentual = participanteRequest.Percentual,
+                Valor = valores[indiceValor],
+                Status = DivisaoTransacaoParticipanteStatus.Aceito,
+                RespondidoEm = agora,
+                VersaoAceita = 1,
+                VersaoConvite = 1,
+                MotivoResposta = NormalizarTexto(participanteRequest.Nome),
+                Ativo = true
+            });
+            indiceValor++;
+        }
+
         DivisaoTransacaoRules.ValidarParticipantes(valorTotal, divisao.Participantes.ToList());
 
         _dbContext.DivisoesTransacoes.Add(divisao);
-        await SalvarContatoSeSolicitadoAsync(
-            usuarioId,
-            convidado.Id,
-            request.SalvarContato,
-            request.ApelidoContato,
-            agora,
-            cancellationToken);
-        CriarNotificacao(
-            convidado.Id,
-            TipoNotificacao.DivisaoRecebida,
-            "Convite de divisão recebido",
-            $"{transacao.Descricao}: {valores[1]:C} aguardando sua resposta.",
-            divisao,
-            "ResponderDivisao",
-            divisao.VersaoAtual);
+        foreach (var participante in divisao.Participantes.Where(item => item.TipoParticipante == TipoParticipanteDivisao.UsuarioSistema))
+        {
+            var participanteRequest = convidados.Single(item => item.Usuario.Id == participante.ParticipanteUsuarioId).Request;
+            await SalvarContatoSeSolicitadoAsync(
+                usuarioId,
+                participante.ParticipanteUsuarioId!.Value,
+                participanteRequest.SalvarContato,
+                participanteRequest.ApelidoContato,
+                agora,
+                cancellationToken);
+            CriarNotificacao(
+                participante.ParticipanteUsuarioId.Value,
+                TipoNotificacao.DivisaoRecebida,
+                "Convite de divisão recebido",
+                $"{transacao.Descricao}: {participante.Valor:C} aguardando sua resposta.",
+                divisao,
+                "ResponderDivisao",
+                divisao.VersaoAtual);
+        }
+
+        foreach (var participante in divisao.Participantes.Where(item => item.TipoParticipante == TipoParticipanteDivisao.Externo))
+        {
+            await CriarOuAtualizarPendenciaReembolsoAsync(divisao, participante, cancellationToken);
+        }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         await dbTransaction.CommitAsync(cancellationToken);
@@ -356,12 +410,25 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             throw new InvalidOperationException("Não há convidado elegível para reenviar.");
         }
 
+        var participantesExternos = divisao.Participantes
+            .Where(participante =>
+                participante.Ativo &&
+                participante.TipoParticipante == TipoParticipanteDivisao.Externo)
+            .OrderBy(participante => participante.Id)
+            .ToList();
         var percentualConvidado = request.PercentualConvidado ?? anterior.Percentual;
-        var percentualCriador = 100m - percentualConvidado;
-        var valores = DivisaoTransacaoRules.CalcularValores(divisao.ValorTotal, [percentualCriador, percentualConvidado]);
+        var percentualCriador = 100m - percentualConvidado - participantesExternos.Sum(participante => participante.Percentual);
+        var percentuais = new List<decimal> { percentualCriador, percentualConvidado };
+        percentuais.AddRange(participantesExternos.Select(participante => participante.Percentual));
+        var valores = DivisaoTransacaoRules.CalcularValores(divisao.ValorTotal, percentuais);
         var criador = ObterParticipanteCriador(divisao);
         criador.Percentual = percentualCriador;
         criador.Valor = valores[0];
+        for (var indiceExterno = 0; indiceExterno < participantesExternos.Count; indiceExterno++)
+        {
+            participantesExternos[indiceExterno].Valor = valores[indiceExterno + 2];
+        }
+
         anterior.Ativo = false;
 
         divisao.VersaoAtual++;
@@ -414,6 +481,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             return false;
         }
 
+        var statusAnterior = divisao.Status;
         divisao.Status = DivisaoTransacaoStatus.Cancelada;
         divisao.EncerradoEm = DateTimeOffset.UtcNow;
         divisao.AtualizadoEm = DateTimeOffset.UtcNow;
@@ -424,7 +492,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         }
 
         var transacaoOrigem = await ObterTransacaoOrigemAsync(divisao, cancellationToken);
-        if (divisao.Status != DivisaoTransacaoStatus.Aceita &&
+        if (statusAnterior != DivisaoTransacaoStatus.Aceita &&
             transacaoOrigem is not null &&
             !transacaoOrigem.IsPaga)
         {
@@ -989,8 +1057,10 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         DivisaoTransacaoParticipante participante,
         CancellationToken cancellationToken)
     {
-        if (!participante.ParticipanteUsuarioId.HasValue &&
-            string.IsNullOrWhiteSpace(participante.MotivoResposta))
+        if (participante.TipoParticipante == TipoParticipanteDivisao.Criador ||
+            participante.Status != DivisaoTransacaoParticipanteStatus.Aceito ||
+            (participante.TipoParticipante == TipoParticipanteDivisao.UsuarioSistema &&
+                !participante.ParticipanteUsuarioId.HasValue))
         {
             return;
         }
@@ -1011,7 +1081,9 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                 DivisaoTransacaoId = divisao.Id,
                 ParticipanteId = participante.Id,
                 ParticipanteUsuarioId = participante.ParticipanteUsuarioId,
-                ParticipanteExternoNome = participante.ParticipanteUsuarioId.HasValue ? null : "Participante externo",
+                ParticipanteExternoNome = participante.TipoParticipante == TipoParticipanteDivisao.Externo
+                    ? NormalizarTexto(participante.MotivoResposta) ?? "Participante externo"
+                    : null,
                 ValorDevido = participante.Valor,
                 ValorRecebido = 0m,
                 Status = participante.Valor > 0 ? ReembolsoDivisaoStatus.Pendente : ReembolsoDivisaoStatus.Recebido,
@@ -1266,6 +1338,32 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
 
             fila.Enqueue(agora);
         }
+    }
+
+    private static List<CriarParticipanteUsuarioDivisaoRequest> NormalizarParticipantesUsuarios(
+        CriarConviteDivisaoRequest request)
+    {
+        var participantes = new List<CriarParticipanteUsuarioDivisaoRequest>();
+        if (!string.IsNullOrWhiteSpace(request.EmailConvidado))
+        {
+            if (!request.PercentualConvidado.HasValue)
+            {
+                throw new InvalidOperationException("Informe o percentual do convidado.");
+            }
+
+            participantes.Add(new CriarParticipanteUsuarioDivisaoRequest
+            {
+                Email = request.EmailConvidado,
+                Percentual = request.PercentualConvidado.Value,
+                SalvarContato = request.SalvarContato,
+                ApelidoContato = request.ApelidoContato
+            });
+        }
+
+        participantes.AddRange((request.ParticipantesUsuarios ?? [])
+            .Where(participante => !string.IsNullOrWhiteSpace(participante.Email)));
+
+        return participantes;
     }
 
     private static string NormalizarEmail(string email) => email.Trim().ToLowerInvariant();

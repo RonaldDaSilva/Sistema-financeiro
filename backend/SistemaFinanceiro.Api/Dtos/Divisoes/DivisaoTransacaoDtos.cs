@@ -24,18 +24,46 @@ public sealed class CriarConviteDivisaoRequest
     [Required]
     public Guid TransacaoOrigemId { get; set; }
 
-    [Required]
     [EmailAddress]
     [MaxLength(254)]
     public string EmailConvidado { get; set; } = string.Empty;
 
     [Range(0.01, 99.99)]
-    public decimal PercentualConvidado { get; set; }
+    public decimal? PercentualConvidado { get; set; }
 
     public bool SalvarContato { get; set; }
 
     [MaxLength(120)]
     public string? ApelidoContato { get; set; }
+
+    public IReadOnlyList<CriarParticipanteUsuarioDivisaoRequest> ParticipantesUsuarios { get; set; } = [];
+
+    public IReadOnlyList<CriarParticipanteExternoDivisaoRequest> ParticipantesExternos { get; set; } = [];
+}
+
+public sealed class CriarParticipanteUsuarioDivisaoRequest
+{
+    [Required]
+    [EmailAddress]
+    [MaxLength(254)]
+    public string Email { get; set; } = string.Empty;
+
+    [Range(0.01, 99.99)]
+    public decimal Percentual { get; set; }
+
+    public bool SalvarContato { get; set; }
+
+    [MaxLength(120)]
+    public string? ApelidoContato { get; set; }
+}
+
+public sealed class CriarParticipanteExternoDivisaoRequest
+{
+    [Range(0.01, 99.99)]
+    public decimal Percentual { get; set; }
+
+    [MaxLength(160)]
+    public string? Nome { get; set; }
 }
 
 public sealed class ClassificarAceiteDivisaoRequest

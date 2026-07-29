@@ -104,6 +104,98 @@ public sealed class DivisaoTransacaoServiceTests
     }
 
     [Fact]
+    public async Task CriarConviteAsync_UsuarioEExterno_CriaParticipantesEReembolsoExterno()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+
+        var divisao = await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                TransacaoOrigemId = transacao.Id,
+                ParticipantesUsuarios =
+                [
+                    new CriarParticipanteUsuarioDivisaoRequest
+                    {
+                        Email = convidado.Email,
+                        Percentual = 30m,
+                        SalvarContato = true
+                    }
+                ],
+                ParticipantesExternos =
+                [
+                    new CriarParticipanteExternoDivisaoRequest
+                    {
+                        Percentual = 10m
+                    }
+                ]
+            });
+
+        Assert.Equal(DivisaoTransacaoStatus.Pendente, divisao.Status);
+        Assert.Equal(3, divisao.Participantes.Count);
+        Assert.Equal(60m, transacao.PercentualDivisao);
+        Assert.Equal(600m, transacao.Valor);
+        Assert.Equal(1000m, transacao.ValorTotalOriginal);
+
+        var externo = database.Context.DivisoesTransacoesParticipantes
+            .IgnoreQueryFilters()
+            .Single(item => item.DivisaoTransacaoId == divisao.Id && item.TipoParticipante == TipoParticipanteDivisao.Externo);
+        Assert.Equal(criador.Id, externo.UsuarioId);
+        Assert.Null(externo.ParticipanteUsuarioId);
+        Assert.Equal(DivisaoTransacaoParticipanteStatus.Aceito, externo.Status);
+        Assert.Equal(100m, externo.Valor);
+
+        var reembolso = Assert.Single(database.Context.ReembolsosDivisao.IgnoreQueryFilters());
+        Assert.Equal(externo.Id, reembolso.ParticipanteId);
+        Assert.Null(reembolso.ParticipanteUsuarioId);
+        Assert.Equal(100m, reembolso.ValorDevido);
+        Assert.Equal(ReembolsoDivisaoStatus.Pendente, reembolso.Status);
+        Assert.Single(database.Context.Notificacoes.IgnoreQueryFilters()
+            .Where(notificacao => notificacao.TipoNotificacao == TipoNotificacao.DivisaoRecebida));
+    }
+
+    [Fact]
+    public async Task CriarConviteAsync_MultiplosParticipantes_NaoPerdeCentavos()
+    {
+        var (database, criador, convidado, transacao, outro) = await CriarCenarioAsync();
+        transacao.Valor = 100m;
+        var service = new DivisaoTransacaoService(database.Context);
+
+        var divisao = await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                TransacaoOrigemId = transacao.Id,
+                ParticipantesUsuarios =
+                [
+                    new CriarParticipanteUsuarioDivisaoRequest
+                    {
+                        Email = convidado.Email,
+                        Percentual = 33.33m
+                    },
+                    new CriarParticipanteUsuarioDivisaoRequest
+                    {
+                        Email = outro.Email,
+                        Percentual = 33.33m
+                    }
+                ]
+            });
+
+        var participantes = database.Context.DivisoesTransacoesParticipantes
+            .IgnoreQueryFilters()
+            .Where(item => item.DivisaoTransacaoId == divisao.Id && item.Ativo)
+            .ToList();
+        Assert.Equal(100m, participantes.Sum(item => item.Valor));
+        Assert.Equal(33.34m, participantes.Single(item => item.TipoParticipante == TipoParticipanteDivisao.Criador).Valor);
+        Assert.All(
+            participantes.Where(item => item.TipoParticipante == TipoParticipanteDivisao.UsuarioSistema),
+            participante => Assert.Equal(33.33m, participante.Valor));
+        Assert.Equal(2, database.Context.Notificacoes.IgnoreQueryFilters()
+            .Count(notificacao => notificacao.TipoNotificacao == TipoNotificacao.DivisaoRecebida));
+    }
+
+    [Fact]
     public async Task Contatos_CriarAtualizarRemover_MantemVinculoUnilateral()
     {
         var (database, criador, convidado, _, _) = await CriarCenarioAsync();
@@ -512,6 +604,26 @@ public sealed class DivisaoTransacaoServiceTests
         Assert.True(excluida);
         Assert.Contains(database.Context.Transacoes.IgnoreQueryFilters(), item => item.Id == transacao.Id);
         Assert.Contains(database.Context.Transacoes.IgnoreQueryFilters(), item => item.Id == gerada.Id);
+        Assert.Equal(DivisaoTransacaoStatus.Cancelada, database.Context.DivisoesTransacoes.IgnoreQueryFilters().Single().Status);
+        Assert.Contains(database.Context.Notificacoes.IgnoreQueryFilters(), notificacao =>
+            notificacao.UsuarioId == convidado.Id &&
+            notificacao.TipoNotificacao == TipoNotificacao.DivisaoCancelada);
+    }
+
+    [Fact]
+    public async Task ExcluirAsync_AposAceitePendente_PreservaTransacaoOrigem()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+
+        var excluida = await service.ExcluirAsync(
+            criador.Id,
+            divisao.Id,
+            new ExcluirDivisaoRequest { Escopo = "EstaOcorrencia" });
+
+        Assert.True(excluida);
+        Assert.Contains(database.Context.Transacoes.IgnoreQueryFilters(), item => item.Id == transacao.Id);
         Assert.Equal(DivisaoTransacaoStatus.Cancelada, database.Context.DivisoesTransacoes.IgnoreQueryFilters().Single().Status);
         Assert.Contains(database.Context.Notificacoes.IgnoreQueryFilters(), notificacao =>
             notificacao.UsuarioId == convidado.Id &&
