@@ -101,6 +101,19 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             throw new InvalidOperationException("Transação de origem não encontrada.");
         }
 
+        var jaPossuiDivisaoVinculada = await _dbContext.DivisoesTransacoes
+            .AsNoTracking()
+            .AnyAsync(
+                divisao =>
+                    divisao.UsuarioCriadorId == usuarioId &&
+                    divisao.TransacaoOrigemId == transacao.Id &&
+                    divisao.EncerradoEm == null,
+                cancellationToken);
+        if (jaPossuiDivisaoVinculada)
+        {
+            throw new InvalidOperationException("Esta transação já possui uma divisão vinculada.");
+        }
+
         await using var dbTransaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         var agora = DateTimeOffset.UtcNow;
         var valorTotal = transacao.ValorTotalOriginal ?? transacao.Valor;

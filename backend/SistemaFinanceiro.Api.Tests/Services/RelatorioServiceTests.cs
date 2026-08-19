@@ -806,6 +806,216 @@ public sealed class RelatorioServiceTests
             response.Kpis.ResultadoLiquido.ValorAtual);
     }
 
+    [Fact]
+    public async Task GetResumoMensalAsync_MesSemMovimentacoes_RetornaZerosESeisMeses()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        var transacaoService = new TransacaoServiceCompromissosFake(
+            new Dictionary<(int Ano, int Mes), ExtratoMensalResponse>(),
+            new Dictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>>());
+        var service = new RelatorioService(
+            database.Context,
+            new ContaBancariaServiceParaTeste(database.Context),
+            transacaoService);
+
+        var response = await service.GetResumoMensalAsync(8, 2026, usuarioId);
+
+        Assert.Equal(0m, response.ReceitasRealizadas);
+        Assert.Equal(0m, response.DespesasPrevistas);
+        Assert.Equal(0m, response.SobraPrevista);
+        Assert.Empty(response.DespesasPorCategoria);
+        Assert.Equal(6, response.ProximosMeses.Count);
+        Assert.Equal((9, 2026), (response.ProximosMeses[0].Mes, response.ProximosMeses[0].Ano));
+        Assert.Equal((2, 2027), (response.ProximosMeses[^1].Mes, response.ProximosMeses[^1].Ano));
+        Assert.Equal(7, transacaoService.ChamadasExtrato.Count);
+        Assert.All(transacaoService.ChamadasExtrato.Values, chamadas => Assert.Equal(1, chamadas));
+        Assert.Equal(7, transacaoService.ChamadasFatura.Count);
+        Assert.All(transacaoService.ChamadasFatura.Values, chamadas => Assert.Equal(1, chamadas));
+    }
+
+    [Fact]
+    public async Task GetResumoMensalAsync_ReceitasDespesasInvestimentoEDivisao_UsaPartePessoal()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        var categoria = CriarCategoria(usuarioId, "Restaurante");
+        var data = new DateOnly(2026, 8, 10);
+        var despesaDividida = CriarItemExtrato(
+            TipoTransacao.Despesa,
+            120m,
+            data,
+            categoria,
+            isPaga: true,
+            isProjetada: false);
+        despesaDividida.IsDividida = true;
+        despesaDividida.ValorTotalOriginal = 300m;
+        despesaDividida.PercentualDivisao = 40m;
+        var extrato = new ExtratoMensalResponse
+        {
+            Mes = 8,
+            Ano = 2026,
+            Itens =
+            [
+                CriarItemExtrato(TipoTransacao.Receita, 1000m, data, categoria, isPaga: true, isProjetada: false),
+                despesaDividida,
+                CriarItemExtrato(TipoTransacao.Investimento, 50m, data, categoria, isPaga: true, isProjetada: false)
+            ]
+        };
+        var service = CriarServiceComDados(database.Context, (2026, 8, extrato));
+
+        var response = await service.GetResumoMensalAsync(8, 2026, usuarioId);
+
+        Assert.Equal(1000m, response.ReceitasRealizadas);
+        Assert.Equal(1000m, response.ReceitasPrevistas);
+        Assert.Equal(120m, response.DespesasRealizadas);
+        Assert.Equal(120m, response.DespesasPrevistas);
+        Assert.Equal(50m, response.DemaisSaidasPrevistas);
+        Assert.Equal(830m, response.SobraPrevista);
+        var categoriaResumo = Assert.Single(response.DespesasPorCategoria);
+        Assert.Equal(120m, categoriaResumo.Valor);
+    }
+
+    [Fact]
+    public async Task GetResumoMensalAsync_DespesaFutura_ApareceNaCategoriaEPrevisao()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        var categoria = CriarCategoria(usuarioId, "Casa");
+        var dataFutura = new DateOnly(2030, 8, 25);
+        var extrato = new ExtratoMensalResponse
+        {
+            Mes = 8,
+            Ano = 2030,
+            Itens =
+            [
+                CriarItemExtrato(
+                    TipoTransacao.Despesa,
+                    250m,
+                    dataFutura,
+                    categoria,
+                    isPaga: false,
+                    isProjetada: false)
+            ]
+        };
+        var service = CriarServiceComDados(database.Context, (2030, 8, extrato));
+
+        var response = await service.GetResumoMensalAsync(8, 2030, usuarioId);
+
+        Assert.Equal(0m, response.DespesasRealizadas);
+        Assert.Equal(250m, response.DespesasPrevistas);
+        var categoriaResumo = Assert.Single(response.DespesasPorCategoria);
+        Assert.Equal(categoria.Id, categoriaResumo.CategoriaId);
+        Assert.Equal(250m, categoriaResumo.Valor);
+    }
+
+    [Fact]
+    public async Task GetResumoMensalAsync_CompraCartao_NaoDuplicaPagamentoDaFatura()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        var categoria = CriarCategoria(usuarioId, "Mercado");
+        var cartaoId = Guid.NewGuid();
+        var vencimento = new DateOnly(2026, 8, 10);
+        var pagamento = CriarItemExtrato(
+            TipoTransacao.Despesa,
+            200m,
+            vencimento,
+            categoria,
+            isPaga: true,
+            origem: "Transacao",
+            isProjetada: false);
+        pagamento.FormaPagamento = "Pagamento de fatura";
+        var extrato = new ExtratoMensalResponse { Mes = 8, Ano = 2026, Itens = [pagamento] };
+        var fatura = CriarFaturaConsolidada(cartaoId, vencimento, categoria, 200m);
+        var transacaoService = new TransacaoServiceCompromissosFake(
+            new Dictionary<(int Ano, int Mes), ExtratoMensalResponse> { [(2026, 8)] = extrato },
+            new Dictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>> { [(2026, 8)] = [fatura] });
+        var service = new RelatorioService(
+            database.Context,
+            new ContaBancariaServiceParaTeste(database.Context),
+            transacaoService);
+
+        var response = await service.GetResumoMensalAsync(8, 2026, usuarioId);
+
+        Assert.Equal(200m, response.DespesasPrevistas);
+        Assert.Equal(200m, response.DespesasRealizadas);
+        Assert.Equal(-200m, response.SobraPrevista);
+        Assert.Equal(200m, Assert.Single(response.DespesasPorCategoria).Valor);
+    }
+
+    [Fact]
+    public async Task GetResumoMensalAsync_CartaoDividido_UsaPartePessoalNaCategoriaEProjecao()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        var categoria = CriarCategoria(usuarioId, "Restaurante");
+        var fatura = CriarFaturaConsolidada(
+            Guid.NewGuid(),
+            new DateOnly(2026, 8, 10),
+            categoria,
+            120m);
+        var detalhe = Assert.Single(fatura.Detalhes);
+        detalhe.IsDividida = true;
+        detalhe.ValorTotalOriginal = 300m;
+        detalhe.PercentualDivisao = 40m;
+        var transacaoService = new TransacaoServiceCompromissosFake(
+            new Dictionary<(int Ano, int Mes), ExtratoMensalResponse>(),
+            new Dictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>> { [(2026, 8)] = [fatura] });
+        var service = new RelatorioService(
+            database.Context,
+            new ContaBancariaServiceParaTeste(database.Context),
+            transacaoService);
+
+        var response = await service.GetResumoMensalAsync(8, 2026, usuarioId);
+
+        Assert.Equal(120m, response.DespesasPrevistas);
+        Assert.Equal(120m, Assert.Single(response.DespesasPorCategoria).Valor);
+        Assert.Equal(-120m, response.SobraPrevista);
+    }
+
+    [Fact]
+    public async Task GetResumoMensalAsync_ProximosMeses_CombinaRecorrenciasCarneEParcelas()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        var categoria = CriarCategoria(usuarioId, "Casa");
+        var setembro = new DateOnly(2026, 9, 10);
+        var compraCarneId = Guid.NewGuid();
+        var extratoSetembro = new ExtratoMensalResponse
+        {
+            Mes = 9,
+            Ano = 2026,
+            Itens =
+            [
+                CriarItemExtrato(TipoTransacao.Receita, 3200m, setembro, categoria, isFixa: true),
+                CriarItemExtrato(TipoTransacao.Despesa, 2000m, setembro, categoria, isFixa: true),
+                CriarItemExtrato(TipoTransacao.Despesa, 300m, setembro, categoria, compraParceladaId: compraCarneId)
+            ]
+        };
+        var service = CriarServiceComDados(database.Context, (2026, 9, extratoSetembro));
+
+        var response = await service.GetResumoMensalAsync(8, 2026, usuarioId);
+
+        var mes = response.ProximosMeses[0];
+        Assert.Equal(3200m, mes.ReceitasPrevistas);
+        Assert.Equal(2300m, mes.DespesasPrevistas);
+        Assert.Equal(900m, mes.SobraPrevista);
+    }
+
+    private static RelatorioService CriarServiceComDados(
+        AppDbContext context,
+        params (int Ano, int Mes, ExtratoMensalResponse Extrato)[] extratos)
+    {
+        var transacaoService = new TransacaoServiceCompromissosFake(
+            extratos.ToDictionary(item => (item.Ano, item.Mes), item => item.Extrato),
+            new Dictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>>());
+        return new RelatorioService(
+            context,
+            new ContaBancariaServiceParaTeste(context),
+            transacaoService);
+    }
+
     private static async Task SeedUsuarioAsync(AppDbContext context, Guid usuarioId)
     {
         context.Usuarios.Add(new Usuario

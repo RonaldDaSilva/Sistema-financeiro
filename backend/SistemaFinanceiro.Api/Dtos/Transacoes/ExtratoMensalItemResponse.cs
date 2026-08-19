@@ -23,6 +23,8 @@ public sealed class ExtratoMensalItemResponse
     public bool IsDividida { get; set; }
     public decimal? ValorTotalOriginal { get; set; }
     public decimal? PercentualDivisao { get; set; }
+    public Guid? DivisaoTransacaoId { get; set; }
+    public DivisaoTransacaoStatus? StatusDivisao { get; set; }
     public bool IsProjetada { get; set; }
     public string Origem { get; set; } = string.Empty;
     public OrigemTransacao OrigemTransacao { get; set; } = OrigemTransacao.Lancamento;

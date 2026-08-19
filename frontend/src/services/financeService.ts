@@ -21,6 +21,7 @@ import type {
   PagedResponse,
   ReembolsoDivisao,
   RelatorioGraficos,
+  ResumoFinanceiroMensal,
   ResolverConvidadoDivisaoResponse,
   TipoTransacao,
   TipoTransacaoFiltro,
@@ -235,6 +236,19 @@ export async function getRelatorioGraficos(params: RelatorioGraficosParams, sign
       somenteParceladas: params.somenteParceladas || undefined,
       secoes: params.secoes?.length ? params.secoes : undefined,
     },
+    signal,
+  });
+
+  return data;
+}
+
+export async function getResumoFinanceiroMensal(
+  mes: number,
+  ano: number,
+  signal?: AbortSignal,
+) {
+  const { data } = await api.get<ResumoFinanceiroMensal>('/api/relatorios/resumo-mensal', {
+    params: { mes, ano },
     signal,
   });
 

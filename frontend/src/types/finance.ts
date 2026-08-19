@@ -20,6 +20,8 @@ export type ExtratoMensalItem = {
   isDividida: boolean;
   valorTotalOriginal: number | null;
   percentualDivisao: number | null;
+  divisaoTransacaoId?: string | null;
+  statusDivisao?: string | number | null;
   isProjetada: boolean;
   origem: string;
   origemTransacao?: 'Lancamento' | 'AjusteSaldo' | 'Transferencia' | number | string;
@@ -63,6 +65,28 @@ export type RelatorioCategoria = {
   categoriaNome: string;
   categoriaCorHexa: string;
   valor: number;
+};
+
+export type ResumoFinanceiroMes = {
+  mes: number;
+  ano: number;
+  receitasPrevistas: number;
+  despesasPrevistas: number;
+  demaisSaidasPrevistas: number;
+  sobraPrevista: number;
+};
+
+export type ResumoFinanceiroMensal = {
+  mes: number;
+  ano: number;
+  receitasRealizadas: number;
+  receitasPrevistas: number;
+  despesasRealizadas: number;
+  despesasPrevistas: number;
+  demaisSaidasPrevistas: number;
+  sobraPrevista: number;
+  despesasPorCategoria: RelatorioCategoria[];
+  proximosMeses: ResumoFinanceiroMes[];
 };
 
 export type RelatorioComparativoValor = {

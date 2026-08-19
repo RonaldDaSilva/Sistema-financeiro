@@ -3,7 +3,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TransactionForm } from "./TransactionForm";
-import type { CartaoCreditoOpcao, Categoria, ContaBancaria } from "../types/finance";
+import type {
+  CartaoCreditoOpcao,
+  Categoria,
+  ContaBancaria,
+  ExtratoMensalItem,
+} from "../types/finance";
 
 const serviceMocks = vi.hoisted(() => ({
   listarContatosDivisao: vi.fn(),
@@ -45,6 +50,40 @@ const cartoes: CartaoCreditoOpcao[] = [
   },
 ];
 
+function criarItemExtrato(overrides: Partial<ExtratoMensalItem> = {}): ExtratoMensalItem {
+  return {
+    id: "tx-1",
+    codigoExibicao: 1,
+    tipo: "Despesa",
+    descricao: "Restaurante",
+    valor: 1000,
+    dataOcorrencia: "2026-07-29",
+    categoriaId: "cat-1",
+    categoriaNome: "Alimentação",
+    categoriaCorHexa: "#ef4444",
+    formaPagamento: "Pix",
+    cartaoCreditoId: null,
+    contaBancariaId: "conta-1",
+    cartaoCreditoApelido: null,
+    isFixa: false,
+    isPaga: false,
+    statusVisual: "Pendente",
+    isDividida: false,
+    valorTotalOriginal: null,
+    percentualDivisao: null,
+    divisaoTransacaoId: null,
+    statusDivisao: null,
+    isProjetada: false,
+    origem: "Transacao",
+    origemTransacao: "Lancamento",
+    compraParceladaId: null,
+    numeroParcela: null,
+    quantidadeParcelas: null,
+    reembolsoDivisaoId: null,
+    ...overrides,
+  };
+}
+
 function renderForm(overrides = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -69,6 +108,7 @@ function renderForm(overrides = {}) {
 
 describe("TransactionForm", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     serviceMocks.listarContatosDivisao.mockResolvedValue([]);
     serviceMocks.listarReembolsosPendentes.mockResolvedValue([]);
     serviceMocks.resolverConvidadoDivisao.mockResolvedValue({
@@ -228,6 +268,234 @@ describe("TransactionForm", () => {
         ],
       }),
     );
+  });
+
+  it("converte divisão manual existente para vinculada durante edição", async () => {
+    const user = userEvent.setup();
+    const onUpdateTransacao = vi.fn().mockResolvedValue(undefined);
+
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: "tx-manual-1",
+        descricao: "Aluguel",
+        valor: 500,
+        isDividida: true,
+        valorTotalOriginal: 1000,
+        percentualDivisao: 50,
+      }),
+      onUpdateTransacao,
+    });
+
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.type(
+      screen.getByPlaceholderText("Buscar contato ou informar e-mail"),
+      "maria@email.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+    await screen.findByText("Salvar nos meus contatos");
+    await user.click(screen.getByRole("button", { name: "Atualizar" }));
+
+    await waitFor(() => expect(onUpdateTransacao).toHaveBeenCalledWith(
+      "tx-manual-1",
+      expect.objectContaining({
+        valor: 500,
+        isDividida: true,
+        valorTotalOriginal: 1000,
+        percentualDivisao: 50,
+      }),
+    ));
+    expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transacaoOrigemId: "tx-manual-1",
+        participantesUsuarios: [
+          expect.objectContaining({
+            email: "maria@email.com",
+            percentual: 50,
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("converte transação não dividida existente para primeira divisão vinculada", async () => {
+    const user = userEvent.setup();
+    const onUpdateTransacao = vi.fn().mockResolvedValue(undefined);
+
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: "tx-simples-1",
+        descricao: "Restaurante",
+        valor: 1000,
+      }),
+      onUpdateTransacao,
+    });
+
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.clear(screen.getByLabelText("Minha parte"));
+    await user.type(screen.getByLabelText("Minha parte"), "60");
+    await user.type(
+      screen.getByPlaceholderText("Buscar contato ou informar e-mail"),
+      "maria@email.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+    await screen.findByText("Salvar nos meus contatos");
+    await user.click(screen.getByRole("button", { name: "Atualizar" }));
+
+    await waitFor(() => expect(onUpdateTransacao).toHaveBeenCalled());
+    expect(onUpdateTransacao).toHaveBeenCalledWith(
+      "tx-simples-1",
+      expect.objectContaining({
+        valor: 600,
+        isDividida: true,
+        valorTotalOriginal: 1000,
+        percentualDivisao: 60,
+      }),
+    );
+    expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transacaoOrigemId: "tx-simples-1",
+        participantesUsuarios: [
+          expect.objectContaining({
+            email: "maria@email.com",
+            percentual: 40,
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("mantém divisão manual como manual ao editar percentual", async () => {
+    const user = userEvent.setup();
+    const onUpdateTransacao = vi.fn().mockResolvedValue(undefined);
+
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: "tx-manual-2",
+        valor: 500,
+        isDividida: true,
+        valorTotalOriginal: 1000,
+        percentualDivisao: 50,
+      }),
+      onUpdateTransacao,
+    });
+
+    await user.clear(screen.getByLabelText("Minha parte"));
+    await user.type(screen.getByLabelText("Minha parte"), "60");
+    await user.click(screen.getByRole("button", { name: "Atualizar" }));
+
+    await waitFor(() => expect(onUpdateTransacao).toHaveBeenCalledWith(
+      "tx-manual-2",
+      expect.objectContaining({
+        valor: 600,
+        isDividida: true,
+        valorTotalOriginal: 1000,
+        percentualDivisao: 60,
+      }),
+    ));
+    expect(serviceMocks.criarConviteDivisao).not.toHaveBeenCalled();
+  });
+
+  it("bloqueia edição comum quando já existe divisão vinculada", () => {
+    const onUpdateTransacao = vi.fn().mockResolvedValue(undefined);
+
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: "tx-vinculada-1",
+        valor: 600,
+        isDividida: true,
+        valorTotalOriginal: 1000,
+        percentualDivisao: 60,
+        divisaoTransacaoId: "div-1",
+        statusDivisao: "Pendente",
+      }),
+      onUpdateTransacao,
+    });
+
+    expect(screen.getByText("Divisão vinculada existente")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use alteração da divisão" })).toBeDisabled();
+    expect(screen.getByLabelText("Minha parte")).toBeDisabled();
+    expect(serviceMocks.criarConviteDivisao).not.toHaveBeenCalled();
+  });
+
+  it("converte manual existente para vinculada com parte externa", async () => {
+    const user = userEvent.setup();
+    const onUpdateTransacao = vi.fn().mockResolvedValue(undefined);
+
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: "tx-manual-externa",
+        valor: 600,
+        isDividida: true,
+        valorTotalOriginal: 1000,
+        percentualDivisao: 60,
+      }),
+      onUpdateTransacao,
+    });
+
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.type(
+      screen.getByPlaceholderText("Buscar contato ou informar e-mail"),
+      "maria@email.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+    await screen.findByText("Salvar nos meus contatos");
+    await user.click(screen.getByLabelText("Existe também uma parte de pessoa externa"));
+    await user.clear(screen.getByDisplayValue("0"));
+    await user.type(screen.getByLabelText("Percentual da parte externa"), "10");
+    await user.click(screen.getByRole("button", { name: "Atualizar" }));
+
+    await waitFor(() => expect(serviceMocks.criarConviteDivisao).toHaveBeenCalled());
+    expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transacaoOrigemId: "tx-manual-externa",
+        participantesUsuarios: [
+          expect.objectContaining({
+            percentual: 30,
+          }),
+        ],
+        participantesExternos: [
+          {
+            percentual: 10,
+            nome: null,
+          },
+        ],
+      }),
+    );
+  });
+
+  it("mantém limitação explícita para compra parcelada existente sem contrato de vínculo", async () => {
+    const user = userEvent.setup();
+    const onUpdateCompraParcelada = vi.fn().mockResolvedValue(undefined);
+
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: "tx-parcela-1",
+        descricao: "Compra (1/12)",
+        valor: 100,
+        origem: "CompraParcelada",
+        formaPagamento: "Cartão de crédito",
+        cartaoCreditoId: "cartao-1",
+        compraParceladaId: "compra-1",
+        numeroParcela: 1,
+        quantidadeParcelas: 12,
+      }),
+      onUpdateCompraParcelada,
+    });
+
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.type(
+      screen.getByPlaceholderText("Buscar contato ou informar e-mail"),
+      "maria@email.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+    await screen.findByText("Salvar nos meus contatos");
+    await user.click(screen.getByRole("button", { name: "Atualizar" }));
+
+    expect(await screen.findByText(/Para parceladas, use a divisão manual/i)).toBeInTheDocument();
+    expect(serviceMocks.criarConviteDivisao).not.toHaveBeenCalled();
+    expect(onUpdateCompraParcelada).not.toHaveBeenCalled();
   });
 
   it("mostra fatura total e parte pessoal em compra dividida no cartão", async () => {

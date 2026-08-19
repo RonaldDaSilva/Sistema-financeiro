@@ -171,6 +171,18 @@ export function useRelatorioGraficos(
   });
 }
 
+export function useResumoFinanceiroMensal(mes: number, ano: number, enabled = true) {
+  const canFetch = hasUsableStoredAuth();
+
+  return useQuery({
+    queryKey: queryKeys.resumoFinanceiroMensal(mes, ano),
+    queryFn: ({ signal }) => financeService.getResumoFinanceiroMensal(mes, ano, signal),
+    enabled: enabled && canFetch && mes >= 1 && mes <= 12 && ano > 0,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+  });
+}
+
 function normalizarSecoesRelatorio(secoes: RelatorioGraficosSecao[]) {
   return [...new Set(secoes)].sort();
 }

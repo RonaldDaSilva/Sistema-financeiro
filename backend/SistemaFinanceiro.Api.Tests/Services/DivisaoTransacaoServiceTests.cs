@@ -104,6 +104,44 @@ public sealed class DivisaoTransacaoServiceTests
     }
 
     [Fact]
+    public async Task CriarConviteAsync_TransacaoJaVinculada_BloqueiaDuplicidade()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        await CriarConvitePadraoAsync(service, criador, convidado, transacao);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CriarConviteAsync(
+                criador.Id,
+                new CriarConviteDivisaoRequest
+                {
+                    TransacaoOrigemId = transacao.Id,
+                    EmailConvidado = convidado.Email,
+                    PercentualConvidado = 40m
+                }));
+
+        Assert.Equal("Esta transação já possui uma divisão vinculada.", exception.Message);
+    }
+
+    [Fact]
+    public async Task GetExtratoMensalAsync_TransacaoComDivisaoVinculada_RetornaIdentificadorDaDivisao()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var divisaoService = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarConvitePadraoAsync(divisaoService, criador, convidado, transacao);
+        var transacaoService = new TransacaoService(database.Context);
+
+        var extrato = await transacaoService.GetExtratoMensalAsync(
+            transacao.DataOcorrencia.Month,
+            transacao.DataOcorrencia.Year,
+            criador.Id);
+
+        var item = Assert.Single(extrato.Itens, item => item.Id == transacao.Id);
+        Assert.Equal(divisao.Id, item.DivisaoTransacaoId);
+        Assert.Equal(DivisaoTransacaoStatus.Pendente, item.StatusDivisao);
+    }
+
+    [Fact]
     public async Task CriarConviteAsync_UsuarioEExterno_CriaParticipantesEReembolsoExterno()
     {
         var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
@@ -664,7 +702,7 @@ public sealed class DivisaoTransacaoServiceTests
                 Tipo = TipoTransacao.Receita,
                 Descricao = "Reembolso Maria",
                 Valor = 30m,
-                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today).AddDays(-1),
                 FormaPagamento = "Pix",
                 ContaBancariaId = conta.Id,
                 ReembolsoDivisaoId = reembolso.Id
@@ -692,7 +730,7 @@ public sealed class DivisaoTransacaoServiceTests
                 Tipo = TipoTransacao.Receita,
                 Descricao = "Reembolso integral",
                 Valor = 400m,
-                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today).AddDays(-1),
                 FormaPagamento = "Pix",
                 ContaBancariaId = conta.Id,
                 ReembolsoDivisaoId = reembolso.Id
@@ -796,7 +834,7 @@ public sealed class DivisaoTransacaoServiceTests
                 Tipo = TipoTransacao.Receita,
                 Descricao = "Reembolso",
                 Valor = 30m,
-                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today).AddDays(-1),
                 FormaPagamento = "Pix",
                 ContaBancariaId = conta.Id,
                 ReembolsoDivisaoId = reembolso.Id
@@ -873,7 +911,7 @@ public sealed class DivisaoTransacaoServiceTests
                 Tipo = TipoTransacao.Receita,
                 Descricao = "Reembolso externo",
                 Valor = 50m,
-                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today),
+                DataOcorrencia = DateOnly.FromDateTime(DateTime.Today).AddDays(-1),
                 FormaPagamento = "Pix",
                 ContaBancariaId = conta.Id,
                 ReembolsoDivisaoId = reembolso.Id

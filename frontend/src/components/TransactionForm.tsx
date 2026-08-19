@@ -142,6 +142,9 @@ export function TransactionForm({
     Boolean(initialTransaction?.compraParceladaId) &&
     (initialTransaction?.origem === "CompraParcelada" ||
       initialTransaction?.origem === "Carne");
+  const possuiDivisaoVinculadaExistente = Boolean(
+    initialTransaction?.divisaoTransacaoId,
+  );
   const isCarne = formaPagamento === "Carnê/Crediário";
   const parcelasRestantes =
     initialTransaction?.numeroParcela && initialTransaction?.quantidadeParcelas
@@ -171,6 +174,8 @@ export function TransactionForm({
     Math.round((percentualMinhaParte + percentualConvidado + percentualExterno) * 100) / 100;
   const divisaoVinculadaAtiva =
     tipo === "despesa" && isDividida && modoDivisao === "vinculada";
+  const criandoPrimeiraDivisaoVinculada =
+    divisaoVinculadaAtiva && !possuiDivisaoVinculadaExistente;
   const descricaoConvidado =
     convidadoResolvido?.nomeExibicao || convidadoResolvido?.emailMascarado || "Convidado";
 
@@ -222,7 +227,7 @@ export function TransactionForm({
     );
     setDescricao(stripProjectedInstallmentSuffix(initialTransaction.descricao));
     setIsDividida(initialTransaction.isDividida);
-    setModoDivisao("manual");
+    setModoDivisao(initialTransaction.divisaoTransacaoId ? "vinculada" : "manual");
     setEmailConvidado("");
     setConvidadoResolvido(null);
     setSalvarContato(true);
@@ -313,6 +318,38 @@ export function TransactionForm({
     await resolverConvidadoMutation.mutateAsync(email);
   }
 
+  async function criarConviteParaTransacao(
+    transacaoOrigemId: string,
+    numericPercentualExterno: number,
+  ) {
+    await financeService.criarConviteDivisao({
+      transacaoOrigemId,
+      participantesUsuarios: [
+        {
+          email: emailConvidado.trim(),
+          percentual: percentualConvidado,
+          salvarContato,
+          apelidoContato: apelidoContato.trim() || null,
+        },
+      ],
+      participantesExternos: temParteExterna
+        ? [
+            {
+              percentual: numericPercentualExterno,
+              nome: null,
+            },
+          ]
+        : [],
+    });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.contatosDivisao }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.notificacoesNaoLidas }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.relatoriosScope }),
+    ]);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErro(null);
@@ -342,13 +379,13 @@ export function TransactionForm({
       }
 
       if (divisaoVinculadaAtiva) {
-        if (isEditing || isEditingCompraParcelada) {
+        if (possuiDivisaoVinculadaExistente) {
           throw new Error(
             "Para alterar uma divisão vinculada existente, use o fluxo de alteração da divisão.",
           );
         }
 
-        if (isParcelada) {
+        if (isParcelada || isEditingCompraParcelada) {
           throw new Error(
             "O contrato atual cria convite a partir de uma transação avulsa ou fixa. Para parceladas, use a divisão manual até o backend expor o vínculo da compra parcelada.",
           );
@@ -464,32 +501,13 @@ export function TransactionForm({
 
         if (isEditing && initialTransaction?.id && onUpdateTransacao) {
           await onUpdateTransacao(initialTransaction.id, request);
+          if (criandoPrimeiraDivisaoVinculada) {
+            await criarConviteParaTransacao(initialTransaction.id, numericPercentualExterno);
+          }
         } else {
           const transacaoCriada = await onCreateTransacao(request);
           if (divisaoVinculadaAtiva && transacaoCriada?.id) {
-            await financeService.criarConviteDivisao({
-              transacaoOrigemId: transacaoCriada.id,
-              participantesUsuarios: [
-                {
-                  email: emailConvidado.trim(),
-                  percentual: percentualConvidado,
-                  salvarContato,
-                  apelidoContato: apelidoContato.trim() || null,
-                },
-              ],
-              participantesExternos: temParteExterna
-                ? [
-                    {
-                      percentual: numericPercentualExterno,
-                      nome: null,
-                    },
-                  ]
-                : [],
-            });
-            await Promise.all([
-              queryClient.invalidateQueries({ queryKey: queryKeys.contatosDivisao }),
-              queryClient.invalidateQueries({ queryKey: queryKeys.notificacoesNaoLidas }),
-            ]);
+            await criarConviteParaTransacao(transacaoCriada.id, numericPercentualExterno);
           }
           if (request.reembolsoDivisaoId) {
             await queryClient.invalidateQueries({
@@ -686,6 +704,7 @@ export function TransactionForm({
               )}
               <ToggleField
                 checked={isDividida}
+                disabled={possuiDivisaoVinculadaExistente}
                 label="Dividir esta transação"
                 onChange={(checked) => {
                   setIsDividida(checked);
@@ -704,6 +723,20 @@ export function TransactionForm({
 
           {tipo === "despesa" && isDividida && (
             <div className="space-y-4 rounded-xl border border-[color:var(--app-card-border)] bg-[var(--app-card-muted)] p-4 dark:border-slate-800 dark:bg-slate-950">
+              {possuiDivisaoVinculadaExistente && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                  <p className="font-bold">Divisão vinculada existente</p>
+                  <p className="mt-1">
+                    Esta transação já possui convite, participantes e versionamento. Use o fluxo de alteração da divisão para mudar valor, percentual, vencimento ou participante.
+                  </p>
+                  {initialTransaction?.divisaoTransacaoId && (
+                    <p className="mt-2 text-xs font-semibold">
+                      Divisão: {initialTransaction.divisaoTransacaoId}
+                      {initialTransaction.statusDivisao ? ` · Status: ${initialTransaction.statusDivisao}` : ""}
+                    </p>
+                  )}
+                </div>
+              )}
               <fieldset className="space-y-3">
                 <legend className="text-sm font-bold text-slate-800 dark:text-slate-100">
                   Tipo de divisão
@@ -711,11 +744,13 @@ export function TransactionForm({
                 <div className="grid gap-2 sm:grid-cols-2">
                   <RadioOption
                     checked={modoDivisao === "manual"}
+                    disabled={possuiDivisaoVinculadaExistente}
                     label="Apenas informar minha parte"
                     onChange={() => setModoDivisao("manual")}
                   />
                   <RadioOption
                     checked={modoDivisao === "vinculada"}
+                    disabled={possuiDivisaoVinculadaExistente}
                     label="Dividir com outra pessoa"
                     onChange={() => setModoDivisao("vinculada")}
                   />
@@ -733,6 +768,7 @@ export function TransactionForm({
                       className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                       type="text"
                       inputMode="decimal"
+                      disabled={possuiDivisaoVinculadaExistente}
                       value={percentualDivisao}
                       onChange={(event) => {
                         const nextPercentual = limitarPercentual(
@@ -760,6 +796,7 @@ export function TransactionForm({
                     aria-label="Valor da minha parte"
                     className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                       inputMode="numeric"
+                      disabled={possuiDivisaoVinculadaExistente}
                       value={meuValor}
                       onChange={(event) => {
                         const nextMeuValor = limitarMeuValor(
@@ -777,7 +814,7 @@ export function TransactionForm({
                 </label>
               </div>
 
-              {modoDivisao === "vinculada" && (
+              {modoDivisao === "vinculada" && !possuiDivisaoVinculadaExistente && (
                 <LinkedDivisionPanel
                   apelidoContato={apelidoContato}
                   contatos={contatosDivisaoQuery.data ?? []}
@@ -1064,9 +1101,11 @@ export function TransactionForm({
           <button
             className="min-h-11 rounded-xl bg-[var(--app-accent)] px-6 py-2.5 text-sm font-bold text-[var(--app-accent-contrast)] shadow-sm transition-colors hover:opacity-90 disabled:opacity-60 dark:bg-white dark:text-slate-950"
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || possuiDivisaoVinculadaExistente}
           >
-            {isSubmitting
+            {possuiDivisaoVinculadaExistente
+              ? "Use alteração da divisão"
+              : isSubmitting
               ? "Salvando..."
               : isEditing
                 ? "Atualizar"
@@ -1508,18 +1547,27 @@ function SummaryRow({
 
 function RadioOption({
   checked,
+  disabled = false,
   label,
   onChange,
 }: {
   checked: boolean;
+  disabled?: boolean;
   label: string;
   onChange: () => void;
 }) {
   return (
-    <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+    <label
+      className={`flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 ${
+        disabled
+          ? "cursor-not-allowed opacity-60"
+          : "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800"
+      }`}
+    >
       <input
         checked={checked}
         className="h-4 w-4 accent-[var(--app-accent)]"
+        disabled={disabled}
         type="radio"
         onChange={onChange}
       />

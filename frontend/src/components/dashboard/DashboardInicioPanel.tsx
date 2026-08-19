@@ -12,14 +12,22 @@ import { InfoTooltip } from "../InfoTooltip";
 import { useDashboardInicio } from "../../hooks/queries/useFinanceQueries";
 import type { DashboardLancamento } from "../../types/finance";
 import type { DashboardInicioParams } from "../../services/financeService";
-import { formatCurrency, formatDate, parseLocalDate, startOfDay } from "../../utils/date";
+import {
+  formatCurrency,
+  formatDate,
+  parseLocalDate,
+  startOfDay,
+} from "../../utils/date";
 
 type DashboardInicioPanelProps = {
   hiddenValues: boolean;
   filters: DashboardInicioParams;
 };
 
-export function DashboardInicioPanel({ hiddenValues, filters }: DashboardInicioPanelProps) {
+export function DashboardInicioPanel({
+  hiddenValues,
+  filters,
+}: DashboardInicioPanelProps) {
   const dashboardQuery = useDashboardInicio(filters);
   const dashboard = dashboardQuery.data;
 
@@ -98,15 +106,25 @@ export function DashboardInicioPanel({ hiddenValues, filters }: DashboardInicioP
             description="Receitas efetivadas menos despesas e investimentos já efetivados no período."
             value={dashboard.balancoRealizadoNoPeriodo}
             hiddenValues={hiddenValues}
-            tone={dashboard.balancoRealizadoNoPeriodo >= 0 ? "success" : "danger"}
-            icon={dashboard.balancoRealizadoNoPeriodo >= 0 ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+            tone={
+              dashboard.balancoRealizadoNoPeriodo >= 0 ? "success" : "danger"
+            }
+            icon={
+              dashboard.balancoRealizadoNoPeriodo >= 0 ? (
+                <ArrowUpRight size={18} />
+              ) : (
+                <ArrowDownRight size={18} />
+              )
+            }
           />
           <MetricCard
             label="Saldo previsto"
             description="Saldo atual menos despesas e investimentos em aberto do período. Não soma receitas futuras."
             value={dashboard.saldoPrevistoFimDoPeriodo}
             hiddenValues={hiddenValues}
-            tone={dashboard.saldoPrevistoFimDoPeriodo >= 0 ? "success" : "warning"}
+            tone={
+              dashboard.saldoPrevistoFimDoPeriodo >= 0 ? "success" : "warning"
+            }
             icon={<CalendarClock size={18} />}
           />
         </div>
@@ -196,9 +214,11 @@ function MetricCard({
   icon: ReactNode;
 }) {
   const toneClass = {
-    success: "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300",
+    success:
+      "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300",
     danger: "text-red-600 bg-red-50 dark:bg-red-950/40 dark:text-red-300",
-    warning: "text-amber-600 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300",
+    warning:
+      "text-amber-600 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300",
   }[tone];
 
   return (
@@ -212,7 +232,9 @@ function MetricCard({
         </div>
         <span className={`shrink-0 rounded-xl p-2 ${toneClass}`}>{icon}</span>
       </div>
-      <p className={`mt-4 max-w-full break-words text-2xl font-black leading-tight [overflow-wrap:anywhere] ${value >= 0 ? "text-slate-950 dark:text-white" : "text-red-500"}`}>
+      <p
+        className={`mt-4 max-w-full break-words text-2xl font-black leading-tight [overflow-wrap:anywhere] ${value >= 0 ? "text-slate-950 dark:text-white" : "text-red-500"}`}
+      >
         {maskCurrency(value, hiddenValues)}
       </p>
     </div>
@@ -222,7 +244,10 @@ function MetricCard({
 function InsightCard({ text }: { text: string }) {
   return (
     <div className="flex gap-3 rounded-2xl bg-blue-50 p-3 text-sm font-semibold text-slate-700 dark:bg-slate-950 dark:text-slate-300">
-      <AlertTriangle size={17} className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300" />
+      <AlertTriangle
+        size={17}
+        className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300"
+      />
       <span>{text}</span>
     </div>
   );
@@ -262,11 +287,14 @@ function TimelineItem({
           </span>
         </div>
         <p className="break-words text-sm font-medium text-slate-500 dark:text-slate-400">
-          {formatDate(lancamento.dataOcorrencia)} · {lancamento.categoriaNome || lancamento.formaPagamento}
+          {formatDate(lancamento.dataOcorrencia)} ·{" "}
+          {lancamento.categoriaNome || lancamento.formaPagamento}
         </p>
       </div>
       <div className="min-w-0 text-left min-[380px]:shrink-0 min-[380px]:text-right">
-        <p className={`break-words text-sm font-black [overflow-wrap:anywhere] ${isReceita ? "text-emerald-600" : "text-red-500"}`}>
+        <p
+          className={`break-words text-sm font-black [overflow-wrap:anywhere] ${isReceita ? "text-emerald-600" : "text-red-500"}`}
+        >
           {isReceita ? "+" : "-"} {maskCurrency(lancamento.valor, hiddenValues)}
         </p>
         {lancamento.podeLiquidar && (

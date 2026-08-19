@@ -36,6 +36,64 @@ public sealed class RelatorioService : IRelatorioService
         _logger = logger;
     }
 
+    public async Task<ResumoFinanceiroMensalResponse> GetResumoMensalAsync(
+        int mes,
+        int ano,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        if (mes is < 1 or > 12)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mes), "O mês deve estar entre 1 e 12.");
+        }
+
+        if (ano < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ano), "O ano deve ser válido.");
+        }
+
+        var inicio = new DateOnly(ano, mes, 1);
+        var fim = inicio.AddMonths(7).AddDays(-1);
+        var dadosConsolidados = _transacaoService is null
+            ? null
+            : await CarregarDadosConsolidadosAsync(usuarioId, inicio, fim, cancellationToken);
+        var transacoes = await ObterTransacoesRelatorioAsync(
+            usuarioId,
+            inicio,
+            fim,
+            null,
+            null,
+            null,
+            null,
+            null,
+            false,
+            false,
+            VisaoRelatorio.Consumo,
+            cancellationToken,
+            dadosConsolidados);
+        var resumos = EnumerarMeses(inicio, fim)
+            .Select(referencia => CalcularResumoFinanceiroMes(transacoes, referencia))
+            .ToList();
+        var atual = resumos[0];
+        var transacoesMesAtual = transacoes
+            .Where(item => item.DataCompetencia.Year == ano && item.DataCompetencia.Month == mes)
+            .ToList();
+
+        return new ResumoFinanceiroMensalResponse
+        {
+            Mes = mes,
+            Ano = ano,
+            ReceitasRealizadas = CalcularReceitasRealizadas(transacoesMesAtual),
+            ReceitasPrevistas = atual.ReceitasPrevistas,
+            DespesasRealizadas = CalcularDespesasRealizadas(transacoesMesAtual),
+            DespesasPrevistas = atual.DespesasPrevistas,
+            DemaisSaidasPrevistas = atual.DemaisSaidasPrevistas,
+            SobraPrevista = atual.SobraPrevista,
+            DespesasPorCategoria = CalcularDespesasPorCategoria(transacoesMesAtual),
+            ProximosMeses = resumos.Skip(1).ToList()
+        };
+    }
+
     public async Task<RelatorioGraficosResponse> GetGraficosAsync(
         DateOnly dataInicial,
         DateOnly dataFinal,
@@ -282,16 +340,13 @@ public sealed class RelatorioService : IRelatorioService
         foreach (var referencia in EnumerarMeses(dataInicial, dataFinal))
         {
             var chave = (referencia.Year, referencia.Month);
-            extratos[chave] = await _transacaoService!.GetExtratoMensalAsync(
-                referencia.Month,
-                referencia.Year,
-                usuarioId,
-                cancellationToken: cancellationToken);
-            faturas[chave] = await _transacaoService.GetFaturasDoMesAsync(
+            var dadosMes = await _transacaoService!.GetDadosMensaisRelatorioAsync(
                 referencia.Month,
                 referencia.Year,
                 usuarioId,
                 cancellationToken);
+            extratos[chave] = dadosMes.Extrato;
+            faturas[chave] = dadosMes.Faturas;
         }
 
         return new RelatorioDadosConsolidados(extratos, faturas, contasPorCartao);
@@ -819,6 +874,71 @@ public sealed class RelatorioService : IRelatorioService
             })
             .OrderByDescending(item => item.Valor)
             .ToList();
+    }
+
+    private static ResumoFinanceiroMesResponse CalcularResumoFinanceiroMes(
+        IReadOnlyList<TransacaoRelatorio> transacoes,
+        DateOnly referencia)
+    {
+        var itens = transacoes
+            .Where(item =>
+                item.DataCompetencia.Year == referencia.Year &&
+                item.DataCompetencia.Month == referencia.Month)
+            .ToList();
+        var receitas = itens
+            .Where(item =>
+                item.Tipo == TipoTransacao.Receita &&
+                !item.EhReembolsoDivisao)
+            .Sum(item => item.Valor);
+        var despesas = itens
+            .Where(item =>
+                item.Tipo == TipoTransacao.Despesa &&
+                item.ImpactaConsumo)
+            .Sum(item => item.Valor);
+        var demaisSaidas = itens
+            .Where(item =>
+                item.Tipo == TipoTransacao.Investimento &&
+                item.ImpactaConsumo)
+            .Sum(item => item.Valor);
+
+        return new ResumoFinanceiroMesResponse
+        {
+            Mes = referencia.Month,
+            Ano = referencia.Year,
+            ReceitasPrevistas = receitas,
+            DespesasPrevistas = despesas,
+            DemaisSaidasPrevistas = demaisSaidas,
+            SobraPrevista = receitas - despesas - demaisSaidas
+        };
+    }
+
+    private static decimal CalcularReceitasRealizadas(
+        IReadOnlyList<TransacaoRelatorio> transacoes)
+    {
+        return transacoes
+            .Where(item =>
+                item.Tipo == TipoTransacao.Receita &&
+                item.Realizada &&
+                !item.EhReembolsoDivisao)
+            .Sum(item => item.Valor);
+    }
+
+    private static decimal CalcularDespesasRealizadas(
+        IReadOnlyList<TransacaoRelatorio> transacoes)
+    {
+        return transacoes
+            .Where(EhDespesaRealizada)
+            .Sum(item => item.Valor);
+    }
+
+    private static bool EhDespesaRealizada(TransacaoRelatorio item)
+    {
+        var hoje = TransacaoService.ObterDataLocalFinanceira(DateTimeOffset.UtcNow);
+        return item.Tipo == TipoTransacao.Despesa &&
+            item.ImpactaConsumo &&
+            (item.Realizada ||
+                item.DataCompetencia <= hoje ||
+                (item.IsCartao && item.Origem == "Transacao"));
     }
 
     private static IReadOnlyList<RelatorioMensalResponse> CalcularTotaisMensais(

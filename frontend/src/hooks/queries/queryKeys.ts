@@ -66,6 +66,8 @@ export const queryKeys = {
       normalizeKeyList(statuses),
     ] as const,
   relatoriosScope: ["relatorios"] as const,
+  resumoFinanceiroMensal: (mes: number, ano: number) =>
+    ["relatorios", "resumo-mensal", ano, mes] as const,
   relatorios: (
     dataInicial: string,
     dataFinal: string,

@@ -17,13 +17,54 @@ public sealed class TransacaoService : ITransacaoService
         _dbContext = dbContext;
     }
 
-    public async Task<ExtratoMensalResponse> GetExtratoMensalAsync(
+    public Task<ExtratoMensalResponse> GetExtratoMensalAsync(
         int mes,
         int ano,
         Guid usuarioId,
         bool? apenasDivididas = null,
         StatusFiltro? status = null,
         CancellationToken cancellationToken = default)
+    {
+        return GetExtratoMensalCoreAsync(
+            mes,
+            ano,
+            usuarioId,
+            apenasDivididas,
+            status,
+            null,
+            cancellationToken);
+    }
+
+    public async Task<DadosMensaisRelatorioResponse> GetDadosMensaisRelatorioAsync(
+        int mes,
+        int ano,
+        Guid usuarioId,
+        CancellationToken cancellationToken = default)
+    {
+        var faturas = await GetFaturasDoMesAsync(mes, ano, usuarioId, cancellationToken);
+        var extrato = await GetExtratoMensalCoreAsync(
+            mes,
+            ano,
+            usuarioId,
+            null,
+            null,
+            faturas,
+            cancellationToken);
+        return new DadosMensaisRelatorioResponse
+        {
+            Extrato = extrato,
+            Faturas = faturas
+        };
+    }
+
+    private async Task<ExtratoMensalResponse> GetExtratoMensalCoreAsync(
+        int mes,
+        int ano,
+        Guid usuarioId,
+        bool? apenasDivididas,
+        StatusFiltro? status,
+        IReadOnlyList<FaturaConsolidadaResponse>? faturasPrecarregadas,
+        CancellationToken cancellationToken)
     {
         if (mes is < 1 or > 12)
         {
@@ -143,7 +184,8 @@ public sealed class TransacaoService : ITransacaoService
             fimMes,
             parcelasCarneQuitadasSet));
 
-        var faturas = await GetFaturasDoMesAsync(mes, ano, usuarioId, cancellationToken);
+        var faturas = faturasPrecarregadas ??
+            await GetFaturasDoMesAsync(mes, ano, usuarioId, cancellationToken);
         if (apenasDivididas == true)
         {
             itens.AddRange(faturas.SelectMany(fatura =>
@@ -157,6 +199,8 @@ public sealed class TransacaoService : ITransacaoService
                 .Where(fatura => fatura.ValorTotal > 0)
                 .Select(MapearFaturaParaExtrato));
         }
+
+        await EnriquecerItensComDivisaoVinculadaAsync(itens, usuarioId, cancellationToken);
 
         var itensOrdenados = itens
             .OrderBy(item => item.DataOcorrencia)
@@ -289,6 +333,8 @@ public sealed class TransacaoService : ITransacaoService
                 itens.AddRange(extrato.Itens);
             }
         }
+
+        await EnriquecerItensComDivisaoVinculadaAsync(itens, usuarioId, cancellationToken);
 
         var hoje = DateOnly.FromDateTime(DateTime.Today);
         PreencherStatusVisual(itens, hoje);
@@ -437,6 +483,74 @@ public sealed class TransacaoService : ITransacaoService
         return status.HasValue && status.Value != StatusFiltro.Todos
             ? [status.Value]
             : [];
+    }
+
+    private async Task EnriquecerItensComDivisaoVinculadaAsync(
+        IReadOnlyCollection<ExtratoMensalItemResponse> itens,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var transacaoIds = itens
+            .Where(item => item.Id.HasValue)
+            .Select(item => item.Id!.Value)
+            .Distinct()
+            .ToList();
+        var compraParceladaIds = itens
+            .Where(item => item.CompraParceladaId.HasValue)
+            .Select(item => item.CompraParceladaId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (transacaoIds.Count == 0 && compraParceladaIds.Count == 0)
+        {
+            return;
+        }
+
+        var divisoes = await _dbContext.DivisoesTransacoes
+            .AsNoTracking()
+            .Where(divisao =>
+                divisao.UsuarioCriadorId == usuarioId &&
+                divisao.EncerradoEm == null &&
+                (
+                    (divisao.TransacaoOrigemId.HasValue &&
+                        transacaoIds.Contains(divisao.TransacaoOrigemId.Value)) ||
+                    (divisao.CompraParceladaId.HasValue &&
+                        compraParceladaIds.Contains(divisao.CompraParceladaId.Value))
+                ))
+            .Select(divisao => new
+            {
+                divisao.Id,
+                divisao.Status,
+                divisao.TransacaoOrigemId,
+                divisao.CompraParceladaId
+            })
+            .ToListAsync(cancellationToken);
+
+        var porTransacao = divisoes
+            .Where(divisao => divisao.TransacaoOrigemId.HasValue)
+            .GroupBy(divisao => divisao.TransacaoOrigemId!.Value)
+            .ToDictionary(grupo => grupo.Key, grupo => grupo.First());
+        var porCompraParcelada = divisoes
+            .Where(divisao => divisao.CompraParceladaId.HasValue)
+            .GroupBy(divisao => divisao.CompraParceladaId!.Value)
+            .ToDictionary(grupo => grupo.Key, grupo => grupo.First());
+
+        foreach (var item in itens)
+        {
+            if (item.Id.HasValue && porTransacao.TryGetValue(item.Id.Value, out var divisaoTransacao))
+            {
+                item.DivisaoTransacaoId = divisaoTransacao.Id;
+                item.StatusDivisao = divisaoTransacao.Status;
+                continue;
+            }
+
+            if (item.CompraParceladaId.HasValue &&
+                porCompraParcelada.TryGetValue(item.CompraParceladaId.Value, out var divisaoCompra))
+            {
+                item.DivisaoTransacaoId = divisaoCompra.Id;
+                item.StatusDivisao = divisaoCompra.Status;
+            }
+        }
     }
 
     private static void PreencherStatusVisual(
@@ -1154,7 +1268,7 @@ public sealed class TransacaoService : ITransacaoService
 
             _dbContext.Transacoes.Add(novaRecorrenciaOriginal);
 
-            AplicarRequestNaTransacao(transacao, request, isFixa: false);
+            AplicarRequestNaTransacao(transacao, request, isFixa: false, definirStatusInicial: false);
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             return transacao.Id;
@@ -1177,7 +1291,7 @@ public sealed class TransacaoService : ITransacaoService
             return novaRecorrencia.Id;
         }
 
-        AplicarRequestNaTransacao(transacao, request, request.IsFixa);
+        AplicarRequestNaTransacao(transacao, request, request.IsFixa, definirStatusInicial: false);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -1735,7 +1849,8 @@ public sealed class TransacaoService : ITransacaoService
     private static void AplicarRequestNaTransacao(
         Transacao transacao,
         CriarTransacaoRequest request,
-        bool isFixa)
+        bool isFixa,
+        bool definirStatusInicial = true)
     {
         transacao.Tipo = request.Tipo;
         transacao.Descricao = request.Descricao.Trim();
@@ -1748,7 +1863,10 @@ public sealed class TransacaoService : ITransacaoService
             ? request.ContaBancariaId
             : null;
         transacao.IsFixa = isFixa;
-        transacao.IsPaga = DeveEntrarComoPaga(request.DataOcorrencia);
+        if (definirStatusInicial)
+        {
+            transacao.IsPaga = DeveEntrarComoPaga(request.DataOcorrencia);
+        }
         transacao.IsDividida = request.IsDividida;
         transacao.ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null;
         transacao.PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null;
@@ -2480,7 +2598,14 @@ public sealed class TransacaoService : ITransacaoService
 
     private static bool DeveEntrarComoPaga(DateOnly dataOcorrencia)
     {
-        return dataOcorrencia <= DateOnly.FromDateTime(DateTime.Today);
+        return dataOcorrencia < ObterDataLocalFinanceira(DateTimeOffset.UtcNow);
+    }
+
+    internal static DateOnly ObterDataLocalFinanceira(DateTimeOffset instanteUtc)
+    {
+        var fusoHorario = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
+        var instanteLocal = TimeZoneInfo.ConvertTime(instanteUtc, fusoHorario);
+        return DateOnly.FromDateTime(instanteLocal.DateTime);
     }
 
     private sealed record FaturaPeriodo(

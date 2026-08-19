@@ -19,6 +19,32 @@ public sealed class RelatorioController : ControllerBase
         _relatorioService = relatorioService;
     }
 
+    [HttpGet("resumo-mensal")]
+    public async Task<ActionResult<ResumoFinanceiroMensalResponse>> GetResumoMensal(
+        [FromQuery] int mes,
+        [FromQuery] int ano,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (!usuarioId.HasValue)
+        {
+            return Unauthorized(new { message = "Usuário não identificado no token." });
+        }
+
+        try
+        {
+            return Ok(await _relatorioService.GetResumoMensalAsync(
+                mes,
+                ano,
+                usuarioId.Value,
+                cancellationToken));
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
     [HttpGet("graficos")]
     public async Task<ActionResult<RelatorioGraficosResponse>> GetGraficos(
         [FromQuery] DateOnly? dataInicial,
