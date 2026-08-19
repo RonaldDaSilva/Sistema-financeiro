@@ -86,8 +86,10 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         var convidados = new List<(Usuario Usuario, CriarParticipanteUsuarioDivisaoRequest Request)>();
         foreach (var participanteRequest in participantesUsuariosRequest)
         {
-            var email = NormalizarEmail(participanteRequest.Email);
-            var convidado = await ResolverUsuarioConvidadoAsync(usuarioId, email, cancellationToken);
+            var convidado = await ResolverUsuarioConvidadoAsync(
+                usuarioId,
+                participanteRequest,
+                cancellationToken);
             convidados.Add((convidado, participanteRequest));
         }
 
@@ -908,9 +910,29 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
 
     private async Task<Usuario> ResolverUsuarioConvidadoAsync(
         Guid usuarioId,
-        string email,
+        CriarParticipanteUsuarioDivisaoRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.ContatoId.HasValue)
+        {
+            var contato = await _dbContext.ContatosDivisao
+                .IgnoreQueryFilters()
+                .Include(item => item.UsuarioContato)
+                .SingleOrDefaultAsync(
+                    item => item.Id == request.ContatoId.Value &&
+                        item.UsuarioId == usuarioId &&
+                        item.Ativo,
+                    cancellationToken);
+            return contato?.UsuarioContato ??
+                throw new InvalidOperationException("Contato convidado não encontrado.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            throw new InvalidOperationException("Informe o contato ou e-mail do convidado.");
+        }
+
+        var email = NormalizarEmail(request.Email);
         var usuarioAtual = await _dbContext.Usuarios
             .AsNoTracking()
             .SingleAsync(usuario => usuario.Id == usuarioId, cancellationToken);
@@ -1374,7 +1396,9 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         }
 
         participantes.AddRange((request.ParticipantesUsuarios ?? [])
-            .Where(participante => !string.IsNullOrWhiteSpace(participante.Email)));
+            .Where(participante =>
+                participante.ContatoId.HasValue ||
+                !string.IsNullOrWhiteSpace(participante.Email)));
 
         return participantes;
     }

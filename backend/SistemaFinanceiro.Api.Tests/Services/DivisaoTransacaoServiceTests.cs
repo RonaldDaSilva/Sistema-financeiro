@@ -259,6 +259,70 @@ public sealed class DivisaoTransacaoServiceTests
     }
 
     [Fact]
+    public async Task CriarConviteAsync_ContatoSalvo_ResolveSemExigirEmailCompleto()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var contato = await new ContatoDivisaoService(database.Context).CriarAsync(
+            criador.Id,
+            new CriarContatoDivisaoRequest
+            {
+                UsuarioContatoId = convidado.Id,
+                Apelido = "Maria"
+            });
+        var service = new DivisaoTransacaoService(database.Context);
+
+        var divisao = await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                TransacaoOrigemId = transacao.Id,
+                ParticipantesUsuarios =
+                [
+                    new CriarParticipanteUsuarioDivisaoRequest
+                    {
+                        ContatoId = contato.Id,
+                        Percentual = 40m,
+                        SalvarContato = true
+                    }
+                ]
+            });
+
+        Assert.Contains(divisao.Participantes, participante =>
+            participante.ParticipanteUsuarioId == convidado.Id);
+        Assert.Contains(database.Context.Notificacoes.IgnoreQueryFilters(), notificacao =>
+            notificacao.UsuarioId == convidado.Id &&
+            notificacao.TipoNotificacao == TipoNotificacao.DivisaoRecebida);
+    }
+
+    [Fact]
+    public async Task CriarConviteAsync_ContatoDeOutroUsuario_NaoPermiteAcesso()
+    {
+        var (database, criador, convidado, transacao, outro) = await CriarCenarioAsync();
+        var contato = await new ContatoDivisaoService(database.Context).CriarAsync(
+            outro.Id,
+            new CriarContatoDivisaoRequest { UsuarioContatoId = convidado.Id });
+        var service = new DivisaoTransacaoService(database.Context);
+
+        var erro = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CriarConviteAsync(
+                criador.Id,
+                new CriarConviteDivisaoRequest
+                {
+                    TransacaoOrigemId = transacao.Id,
+                    ParticipantesUsuarios =
+                    [
+                        new CriarParticipanteUsuarioDivisaoRequest
+                        {
+                            ContatoId = contato.Id,
+                            Percentual = 40m
+                        }
+                    ]
+                }));
+
+        Assert.Equal("Contato convidado não encontrado.", erro.Message);
+    }
+
+    [Fact]
     public async Task AceitarAsync_CriaLancamentoPendenteNoTenantConvidado()
     {
         var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();

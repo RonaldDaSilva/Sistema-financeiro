@@ -9,6 +9,7 @@ import type {
   CartaoCredito,
   CartaoCreditoOpcao,
   Categoria,
+  ContatoDivisao,
   ContaBancaria,
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
@@ -88,6 +89,7 @@ export function TransactionForm({
     String(percentualPadraoDivisao),
   );
   const [emailConvidado, setEmailConvidado] = useState("");
+  const [contatoConvidadoId, setContatoConvidadoId] = useState<string | null>(null);
   const [convidadoResolvido, setConvidadoResolvido] =
     useState<ResolverConvidadoDivisaoResponse | null>(null);
   const [salvarContato, setSalvarContato] = useState(true);
@@ -195,6 +197,7 @@ export function TransactionForm({
       setModoDivisao("manual");
       setPercentualDivisao(String(percentualPadraoDivisao));
       setEmailConvidado("");
+      setContatoConvidadoId(null);
       setConvidadoResolvido(null);
       setSalvarContato(true);
       setApelidoContato("");
@@ -229,6 +232,7 @@ export function TransactionForm({
     setIsDividida(initialTransaction.isDividida);
     setModoDivisao(initialTransaction.divisaoTransacaoId ? "vinculada" : "manual");
     setEmailConvidado("");
+    setContatoConvidadoId(null);
     setConvidadoResolvido(null);
     setSalvarContato(true);
     setApelidoContato("");
@@ -309,13 +313,45 @@ export function TransactionForm({
 
   async function handleResolverConvidado() {
     setErro(null);
-    const email = emailConvidado.trim();
-    if (!email) {
-      setErro("Informe o e-mail completo do convidado.");
+    const termo = emailConvidado.trim();
+    if (!termo) {
+      setErro("Informe um contato ou o e-mail completo do convidado.");
       return;
     }
 
-    await resolverConvidadoMutation.mutateAsync(email);
+    if (!termo.includes("@")) {
+      const contatosEncontrados = (contatosDivisaoQuery.data ?? []).filter((contato) =>
+        contatoCorrespondeAoTermo(contato, termo),
+      );
+      if (contatosEncontrados.length === 1) {
+        selecionarContatoConvidado(contatosEncontrados[0]);
+        return;
+      }
+
+      setErro(
+        contatosEncontrados.length > 1
+          ? "Selecione um dos contatos encontrados."
+          : "Nenhum contato encontrado com esse nome ou apelido.",
+      );
+      return;
+    }
+
+    setContatoConvidadoId(null);
+    await resolverConvidadoMutation.mutateAsync(termo);
+  }
+
+  function selecionarContatoConvidado(contato: ContatoDivisao) {
+    setErro(null);
+    setContatoConvidadoId(contato.id);
+    setEmailConvidado(contato.apelido || contato.nomeExibicao);
+    setConvidadoResolvido({
+      encontrado: true,
+      nomeExibicao: contato.apelido || contato.nomeExibicao,
+      emailMascarado: contato.emailMascarado,
+      identificador: contato.usuarioContatoId,
+    });
+    setSalvarContato(true);
+    setApelidoContato(contato.apelido ?? "");
   }
 
   async function criarConviteParaTransacao(
@@ -326,7 +362,8 @@ export function TransactionForm({
       transacaoOrigemId,
       participantesUsuarios: [
         {
-          email: emailConvidado.trim(),
+          email: contatoConvidadoId ? null : emailConvidado.trim(),
+          contatoId: contatoConvidadoId,
           percentual: percentualConvidado,
           salvarContato,
           apelidoContato: apelidoContato.trim() || null,
@@ -391,7 +428,10 @@ export function TransactionForm({
           );
         }
 
-        if (!convidadoResolvido?.encontrado || !emailConvidado.trim()) {
+        if (
+          !convidadoResolvido?.encontrado ||
+          (!contatoConvidadoId && !emailConvidado.trim())
+        ) {
           throw new Error("Busque e selecione uma pessoa antes de salvar a divisão vinculada.");
         }
 
@@ -818,6 +858,7 @@ export function TransactionForm({
                 <LinkedDivisionPanel
                   apelidoContato={apelidoContato}
                   contatos={contatosDivisaoQuery.data ?? []}
+                  contatoSelecionadoId={contatoConvidadoId}
                   emailConvidado={emailConvidado}
                   isBuscando={resolverConvidadoMutation.isPending}
                   isCarregandoContatos={contatosDivisaoQuery.isLoading}
@@ -837,8 +878,10 @@ export function TransactionForm({
                   onBuscar={handleResolverConvidado}
                   onEmailChange={(value) => {
                     setEmailConvidado(value);
+                    setContatoConvidadoId(null);
                     setConvidadoResolvido(null);
                   }}
+                  onSelecionarContato={selecionarContatoConvidado}
                   onPercentualExternoChange={(value) =>
                     setPercentualParteExterna(limitarPercentual(value))
                   }
@@ -1163,6 +1206,7 @@ export function TransactionForm({
     setModoDivisao("manual");
     setPercentualDivisao(String(percentualPadraoDivisao));
     setEmailConvidado("");
+    setContatoConvidadoId(null);
     setConvidadoResolvido(null);
     setSalvarContato(true);
     setApelidoContato("");
@@ -1194,9 +1238,25 @@ function calcularMeuValor(valorTotal: string, percentual: string) {
   return formatCurrencyInput(calcularParteNumerica(total, percentualNumerico));
 }
 
+function normalizarTermoContato(value: string) {
+  return value
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR");
+}
+
+function contatoCorrespondeAoTermo(contato: ContatoDivisao, termo: string) {
+  const termoNormalizado = normalizarTermoContato(termo);
+  return [contato.apelido, contato.nomeExibicao]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => normalizarTermoContato(value).includes(termoNormalizado));
+}
+
 function LinkedDivisionPanel({
   apelidoContato,
   contatos,
+  contatoSelecionadoId,
   emailConvidado,
   isBuscando,
   isCarregandoContatos,
@@ -1216,17 +1276,13 @@ function LinkedDivisionPanel({
   onBuscar,
   onEmailChange,
   onPercentualExternoChange,
+  onSelecionarContato,
   onSalvarContatoChange,
   onTemParteExternaChange,
 }: {
   apelidoContato: string;
-  contatos: Array<{
-    id: string;
-    nomeExibicao: string;
-    emailMascarado: string;
-    apelido: string | null;
-    ultimoUsoEm: string | null;
-  }>;
+  contatos: ContatoDivisao[];
+  contatoSelecionadoId: string | null;
   emailConvidado: string;
   isBuscando: boolean;
   isCarregandoContatos: boolean;
@@ -1246,6 +1302,7 @@ function LinkedDivisionPanel({
   onBuscar: () => void;
   onEmailChange: (value: string) => void;
   onPercentualExternoChange: (value: string) => void;
+  onSelecionarContato: (contato: ContatoDivisao) => void;
   onSalvarContatoChange: (checked: boolean) => void;
   onTemParteExternaChange: (checked: boolean) => void;
 }) {
@@ -1257,6 +1314,12 @@ function LinkedDivisionPanel({
       return right - left;
     })
     .slice(0, 4);
+  const termoBusca = normalizarTermoContato(emailConvidado);
+  const contatosExibidos = termoBusca && !emailConvidado.includes("@")
+    ? contatos
+        .filter((contato) => contatoCorrespondeAoTermo(contato, termoBusca))
+        .slice(0, 8)
+    : recentes;
 
   return (
     <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -1267,9 +1330,9 @@ function LinkedDivisionPanel({
           </span>
           <input
             className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-base text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-            inputMode="email"
+            inputMode="search"
             placeholder="Buscar contato ou informar e-mail"
-            type="email"
+            type="text"
             value={emailConvidado}
             onChange={(event) => onEmailChange(event.target.value)}
           />
@@ -1285,16 +1348,24 @@ function LinkedDivisionPanel({
         </button>
       </div>
 
-      {recentes.length > 0 && (
+      {contatosExibidos.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
-            Contatos recentes
+            {termoBusca ? "Contatos encontrados" : "Contatos recentes"}
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            {recentes.map((contato) => (
-              <div
-                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
+            {contatosExibidos.map((contato) => (
+              <button
+                aria-label={`Selecionar contato ${contato.apelido || contato.nomeExibicao}`}
+                aria-pressed={contatoSelecionadoId === contato.id}
+                className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
+                  contatoSelecionadoId === contato.id
+                    ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/20 dark:bg-emerald-500/10"
+                    : "border-slate-200 bg-slate-50 hover:border-slate-400 hover:bg-white dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-600 dark:hover:bg-slate-900"
+                }`}
                 key={contato.id}
+                type="button"
+                onClick={() => onSelecionarContato(contato)}
               >
                 <p className="font-bold text-slate-900 dark:text-white">
                   {contato.apelido || contato.nomeExibicao}
@@ -1302,12 +1373,9 @@ function LinkedDivisionPanel({
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   {contato.emailMascarado}
                 </p>
-              </div>
+              </button>
             ))}
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Por segurança, o convite exige informar o e-mail completo no campo acima.
-          </p>
         </div>
       )}
 
@@ -1317,7 +1385,7 @@ function LinkedDivisionPanel({
         </p>
       )}
 
-      {!isCarregandoContatos && recentes.length === 0 && !resultadoBusca && (
+      {!isCarregandoContatos && contatosExibidos.length === 0 && !resultadoBusca && (
         <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
           Adicionar pelo e-mail
         </p>

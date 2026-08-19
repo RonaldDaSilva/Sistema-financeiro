@@ -43,10 +43,11 @@ public sealed class CriarConviteDivisaoRequest
 
 public sealed class CriarParticipanteUsuarioDivisaoRequest
 {
-    [Required]
     [EmailAddress]
     [MaxLength(254)]
-    public string Email { get; set; } = string.Empty;
+    public string? Email { get; set; }
+
+    public Guid? ContatoId { get; set; }
 
     [Range(0.01, 99.99)]
     public decimal Percentual { get; set; }

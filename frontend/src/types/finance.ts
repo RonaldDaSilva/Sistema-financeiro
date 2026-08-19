@@ -402,7 +402,8 @@ export type CriarConviteDivisaoRequest = {
   salvarContato?: boolean;
   apelidoContato?: string | null;
   participantesUsuarios?: Array<{
-    email: string;
+    email?: string | null;
+    contatoId?: string | null;
     percentual: number;
     salvarContato: boolean;
     apelidoContato?: string | null;

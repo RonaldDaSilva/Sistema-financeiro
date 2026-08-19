@@ -228,6 +228,72 @@ describe("TransactionForm", () => {
     );
   });
 
+  it("seleciona contato recente e cria convite sem exigir o e-mail completo", async () => {
+    const user = userEvent.setup();
+    const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
+    serviceMocks.listarContatosDivisao.mockResolvedValue([
+      {
+        id: "contato-1",
+        usuarioContatoId: "user-2",
+        nomeExibicao: "Maria Silva",
+        emailMascarado: "ma***@email.com",
+        apelido: "Amor",
+        ultimoUsoEm: "2026-08-18T12:00:00Z",
+        criadoEm: "2026-08-01T12:00:00Z",
+        ativo: true,
+      },
+    ]);
+
+    renderForm({ onCreateTransacao });
+    await user.type(screen.getByPlaceholderText("0,00"), "20000");
+    await user.type(screen.getByLabelText("Descrição"), "Restaurante");
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.click(await screen.findByRole("button", { name: "Selecionar contato Amor" }));
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+
+    await waitFor(() => expect(serviceMocks.criarConviteDivisao).toHaveBeenCalled());
+    expect(serviceMocks.resolverConvidadoDivisao).not.toHaveBeenCalled();
+    expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(
+      expect.objectContaining({
+        participantesUsuarios: [
+          expect.objectContaining({
+            contatoId: "contato-1",
+            email: null,
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("encontra contato salvo por nome ou apelido", async () => {
+    const user = userEvent.setup();
+    serviceMocks.listarContatosDivisao.mockResolvedValue([
+      {
+        id: "contato-1",
+        usuarioContatoId: "user-2",
+        nomeExibicao: "Maria Silva",
+        emailMascarado: "ma***@email.com",
+        apelido: "Amor",
+        ultimoUsoEm: "2026-08-18T12:00:00Z",
+        criadoEm: "2026-08-01T12:00:00Z",
+        ativo: true,
+      },
+    ]);
+
+    renderForm();
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    const busca = screen.getByPlaceholderText("Buscar contato ou informar e-mail");
+    await user.type(busca, "maria");
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+
+    expect(await screen.findByRole("button", { name: "Selecionar contato Amor" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(busca).toHaveValue("Amor");
+    expect(serviceMocks.resolverConvidadoDivisao).not.toHaveBeenCalled();
+  });
+
   it("envia participante externo no convite vinculado", async () => {
     const user = userEvent.setup();
     const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
