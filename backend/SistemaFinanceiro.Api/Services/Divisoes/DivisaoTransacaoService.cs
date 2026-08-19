@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Divisoes;
@@ -1378,9 +1379,26 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
     private static List<CriarParticipanteUsuarioDivisaoRequest> NormalizarParticipantesUsuarios(
         CriarConviteDivisaoRequest request)
     {
-        var participantes = new List<CriarParticipanteUsuarioDivisaoRequest>();
+        var participantes = (request.ParticipantesUsuarios ?? [])
+            .Where(participante =>
+                participante.ContatoId.HasValue ||
+                !string.IsNullOrWhiteSpace(participante.Email))
+            .ToList();
+
+        // O contrato atual prevalece sobre os campos legados. Isso também permite
+        // que clientes em atualização enviem o apelido no campo antigo junto do ContatoId.
+        if (participantes.Count > 0)
+        {
+            return participantes;
+        }
+
         if (!string.IsNullOrWhiteSpace(request.EmailConvidado))
         {
+            if (!new EmailAddressAttribute().IsValid(request.EmailConvidado))
+            {
+                throw new InvalidOperationException("Informe um e-mail válido para o convidado.");
+            }
+
             if (!request.PercentualConvidado.HasValue)
             {
                 throw new InvalidOperationException("Informe o percentual do convidado.");
@@ -1394,11 +1412,6 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                 ApelidoContato = request.ApelidoContato
             });
         }
-
-        participantes.AddRange((request.ParticipantesUsuarios ?? [])
-            .Where(participante =>
-                participante.ContatoId.HasValue ||
-                !string.IsNullOrWhiteSpace(participante.Email)));
 
         return participantes;
     }

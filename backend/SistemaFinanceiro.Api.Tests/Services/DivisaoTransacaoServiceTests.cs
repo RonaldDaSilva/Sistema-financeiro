@@ -296,6 +296,59 @@ public sealed class DivisaoTransacaoServiceTests
     }
 
     [Fact]
+    public async Task CriarConviteAsync_ContatoIdIgnoraApelidoEnviadoNoCampoLegado()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var contato = await new ContatoDivisaoService(database.Context).CriarAsync(
+            criador.Id,
+            new CriarContatoDivisaoRequest
+            {
+                UsuarioContatoId = convidado.Id,
+                Apelido = "Amor"
+            });
+        var service = new DivisaoTransacaoService(database.Context);
+
+        var divisao = await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                TransacaoOrigemId = transacao.Id,
+                EmailConvidado = "Amor",
+                ParticipantesUsuarios =
+                [
+                    new CriarParticipanteUsuarioDivisaoRequest
+                    {
+                        ContatoId = contato.Id,
+                        Percentual = 40m
+                    }
+                ]
+            });
+
+        Assert.Equal(2, divisao.Participantes.Count);
+        Assert.Contains(divisao.Participantes, participante =>
+            participante.ParticipanteUsuarioId == convidado.Id);
+    }
+
+    [Fact]
+    public async Task CriarConviteAsync_EmailLegadoInvalidoContinuaBloqueado()
+    {
+        var (database, criador, _, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+
+        var erro = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CriarConviteAsync(
+                criador.Id,
+                new CriarConviteDivisaoRequest
+                {
+                    TransacaoOrigemId = transacao.Id,
+                    EmailConvidado = "Amor",
+                    PercentualConvidado = 40m
+                }));
+
+        Assert.Equal("Informe um e-mail válido para o convidado.", erro.Message);
+    }
+
+    [Fact]
     public void CriarConviteRequest_ComContatoId_PassaValidacaoSemEmailLegado()
     {
         var request = new CriarConviteDivisaoRequest

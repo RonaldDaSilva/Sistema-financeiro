@@ -24,7 +24,6 @@ public sealed class CriarConviteDivisaoRequest
     [Required]
     public Guid TransacaoOrigemId { get; set; }
 
-    [EmailAddress]
     [MaxLength(254)]
     public string? EmailConvidado { get; set; }
 
