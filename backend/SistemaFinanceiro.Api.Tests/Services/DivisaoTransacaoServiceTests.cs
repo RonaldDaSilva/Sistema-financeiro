@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Divisoes;
@@ -292,6 +293,33 @@ public sealed class DivisaoTransacaoServiceTests
         Assert.Contains(database.Context.Notificacoes.IgnoreQueryFilters(), notificacao =>
             notificacao.UsuarioId == convidado.Id &&
             notificacao.TipoNotificacao == TipoNotificacao.DivisaoRecebida);
+    }
+
+    [Fact]
+    public void CriarConviteRequest_ComContatoId_PassaValidacaoSemEmailLegado()
+    {
+        var request = new CriarConviteDivisaoRequest
+        {
+            TransacaoOrigemId = Guid.NewGuid(),
+            ParticipantesUsuarios =
+            [
+                new CriarParticipanteUsuarioDivisaoRequest
+                {
+                    ContatoId = Guid.NewGuid(),
+                    Percentual = 40m
+                }
+            ]
+        };
+        var resultados = new List<ValidationResult>();
+
+        var valido = Validator.TryValidateObject(
+            request,
+            new ValidationContext(request),
+            resultados,
+            validateAllProperties: true);
+
+        Assert.True(valido);
+        Assert.Empty(resultados);
     }
 
     [Fact]

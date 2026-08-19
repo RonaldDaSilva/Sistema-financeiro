@@ -26,7 +26,7 @@ public sealed class CriarConviteDivisaoRequest
 
     [EmailAddress]
     [MaxLength(254)]
-    public string EmailConvidado { get; set; } = string.Empty;
+    public string? EmailConvidado { get; set; }
 
     [Range(0.01, 99.99)]
     public decimal? PercentualConvidado { get; set; }

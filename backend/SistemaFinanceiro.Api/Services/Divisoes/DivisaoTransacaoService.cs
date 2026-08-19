@@ -1388,7 +1388,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
 
             participantes.Add(new CriarParticipanteUsuarioDivisaoRequest
             {
-                Email = request.EmailConvidado,
+                Email = request.EmailConvidado!,
                 Percentual = request.PercentualConvidado.Value,
                 SalvarContato = request.SalvarContato,
                 ApelidoContato = request.ApelidoContato
