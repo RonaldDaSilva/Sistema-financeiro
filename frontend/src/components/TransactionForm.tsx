@@ -422,12 +422,6 @@ export function TransactionForm({
           );
         }
 
-        if (isParcelada || isEditingCompraParcelada) {
-          throw new Error(
-            "O contrato atual cria convite a partir de uma transação avulsa ou fixa. Para parceladas, use a divisão manual até o backend expor o vínculo da compra parcelada.",
-          );
-        }
-
         if (
           !convidadoResolvido?.encontrado ||
           (!contatoConvidadoId && !emailConvidado.trim())
@@ -448,6 +442,23 @@ export function TransactionForm({
       if (tipo === "despesa" && !categoriaId) {
         throw new Error("Selecione uma categoria.");
       }
+
+      const divisaoVinculadaParcelada = divisaoVinculadaAtiva
+        ? {
+            participantesUsuarios: [
+              {
+                email: contatoConvidadoId ? null : emailConvidado.trim(),
+                contatoId: contatoConvidadoId,
+                percentual: percentualConvidado,
+                salvarContato,
+                apelidoContato: apelidoContato.trim() || null,
+              },
+            ],
+            participantesExternos: temParteExterna
+              ? [{ percentual: numericPercentualExterno, nome: null }]
+              : [],
+          }
+        : null;
 
       if (isEditingCompraParcelada) {
         if (
@@ -488,6 +499,7 @@ export function TransactionForm({
             dataCompra: data,
             dataPrimeiroVencimento: isCarne ? dataPrimeiroVencimento : null,
             formaPagamento: isCarne ? 2 : 1,
+            divisaoVinculada: divisaoVinculadaParcelada,
           },
         );
       } else if (!isEditing && tipo === "despesa" && isParcelada) {
@@ -511,6 +523,7 @@ export function TransactionForm({
           dataCompra: data,
           dataPrimeiroVencimento: isCarne ? dataPrimeiroVencimento : null,
           formaPagamento: isCarne ? 2 : 1,
+          divisaoVinculada: divisaoVinculadaParcelada,
         });
       } else {
         const request: CriarTransacaoRequest = {

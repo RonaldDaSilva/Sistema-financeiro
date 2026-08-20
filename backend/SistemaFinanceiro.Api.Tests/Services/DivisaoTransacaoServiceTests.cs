@@ -1,9 +1,11 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
+using SistemaFinanceiro.Api.Dtos.ComprasParceladas;
 using SistemaFinanceiro.Api.Dtos.Divisoes;
 using SistemaFinanceiro.Api.Dtos.Transacoes;
 using SistemaFinanceiro.Api.Models;
+using SistemaFinanceiro.Api.Services.ComprasParceladas;
 using SistemaFinanceiro.Api.Services.Divisoes;
 using SistemaFinanceiro.Api.Services.Transacoes;
 using SistemaFinanceiro.Api.Tests.Infrastructure;
@@ -1105,6 +1107,304 @@ public sealed class DivisaoTransacaoServiceTests
             notificacao.TipoNotificacao == TipoNotificacao.DivisaoExpirada);
     }
 
+    [Fact]
+    public async Task CompraParceladaCartao_AceiteCriaSerieDoConvidadoSemCartaoDoCriador()
+    {
+        var (database, criador, convidado, _, _) = await CriarCenarioAsync();
+        var categoria = await CriarCategoriaGlobalAsync(database.Context);
+        var cartao = await CriarCartaoAsync(database.Context, criador.Id);
+        var divisaoService = new DivisaoTransacaoService(database.Context);
+        var compraService = new CompraParceladaService(database.Context, divisaoService);
+        var inicio = new DateOnly(2026, 9, 10);
+        var primeiroVencimento = new DateOnly(2026, 10, 12);
+
+        var compra = await compraService.CriarAsync(
+            new CriarCompraParceladaRequest
+            {
+                Descricao = "Notebook",
+                ValorTotal = 600m,
+                QuantidadeParcelas = 12,
+                CategoriaId = categoria.Id,
+                CartaoCreditoId = cartao.Id,
+                DataCompra = inicio,
+                FormaPagamento = FormaPagamentoCompraParcelada.CartaoCredito,
+                IsDividida = true,
+                ValorTotalOriginal = 1200m,
+                PercentualDivisao = 50m,
+                DivisaoVinculada = new CriarDivisaoCompraParceladaRequest
+                {
+                    ParticipantesUsuarios =
+                    [
+                        new CriarParticipanteUsuarioDivisaoRequest
+                        {
+                            Email = convidado.Email,
+                            Percentual = 50m
+                        }
+                    ]
+                }
+            },
+            criador.Id);
+
+        Assert.Equal(600m, compra.ValorTotal);
+        Assert.Equal(1200m, compra.ValorTotalOriginal);
+        Assert.NotNull(compra.DivisaoTransacaoId);
+        var divisao = await divisaoService.ObterAsync(criador.Id, compra.DivisaoTransacaoId!.Value);
+        var convite = Assert.Single(divisao!.Participantes, item => item.ParticipanteUsuarioId == convidado.Id);
+        Assert.Equal(600m, convite.Valor);
+
+        var aceita = await divisaoService.AceitarAsync(convidado.Id, convite.Id);
+        var obrigacao = Assert.Single(database.Context.ComprasParceladas.IgnoreQueryFilters(), item =>
+            item.UsuarioId == convidado.Id);
+        Assert.Equal(600m, obrigacao.ValorTotal);
+        Assert.Equal(12, obrigacao.QuantidadeParcelas);
+        Assert.Equal(primeiroVencimento, obrigacao.DataPrimeiroVencimento);
+        Assert.Null(obrigacao.CartaoCreditoId);
+        Assert.Equal(obrigacao.Id, aceita!.Participantes.Single(item => item.Id == convite.Id).CompraParceladaGeradaId);
+
+        var transacaoService = new TransacaoService(database.Context);
+        using var contextoConvidado = database.CreateContext(convidado.Id);
+        var transacaoServiceConvidado = new TransacaoService(contextoConvidado);
+        decimal totalCriador = 0m;
+        decimal totalConvidado = 0m;
+        for (var indice = 0; indice < 12; indice++)
+        {
+            var competencia = primeiroVencimento.AddMonths(indice);
+            var faturasCriador = await transacaoService.GetFaturasDoMesAsync(
+                competencia.Month,
+                competencia.Year,
+                criador.Id);
+            var extratoConvidado = await transacaoServiceConvidado.GetExtratoMensalAsync(
+                competencia.Month,
+                competencia.Year,
+                convidado.Id);
+            var fatura = Assert.Single(faturasCriador, item => item.CartaoCreditoId == cartao.Id);
+            totalCriador += Assert.Single(fatura.Detalhes, item => item.CompraParceladaId == compra.Id).Valor;
+            totalConvidado += Assert.Single(extratoConvidado.Itens, item => item.CompraParceladaId == obrigacao.Id).Valor;
+        }
+
+        Assert.Equal(600m, totalCriador);
+        Assert.Equal(600m, totalConvidado);
+    }
+
+    [Fact]
+    public async Task CompraParceladaCarne_DivisaoDesigual_PreservaCalendarioEFechaCentavos()
+    {
+        var (database, criador, convidado, _, _) = await CriarCenarioAsync();
+        var categoria = await CriarCategoriaGlobalAsync(database.Context);
+        var primeiroVencimento = new DateOnly(2026, 10, 20);
+        var compra = await CriarCompraParceladaAsync(
+            database.Context,
+            criador.Id,
+            categoria.Id,
+            1000m,
+            3,
+            primeiroVencimento);
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                CompraParceladaId = compra.Id,
+                EmailConvidado = convidado.Email,
+                PercentualConvidado = 67m
+            });
+        var convite = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
+        await service.AceitarAsync(convidado.Id, convite.Id);
+
+        var gerada = Assert.Single(database.Context.ComprasParceladas.IgnoreQueryFilters(), item =>
+            item.UsuarioId == convidado.Id);
+        Assert.Equal(330m, compra.ValorTotal);
+        Assert.Equal(670m, gerada.ValorTotal);
+        Assert.Equal(1000m, compra.ValorTotal + gerada.ValorTotal);
+        Assert.Equal(primeiroVencimento, gerada.DataPrimeiroVencimento);
+        Assert.Equal(compra.ValorTotal, SomarParcelas(compra.ValorTotal, compra.QuantidadeParcelas));
+        Assert.Equal(gerada.ValorTotal, SomarParcelas(gerada.ValorTotal, gerada.QuantidadeParcelas));
+    }
+
+    [Fact]
+    public async Task CompraParcelada_RecusaAssumirEAceiteRepetido_NaoDuplicamObrigacoes()
+    {
+        var (database, criador, convidado, _, _) = await CriarCenarioAsync();
+        var categoria = await CriarCategoriaGlobalAsync(database.Context);
+        var service = new DivisaoTransacaoService(database.Context);
+        var compraRecusada = await CriarCompraParceladaAsync(
+            database.Context,
+            criador.Id,
+            categoria.Id,
+            1000m,
+            5,
+            new DateOnly(2026, 9, 15));
+        var recusada = await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                CompraParceladaId = compraRecusada.Id,
+                EmailConvidado = convidado.Email,
+                PercentualConvidado = 50m
+            });
+        var conviteRecusado = recusada.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
+        await service.RecusarAsync(convidado.Id, conviteRecusado.Id, new RecusarDivisaoRequest());
+        await service.AssumirValorAsync(criador.Id, recusada.Id);
+        Assert.Equal(1000m, compraRecusada.ValorTotal);
+        Assert.Equal(100m, compraRecusada.PercentualDivisao);
+
+        var compraAceita = await CriarCompraParceladaAsync(
+            database.Context,
+            criador.Id,
+            categoria.Id,
+            900m,
+            3,
+            new DateOnly(2027, 3, 10));
+        var aceita = await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                CompraParceladaId = compraAceita.Id,
+                EmailConvidado = convidado.Email,
+                PercentualConvidado = 50m
+            });
+        var conviteAceito = aceita.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
+        await service.AceitarAsync(convidado.Id, conviteAceito.Id);
+        await service.AceitarAsync(convidado.Id, conviteAceito.Id);
+
+        Assert.Single(database.Context.ComprasParceladas.IgnoreQueryFilters(), item => item.UsuarioId == convidado.Id);
+        Assert.Empty(database.Context.Transacoes.IgnoreQueryFilters().Where(item => item.UsuarioId == convidado.Id));
+    }
+
+    [Fact]
+    public async Task CriarCompraParcelada_DivisaoInvalida_ReverteOperacaoCompleta()
+    {
+        var (database, criador, convidado, _, _) = await CriarCenarioAsync();
+        var categoria = await CriarCategoriaGlobalAsync(database.Context);
+        var divisaoService = new DivisaoTransacaoService(database.Context);
+        var compraService = new CompraParceladaService(database.Context, divisaoService);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => compraService.CriarAsync(
+            new CriarCompraParceladaRequest
+            {
+                Descricao = "Compra inválida",
+                ValorTotal = 200m,
+                QuantidadeParcelas = 4,
+                CategoriaId = categoria.Id,
+                DataCompra = new DateOnly(2026, 9, 10),
+                DataPrimeiroVencimento = new DateOnly(2026, 9, 10),
+                FormaPagamento = FormaPagamentoCompraParcelada.Carne,
+                IsDividida = true,
+                ValorTotalOriginal = 1000m,
+                PercentualDivisao = 20m,
+                DivisaoVinculada = new CriarDivisaoCompraParceladaRequest
+                {
+                    ParticipantesUsuarios =
+                    [
+                        new CriarParticipanteUsuarioDivisaoRequest
+                        {
+                            Email = convidado.Email,
+                            Percentual = 110m
+                        }
+                    ]
+                }
+            },
+            criador.Id));
+
+        database.Context.ChangeTracker.Clear();
+        Assert.Empty(database.Context.ComprasParceladas.IgnoreQueryFilters());
+        Assert.Empty(database.Context.DivisoesTransacoes.IgnoreQueryFilters());
+        Assert.Empty(database.Context.Notificacoes.IgnoreQueryFilters());
+    }
+
+    [Fact]
+    public async Task CompraParcelada_UsuarioEParteExterna_DistribuiCemPorCento()
+    {
+        var (database, criador, convidado, _, _) = await CriarCenarioAsync();
+        var categoria = await CriarCategoriaGlobalAsync(database.Context);
+        var compra = await CriarCompraParceladaAsync(
+            database.Context,
+            criador.Id,
+            categoria.Id,
+            1000m,
+            10,
+            new DateOnly(2026, 9, 10));
+        var service = new DivisaoTransacaoService(database.Context);
+
+        var divisao = await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                CompraParceladaId = compra.Id,
+                ParticipantesUsuarios =
+                [
+                    new CriarParticipanteUsuarioDivisaoRequest
+                    {
+                        Email = convidado.Email,
+                        Percentual = 40m
+                    }
+                ],
+                ParticipantesExternos =
+                [
+                    new CriarParticipanteExternoDivisaoRequest { Percentual = 20m }
+                ]
+            });
+
+        Assert.Equal(400m, compra.ValorTotal);
+        Assert.Equal(1000m, compra.ValorTotalOriginal);
+        Assert.Equal(100m, divisao.Participantes.Sum(item => item.Percentual));
+        Assert.Equal(1000m, divisao.Participantes.Sum(item => item.Valor));
+        Assert.Contains(divisao.Participantes, item =>
+            item.TipoParticipante == TipoParticipanteDivisao.Externo && item.Valor == 200m);
+        Assert.Contains(database.Context.ReembolsosDivisao.IgnoreQueryFilters(), item =>
+            item.ParticipanteUsuarioId == null && item.ValorDevido == 200m);
+    }
+
+    [Fact]
+    public async Task CompraParcelada_AlteracaoAceita_AtualizaAcordoEAsDuasSeries()
+    {
+        var (database, criador, convidado, _, _) = await CriarCenarioAsync();
+        var categoria = await CriarCategoriaGlobalAsync(database.Context);
+        var compra = await CriarCompraParceladaAsync(
+            database.Context,
+            criador.Id,
+            categoria.Id,
+            1000m,
+            5,
+            new DateOnly(2027, 1, 10));
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                CompraParceladaId = compra.Id,
+                EmailConvidado = convidado.Email,
+                PercentualConvidado = 40m
+            });
+        var convite = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
+        await service.AceitarAsync(convidado.Id, convite.Id);
+        var novaData = new DateOnly(2027, 2, 15);
+
+        var proposta = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest
+            {
+                ValorTotal = 1200m,
+                PercentualConvidado = 25m,
+                QuantidadeParcelas = 6,
+                Vencimento = novaData,
+                Escopo = "TodaSerie"
+            });
+        var versao = Assert.Single(proposta!.Versoes, item =>
+            item.Status == DivisaoTransacaoVersaoStatus.PropostaPendente);
+        await service.AceitarAlteracaoAsync(convidado.Id, versao.Id);
+
+        var gerada = Assert.Single(database.Context.ComprasParceladas.IgnoreQueryFilters(), item =>
+            item.UsuarioId == convidado.Id);
+        Assert.Equal(900m, compra.ValorTotal);
+        Assert.Equal(300m, gerada.ValorTotal);
+        Assert.Equal(6, compra.QuantidadeParcelas);
+        Assert.Equal(6, gerada.QuantidadeParcelas);
+        Assert.Equal(novaData, compra.DataPrimeiroVencimento);
+        Assert.Equal(novaData, gerada.DataPrimeiroVencimento);
+    }
+
     private static async Task<DivisaoTransacaoResponse> CriarConvitePadraoAsync(
         DivisaoTransacaoService service,
         Usuario criador,
@@ -1131,6 +1431,68 @@ public sealed class DivisaoTransacaoServiceTests
         var participante = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
         return await service.AceitarAsync(convidado.Id, participante.Id) ??
             throw new InvalidOperationException("Divisão aceita não foi criada no teste.");
+    }
+
+    private static async Task<Categoria> CriarCategoriaGlobalAsync(AppDbContext context)
+    {
+        var categoria = new Categoria
+        {
+            Nome = "Compras",
+            CorHexa = "#2563EB",
+            UsuarioId = null
+        };
+        context.Categorias.Add(categoria);
+        await context.SaveChangesAsync();
+        return categoria;
+    }
+
+    private static async Task<CartaoCredito> CriarCartaoAsync(AppDbContext context, Guid usuarioId)
+    {
+        var cartao = new CartaoCredito
+        {
+            UsuarioId = usuarioId,
+            ApelidoCartao = "Cartão do criador",
+            Banco = "Banco",
+            LimiteTotal = 5000m,
+            MelhorDiaCompra = 5,
+            DiaVencimento = 12
+        };
+        context.CartoesCredito.Add(cartao);
+        await context.SaveChangesAsync();
+        return cartao;
+    }
+
+    private static async Task<CompraParcelada> CriarCompraParceladaAsync(
+        AppDbContext context,
+        Guid usuarioId,
+        Guid categoriaId,
+        decimal valorTotal,
+        int quantidadeParcelas,
+        DateOnly primeiroVencimento)
+    {
+        var compra = new CompraParcelada
+        {
+            UsuarioId = usuarioId,
+            CategoriaId = categoriaId,
+            Descricao = "Compra compartilhada",
+            QuantidadeParcelas = quantidadeParcelas,
+            ValorTotal = valorTotal,
+            DataCompra = primeiroVencimento,
+            DataPrimeiroVencimento = primeiroVencimento,
+            FormaPagamento = FormaPagamentoCompraParcelada.Carne
+        };
+        context.ComprasParceladas.Add(compra);
+        await context.SaveChangesAsync();
+        return compra;
+    }
+
+    private static decimal SomarParcelas(decimal valorTotal, int quantidadeParcelas)
+    {
+        var valorBase = Math.Round(valorTotal / quantidadeParcelas, 2, MidpointRounding.AwayFromZero);
+        return Enumerable.Range(1, quantidadeParcelas)
+            .Sum(numero => numero == quantidadeParcelas
+                ? valorTotal - (valorBase * (quantidadeParcelas - 1))
+                : valorBase);
     }
 
     private static async Task<(SqliteTestDatabase Database, Usuario Criador, Usuario Convidado, Transacao Transacao, Usuario Outro)>

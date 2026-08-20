@@ -29,6 +29,8 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             .IgnoreQueryFilters()
             .Include(item => item.Participantes)
             .Include(item => item.Versoes)
+            .Include(item => item.CompraParcelada)
+                .ThenInclude(compra => compra!.CartaoCredito)
             .SingleOrDefaultAsync(
                 item => item.Id == divisaoId &&
                     (item.UsuarioCriadorId == usuarioId ||
@@ -75,6 +77,12 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         CriarConviteDivisaoRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (request.TransacaoOrigemId.HasValue == request.CompraParceladaId.HasValue)
+        {
+            throw new InvalidOperationException(
+                "Informe exatamente uma origem para a divisão: transação ou compra parcelada.");
+        }
+
         var participantesUsuariosRequest = NormalizarParticipantesUsuarios(request);
         var participantesExternosRequest = (request.ParticipantesExternos ?? [])
             .Where(participante => participante.Percentual > 0)
@@ -94,14 +102,24 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             convidados.Add((convidado, participanteRequest));
         }
 
-        var transacao = await _dbContext.Transacoes
-            .SingleOrDefaultAsync(
-                item => item.Id == request.TransacaoOrigemId &&
-                    item.UsuarioId == usuarioId,
-                cancellationToken);
-        if (transacao is null)
+        var transacao = request.TransacaoOrigemId.HasValue
+            ? await _dbContext.Transacoes.SingleOrDefaultAsync(
+                item => item.Id == request.TransacaoOrigemId.Value && item.UsuarioId == usuarioId,
+                cancellationToken)
+            : null;
+        var compraParcelada = request.CompraParceladaId.HasValue
+            ? await _dbContext.ComprasParceladas
+                .Include(compra => compra.Categoria)
+                .Include(compra => compra.CartaoCredito)
+                .SingleOrDefaultAsync(
+                    compra => compra.Id == request.CompraParceladaId.Value && compra.UsuarioId == usuarioId,
+                    cancellationToken)
+            : null;
+        if (transacao is null && compraParcelada is null)
         {
-            throw new InvalidOperationException("Transação de origem não encontrada.");
+            throw new InvalidOperationException(request.TransacaoOrigemId.HasValue
+                ? "Transação de origem não encontrada."
+                : "Compra parcelada de origem não encontrada.");
         }
 
         var jaPossuiDivisaoVinculada = await _dbContext.DivisoesTransacoes
@@ -109,17 +127,24 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             .AnyAsync(
                 divisao =>
                     divisao.UsuarioCriadorId == usuarioId &&
-                    divisao.TransacaoOrigemId == transacao.Id &&
+                    ((transacao != null && divisao.TransacaoOrigemId == transacao.Id) ||
+                        (compraParcelada != null && divisao.CompraParceladaId == compraParcelada.Id)) &&
                     divisao.EncerradoEm == null,
                 cancellationToken);
         if (jaPossuiDivisaoVinculada)
         {
-            throw new InvalidOperationException("Esta transação já possui uma divisão vinculada.");
+            throw new InvalidOperationException(transacao is not null
+                ? "Esta transação já possui uma divisão vinculada."
+                : "Esta compra parcelada já possui uma divisão vinculada.");
         }
 
-        await using var dbTransaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await using var dbTransaction = _dbContext.Database.CurrentTransaction is null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
         var agora = DateTimeOffset.UtcNow;
-        var valorTotal = transacao.ValorTotalOriginal ?? transacao.Valor;
+        var valorTotal = transacao is not null
+            ? transacao.ValorTotalOriginal ?? transacao.Valor
+            : compraParcelada!.ValorTotalOriginal ?? compraParcelada.ValorTotal;
         var percentualTerceiros = convidados.Sum(item => item.Request.Percentual) +
             participantesExternosRequest.Sum(item => item.Percentual);
         var percentualCriador = 100m - percentualTerceiros;
@@ -128,16 +153,28 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         percentuais.AddRange(participantesExternosRequest.Select(item => item.Percentual));
         var valores = DivisaoTransacaoRules.CalcularValores(valorTotal, percentuais);
 
-        transacao.IsDividida = true;
-        transacao.ValorTotalOriginal = valorTotal;
-        transacao.PercentualDivisao = percentualCriador;
-        transacao.Valor = valores[0];
+        if (transacao is not null)
+        {
+            transacao.IsDividida = true;
+            transacao.ValorTotalOriginal = valorTotal;
+            transacao.PercentualDivisao = percentualCriador;
+            transacao.Valor = valores[0];
+        }
+        else
+        {
+            compraParcelada!.IsDividida = true;
+            compraParcelada.ValorTotalOriginal = valorTotal;
+            compraParcelada.PercentualDivisao = percentualCriador;
+            compraParcelada.ValorTotal = valores[0];
+        }
 
         var divisao = new DivisaoTransacao
         {
             UsuarioId = usuarioId,
             UsuarioCriadorId = usuarioId,
-            TransacaoOrigemId = transacao.Id,
+            TransacaoOrigemId = transacao?.Id,
+            CompraParceladaId = compraParcelada?.Id,
+            CompraParcelada = compraParcelada,
             ValorTotal = valorTotal,
             Status = convidados.Count > 0 ? DivisaoTransacaoStatus.Pendente : DivisaoTransacaoStatus.Aceita,
             VersaoAtual = 1,
@@ -170,7 +207,9 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                 Percentual = participanteRequest.Percentual,
                 Valor = valores[indiceValor],
                 Status = DivisaoTransacaoParticipanteStatus.Pendente,
-                ExpiraEm = DivisaoTransacaoRules.CalcularExpiracaoConvite(transacao.DataOcorrencia, agora),
+                ExpiraEm = DivisaoTransacaoRules.CalcularExpiracaoConvite(
+                    transacao?.DataOcorrencia ?? compraParcelada!.DataCompra,
+                    agora),
                 VersaoConvite = 1,
                 Ativo = true
             });
@@ -212,7 +251,9 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                 participante.ParticipanteUsuarioId.Value,
                 TipoNotificacao.DivisaoRecebida,
                 "Convite de divisão recebido",
-                $"{transacao.Descricao}: {participante.Valor:C} aguardando sua resposta.",
+                compraParcelada is null
+                    ? $"{transacao!.Descricao}: {participante.Valor:C} aguardando sua resposta."
+                    : $"{compraParcelada.Descricao}: sua parte é {participante.Valor:C} em {compraParcelada.QuantidadeParcelas} parcelas.",
                 divisao,
                 "ResponderDivisao",
                 divisao.VersaoAtual);
@@ -224,7 +265,10 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
-        await dbTransaction.CommitAsync(cancellationToken);
+        if (dbTransaction is not null)
+        {
+            await dbTransaction.CommitAsync(cancellationToken);
+        }
         return Mapear(divisao);
     }
 
@@ -258,30 +302,88 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
 
         await ValidarClassificacaoAsync(usuarioId, request, cancellationToken);
         await using var dbTransaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-        var transacaoOrigem = await ObterTransacaoOrigemAsync(participante.DivisaoTransacao, cancellationToken);
-        var codigo = await ObterProximoCodigoExibicaoAsync(usuarioId, cancellationToken);
-        var transacaoGerada = new Transacao
+        var versaoAtual = participante.DivisaoTransacao.VersaoAtual;
+        var conviteReservado = await _dbContext.DivisoesTransacoesParticipantes
+            .IgnoreQueryFilters()
+            .Where(item =>
+                item.Id == participante.Id &&
+                item.Status == DivisaoTransacaoParticipanteStatus.Pendente &&
+                item.VersaoConvite == versaoAtual)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(
+                    item => item.Status,
+                    DivisaoTransacaoParticipanteStatus.Aceito),
+                cancellationToken);
+        if (conviteReservado == 0)
         {
-            UsuarioId = usuarioId,
-            CodigoExibicao = codigo,
-            Tipo = TipoTransacao.Despesa,
-            Descricao = $"Parte compartilhada - {transacaoOrigem?.Descricao ?? "divisão"}",
-            Valor = participante.Valor,
-            DataOcorrencia = transacaoOrigem?.DataOcorrencia ?? DateOnly.FromDateTime(DateTime.Today),
-            CategoriaId = request?.CategoriaId,
-            ContaBancariaId = request?.ContaBancariaId,
-            CartaoCreditoId = request?.CartaoCreditoId,
-            FormaPagamento = request?.CartaoCreditoId.HasValue == true ? "Cartão de crédito" : "Divisão compartilhada",
-            IsFixa = false,
-            IsPaga = false,
-            OrigemTransacao = OrigemTransacao.Lancamento
-        };
+            await dbTransaction.RollbackAsync(cancellationToken);
+            _dbContext.ChangeTracker.Clear();
+            var atualizado = await ObterParticipanteComDivisaoAsync(participanteId, cancellationToken);
+            if (atualizado?.Status == DivisaoTransacaoParticipanteStatus.Aceito)
+            {
+                return Mapear(atualizado.DivisaoTransacao);
+            }
 
-        _dbContext.Transacoes.Add(transacaoGerada);
+            throw new InvalidOperationException("Convite não está pendente na versão atual.");
+        }
+
+        var transacaoOrigem = await ObterTransacaoOrigemAsync(participante.DivisaoTransacao, cancellationToken);
+        var compraOrigem = await ObterCompraParceladaOrigemAsync(
+            participante.DivisaoTransacao,
+            cancellationToken);
+
+        if (compraOrigem is not null)
+        {
+            var categoriaId = await ObterCategoriaDaObrigacaoParceladaAsync(
+                usuarioId,
+                request?.CategoriaId,
+                compraOrigem,
+                cancellationToken);
+            var primeiraParcela = ObterPrimeiraCompetencia(compraOrigem) ?? compraOrigem.DataCompra;
+            var compraGerada = new CompraParcelada
+            {
+                UsuarioId = usuarioId,
+                CartaoCreditoId = null,
+                CategoriaId = categoriaId,
+                Descricao = $"Parte compartilhada - {compraOrigem.Descricao}",
+                QuantidadeParcelas = compraOrigem.QuantidadeParcelas,
+                ValorTotal = participante.Valor,
+                DataCompra = compraOrigem.DataCompra,
+                DataPrimeiroVencimento = primeiraParcela,
+                FormaPagamento = FormaPagamentoCompraParcelada.Carne,
+                IsDividida = false
+            };
+
+            _dbContext.ComprasParceladas.Add(compraGerada);
+            participante.CompraParceladaGerada = compraGerada;
+        }
+        else
+        {
+            var codigo = await ObterProximoCodigoExibicaoAsync(usuarioId, cancellationToken);
+            var transacaoGerada = new Transacao
+            {
+                UsuarioId = usuarioId,
+                CodigoExibicao = codigo,
+                Tipo = TipoTransacao.Despesa,
+                Descricao = $"Parte compartilhada - {transacaoOrigem?.Descricao ?? "divisão"}",
+                Valor = participante.Valor,
+                DataOcorrencia = transacaoOrigem?.DataOcorrencia ?? DateOnly.FromDateTime(DateTime.Today),
+                CategoriaId = request?.CategoriaId,
+                ContaBancariaId = request?.ContaBancariaId,
+                CartaoCreditoId = request?.CartaoCreditoId,
+                FormaPagamento = request?.CartaoCreditoId.HasValue == true ? "Cartão de crédito" : "Divisão compartilhada",
+                IsFixa = false,
+                IsPaga = false,
+                OrigemTransacao = OrigemTransacao.Lancamento
+            };
+
+            _dbContext.Transacoes.Add(transacaoGerada);
+            participante.TransacaoGerada = transacaoGerada;
+        }
+
         participante.Status = DivisaoTransacaoParticipanteStatus.Aceito;
         participante.RespondidoEm = DateTimeOffset.UtcNow;
         participante.VersaoAceita = participante.DivisaoTransacao.VersaoAtual;
-        participante.TransacaoGerada = transacaoGerada;
         participante.DivisaoTransacao.Status = ObterStatusAposAceite(participante.DivisaoTransacao);
         participante.DivisaoTransacao.AtualizadoEm = DateTimeOffset.UtcNow;
         await CriarOuAtualizarPendenciaReembolsoAsync(
@@ -375,6 +477,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             throw new InvalidOperationException("Não há valor recusado ou expirado para assumir.");
         }
 
+        await using var dbTransaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         var criador = ObterParticipanteCriador(divisao);
         criador.Valor += recusados.Sum(participante => participante.Valor);
         criador.Percentual += recusados.Sum(participante => participante.Percentual);
@@ -391,10 +494,19 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             transacaoOrigem.ValorTotalOriginal = divisao.ValorTotal;
         }
 
+        var compraOrigem = await ObterCompraParceladaOrigemAsync(divisao, cancellationToken);
+        if (compraOrigem is not null)
+        {
+            compraOrigem.ValorTotal = criador.Valor;
+            compraOrigem.PercentualDivisao = criador.Percentual;
+            compraOrigem.ValorTotalOriginal = divisao.ValorTotal;
+        }
+
         divisao.Status = DivisaoTransacaoStatus.Aceita;
         divisao.EncerradoEm = DateTimeOffset.UtcNow;
         divisao.AtualizadoEm = DateTimeOffset.UtcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbTransaction.CommitAsync(cancellationToken);
         return Mapear(divisao);
     }
 
@@ -426,6 +538,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             throw new InvalidOperationException("Não há convidado elegível para reenviar.");
         }
 
+        await using var dbTransaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         var participantesExternos = divisao.Participantes
             .Where(participante =>
                 participante.Ativo &&
@@ -440,6 +553,18 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         var criador = ObterParticipanteCriador(divisao);
         criador.Percentual = percentualCriador;
         criador.Valor = valores[0];
+        var transacaoOrigem = await ObterTransacaoOrigemAsync(divisao, cancellationToken);
+        if (transacaoOrigem is not null)
+        {
+            transacaoOrigem.Valor = valores[0];
+            transacaoOrigem.PercentualDivisao = percentualCriador;
+        }
+        var compraOrigem = await ObterCompraParceladaOrigemAsync(divisao, cancellationToken);
+        if (compraOrigem is not null)
+        {
+            compraOrigem.ValorTotal = valores[0];
+            compraOrigem.PercentualDivisao = percentualCriador;
+        }
         for (var indiceExterno = 0; indiceExterno < participantesExternos.Count; indiceExterno++)
         {
             participantesExternos[indiceExterno].Valor = valores[indiceExterno + 2];
@@ -460,7 +585,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             Valor = valores[1],
             Status = DivisaoTransacaoParticipanteStatus.Pendente,
             ExpiraEm = DivisaoTransacaoRules.CalcularExpiracaoConvite(
-                (await ObterTransacaoOrigemAsync(divisao, cancellationToken))?.DataOcorrencia ??
+                transacaoOrigem?.DataOcorrencia ?? compraOrigem?.DataCompra ??
                     DateOnly.FromDateTime(DateTime.Today),
                 DateTimeOffset.UtcNow),
             VersaoConvite = divisao.VersaoAtual,
@@ -477,6 +602,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             divisao.VersaoAtual);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbTransaction.CommitAsync(cancellationToken);
         return Mapear(divisao);
     }
 
@@ -497,6 +623,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             return false;
         }
 
+        await using var dbTransaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         var statusAnterior = divisao.Status;
         divisao.Status = DivisaoTransacaoStatus.Cancelada;
         divisao.EncerradoEm = DateTimeOffset.UtcNow;
@@ -513,6 +640,15 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             !transacaoOrigem.IsPaga)
         {
             _dbContext.Transacoes.Remove(transacaoOrigem);
+        }
+
+        var compraOrigem = await ObterCompraParceladaOrigemAsync(divisao, cancellationToken);
+        if (statusAnterior != DivisaoTransacaoStatus.Aceita && compraOrigem is not null)
+        {
+            compraOrigem.IsDividida = false;
+            compraOrigem.ValorTotal = divisao.ValorTotal;
+            compraOrigem.ValorTotalOriginal = null;
+            compraOrigem.PercentualDivisao = null;
         }
 
         foreach (var participanteUsuarioId in divisao.Participantes
@@ -533,6 +669,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         await DispensarReembolsosPendentesAsync(divisao.Id, usuarioId, cancellationToken);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await dbTransaction.CommitAsync(cancellationToken);
         return true;
     }
 
@@ -559,6 +696,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         }
 
         var transacaoOrigem = await ObterTransacaoOrigemAsync(divisao, cancellationToken);
+        var compraOrigem = await ObterCompraParceladaOrigemAsync(divisao, cancellationToken);
         var criador = ObterParticipanteCriador(divisao);
         var participante = ObterParticipanteConvidadoAtivo(divisao);
         var valorTotalProposto = request.ValorTotal ?? divisao.ValorTotal;
@@ -587,10 +725,11 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             PercentualParticipanteProposto = percentualParticipanteProposto,
             ValorParticipanteAnterior = participante.Valor,
             ValorParticipanteProposto = valoresPropostos[1],
-            VencimentoAnterior = transacaoOrigem?.DataOcorrencia,
-            VencimentoProposto = request.Vencimento ?? transacaoOrigem?.DataOcorrencia,
-            QuantidadeParcelasAnterior = divisao.CompraParcelada?.QuantidadeParcelas,
-            QuantidadeParcelasProposta = request.QuantidadeParcelas ?? divisao.CompraParcelada?.QuantidadeParcelas,
+            VencimentoAnterior = transacaoOrigem?.DataOcorrencia ?? ObterPrimeiraCompetencia(compraOrigem),
+            VencimentoProposto = request.Vencimento ?? transacaoOrigem?.DataOcorrencia ??
+                ObterPrimeiraCompetencia(compraOrigem),
+            QuantidadeParcelasAnterior = compraOrigem?.QuantidadeParcelas,
+            QuantidadeParcelasProposta = request.QuantidadeParcelas ?? compraOrigem?.QuantidadeParcelas,
             RecorrenciaAnterior = transacaoOrigem?.IsFixa == true ? "Fixa" : null,
             RecorrenciaProposta = NormalizarTexto(request.Recorrencia) ?? (transacaoOrigem?.IsFixa == true ? "Fixa" : null),
             FrequenciaAnterior = null,
@@ -649,6 +788,15 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                     transacao => transacao.Id == participante.TransacaoGeradaId.Value,
                     cancellationToken)
             : null;
+        var compraOrigem = await ObterCompraParceladaOrigemAsync(divisao, cancellationToken);
+        var compraGerada = participante.CompraParceladaGeradaId.HasValue
+            ? await _dbContext.ComprasParceladas
+                .IgnoreQueryFilters()
+                .SingleOrDefaultAsync(
+                    compra => compra.Id == participante.CompraParceladaGeradaId.Value &&
+                        compra.UsuarioId == usuarioId,
+                    cancellationToken)
+            : null;
 
         divisao.ValorTotal = versao.ValorTotalProposto;
         divisao.VersaoAtual = versao.Versao;
@@ -679,6 +827,25 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             {
                 transacaoGerada.DataOcorrencia = versao.VencimentoProposto.Value;
             }
+        }
+
+        if (compraOrigem is not null)
+        {
+            compraOrigem.IsDividida = true;
+            compraOrigem.ValorTotalOriginal = versao.ValorTotalProposto;
+            compraOrigem.PercentualDivisao = versao.PercentualCriadorProposto;
+            compraOrigem.ValorTotal = versao.ValorCriadorProposto;
+            compraOrigem.QuantidadeParcelas = versao.QuantidadeParcelasProposta ??
+                compraOrigem.QuantidadeParcelas;
+            AplicarPrimeiraCompetencia(compraOrigem, versao.VencimentoProposto);
+        }
+
+        if (compraGerada is not null)
+        {
+            compraGerada.ValorTotal = versao.ValorParticipanteProposto;
+            compraGerada.QuantidadeParcelas = versao.QuantidadeParcelasProposta ??
+                compraGerada.QuantidadeParcelas;
+            AplicarPrimeiraCompetencia(compraGerada, versao.VencimentoProposto);
         }
 
         await CriarOuAtualizarPendenciaReembolsoAsync(divisao, participante, cancellationToken);
@@ -1043,6 +1210,9 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                 .ThenInclude(divisao => divisao.Participantes)
             .Include(participante => participante.DivisaoTransacao)
                 .ThenInclude(divisao => divisao.Versoes)
+            .Include(participante => participante.DivisaoTransacao)
+                .ThenInclude(divisao => divisao.CompraParcelada)
+                    .ThenInclude(compra => compra!.CartaoCredito)
             .SingleOrDefaultAsync(participante => participante.Id == participanteId, cancellationToken);
     }
 
@@ -1056,6 +1226,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             .Include(divisao => divisao.Participantes)
             .Include(divisao => divisao.Versoes)
             .Include(divisao => divisao.CompraParcelada)
+                .ThenInclude(compra => compra!.CartaoCredito)
             .SingleOrDefaultAsync(
                 divisao => divisao.Id == divisaoId &&
                     divisao.UsuarioCriadorId == usuarioId,
@@ -1072,6 +1243,9 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                 .ThenInclude(divisao => divisao.Participantes)
             .Include(versao => versao.DivisaoTransacao)
                 .ThenInclude(divisao => divisao.Versoes)
+            .Include(versao => versao.DivisaoTransacao)
+                .ThenInclude(divisao => divisao.CompraParcelada)
+                    .ThenInclude(compra => compra!.CartaoCredito)
             .SingleOrDefaultAsync(versao => versao.Id == versaoId, cancellationToken);
     }
 
@@ -1086,6 +1260,92 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                     transacao => transacao.Id == divisao.TransacaoOrigemId.Value,
                     cancellationToken)
             : null;
+    }
+
+    private async Task<CompraParcelada?> ObterCompraParceladaOrigemAsync(
+        DivisaoTransacao divisao,
+        CancellationToken cancellationToken)
+    {
+        return divisao.CompraParceladaId.HasValue
+            ? await _dbContext.ComprasParceladas
+                .IgnoreQueryFilters()
+                .Include(compra => compra.Categoria)
+                .Include(compra => compra.CartaoCredito)
+                .SingleOrDefaultAsync(
+                    compra => compra.Id == divisao.CompraParceladaId.Value,
+                    cancellationToken)
+            : null;
+    }
+
+    private async Task<Guid> ObterCategoriaDaObrigacaoParceladaAsync(
+        Guid usuarioId,
+        Guid? categoriaInformadaId,
+        CompraParcelada compraOrigem,
+        CancellationToken cancellationToken)
+    {
+        if (categoriaInformadaId.HasValue)
+        {
+            return categoriaInformadaId.Value;
+        }
+
+        if (compraOrigem.Categoria.UsuarioId is null)
+        {
+            return compraOrigem.CategoriaId;
+        }
+
+        var categoriaGlobalId = await _dbContext.Categorias
+            .IgnoreQueryFilters()
+            .Where(categoria => categoria.UsuarioId == null)
+            .OrderBy(categoria => categoria.Nome)
+            .Select(categoria => (Guid?)categoria.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return categoriaGlobalId ?? throw new InvalidOperationException(
+            "Selecione uma categoria para aceitar esta divisão parcelada.");
+    }
+
+    private static DateOnly? ObterPrimeiraCompetencia(CompraParcelada? compra)
+    {
+        if (compra is null)
+        {
+            return null;
+        }
+
+        if (compra.FormaPagamento == FormaPagamentoCompraParcelada.Carne)
+        {
+            return compra.DataPrimeiroVencimento;
+        }
+
+        if (compra.CartaoCredito is null)
+        {
+            return compra.DataCompra;
+        }
+
+        var mesVencimento = compra.DataCompra.Day >= compra.CartaoCredito.MelhorDiaCompra
+            ? new DateOnly(compra.DataCompra.Year, compra.DataCompra.Month, 1).AddMonths(1)
+            : new DateOnly(compra.DataCompra.Year, compra.DataCompra.Month, 1);
+        var ultimoDia = DateTime.DaysInMonth(mesVencimento.Year, mesVencimento.Month);
+        return new DateOnly(
+            mesVencimento.Year,
+            mesVencimento.Month,
+            Math.Min(compra.CartaoCredito.DiaVencimento, ultimoDia));
+    }
+
+    private static void AplicarPrimeiraCompetencia(CompraParcelada compra, DateOnly? primeiraCompetencia)
+    {
+        if (!primeiraCompetencia.HasValue)
+        {
+            return;
+        }
+
+        if (compra.FormaPagamento == FormaPagamentoCompraParcelada.Carne)
+        {
+            compra.DataPrimeiroVencimento = primeiraCompetencia.Value;
+        }
+        else
+        {
+            compra.DataCompra = primeiraCompetencia.Value;
+        }
     }
 
     private async Task CriarOuAtualizarPendenciaReembolsoAsync(
@@ -1282,6 +1542,11 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             Id = divisao.Id,
             UsuarioCriadorId = divisao.UsuarioCriadorId,
             TransacaoOrigemId = divisao.TransacaoOrigemId,
+            CompraParceladaId = divisao.CompraParceladaId,
+            QuantidadeParcelas = divisao.CompraParcelada?.QuantidadeParcelas,
+            FormaPagamentoCompraParcelada = divisao.CompraParcelada?.FormaPagamento,
+            DataPrimeiraParcela = ObterPrimeiraCompetencia(divisao.CompraParcelada),
+            DescricaoOrigem = divisao.CompraParcelada?.Descricao,
             ValorTotal = divisao.ValorTotal,
             Status = divisao.Status,
             VersaoAtual = divisao.VersaoAtual,
@@ -1302,6 +1567,7 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
                     VersaoConvite = participante.VersaoConvite,
                     ExpiraEm = participante.ExpiraEm,
                     TransacaoGeradaId = participante.TransacaoGeradaId,
+                    CompraParceladaGeradaId = participante.CompraParceladaGeradaId,
                     Ativo = participante.Ativo
                 })
                 .ToList(),

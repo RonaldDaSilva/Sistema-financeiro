@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using SistemaFinanceiro.Api.Models;
+using SistemaFinanceiro.Api.Dtos.Divisoes;
 
 namespace SistemaFinanceiro.Api.Dtos.ComprasParceladas;
 
@@ -34,4 +35,6 @@ public sealed class CriarCompraParceladaRequest
     public DateOnly? DataPrimeiroVencimento { get; set; }
 
     public FormaPagamentoCompraParcelada FormaPagamento { get; set; } = FormaPagamentoCompraParcelada.CartaoCredito;
+
+    public CriarDivisaoCompraParceladaRequest? DivisaoVinculada { get; set; }
 }

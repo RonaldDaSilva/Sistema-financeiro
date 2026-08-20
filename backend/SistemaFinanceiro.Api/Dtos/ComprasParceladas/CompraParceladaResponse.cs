@@ -17,4 +17,5 @@ public sealed class CompraParceladaResponse
     public DateOnly DataCompra { get; set; }
     public DateOnly? DataPrimeiroVencimento { get; set; }
     public FormaPagamentoCompraParcelada FormaPagamento { get; set; }
+    public Guid? DivisaoTransacaoId { get; set; }
 }

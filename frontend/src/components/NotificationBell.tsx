@@ -29,16 +29,18 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
     canLoadNotifications || isOpen,
   );
   const classificacaoQueryEnabled = classificacaoAberta && Boolean(divisaoAberta);
+  const classificacaoFinanceiraEnabled = classificacaoQueryEnabled &&
+    !divisaoAberta?.compraParceladaId;
   const categoriasQuery = useQuery({
     queryKey: queryKeys.categorias,
     queryFn: ({ signal }) => financeService.listarCategorias(signal),
-    enabled: classificacaoQueryEnabled,
+    enabled: classificacaoFinanceiraEnabled,
     staleTime: 10 * 60 * 1000,
   });
   const contasQuery = useQuery({
     queryKey: queryKeys.contas,
     queryFn: ({ signal }) => financeService.listarContasBancarias(signal),
-    enabled: classificacaoQueryEnabled,
+    enabled: classificacaoFinanceiraEnabled,
     staleTime: 10 * 60 * 1000,
   });
   const cartoesQuery = useQuery({
@@ -396,24 +398,28 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
                   ))}
                 </select>
               </label>
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Conta</span>
-                <select className={selectClass} value={contaBancariaId} onChange={(event) => setContaBancariaId(event.target.value)}>
-                  <option value="">Não informar</option>
-                  {(contasQuery.data ?? []).map((conta) => (
-                    <option key={conta.id} value={conta.id}>{conta.nomeCustomizado}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Cartão</span>
-                <select className={selectClass} value={cartaoCreditoId} onChange={(event) => setCartaoCreditoId(event.target.value)}>
-                  <option value="">Não informar</option>
-                  {(cartoesQuery.data ?? []).map((cartao) => (
-                    <option key={cartao.id} value={cartao.id}>{cartao.apelidoCartao}</option>
-                  ))}
-                </select>
-              </label>
+              {!divisaoAberta.compraParceladaId && (
+                <>
+                  <label className="block space-y-1.5">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Conta</span>
+                    <select className={selectClass} value={contaBancariaId} onChange={(event) => setContaBancariaId(event.target.value)}>
+                      <option value="">Não informar</option>
+                      {(contasQuery.data ?? []).map((conta) => (
+                        <option key={conta.id} value={conta.id}>{conta.nomeCustomizado}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block space-y-1.5">
+                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Cartão</span>
+                    <select className={selectClass} value={cartaoCreditoId} onChange={(event) => setCartaoCreditoId(event.target.value)}>
+                      <option value="">Não informar</option>
+                      {(cartoesQuery.data ?? []).map((cartao) => (
+                        <option key={cartao.id} value={cartao.id}>{cartao.apelidoCartao}</option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
               <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
                 Status inicial: pendente.
               </p>
@@ -450,7 +456,21 @@ function DivisionNotificationDetails({
   return (
     <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950">
       <DetailRow label="Valor total" value={formatCurrency(divisao.valorTotal)} />
-      <DetailRow label="Descrição" value={notificacao.mensagem} />
+      <DetailRow label="Descrição" value={divisao.descricaoOrigem || notificacao.mensagem} />
+      {divisao.compraParceladaId && (
+        <>
+          <DetailRow
+            label="Tipo"
+            value={isFormaPagamentoCarne(divisao.formaPagamentoCompraParcelada)
+              ? "Carnê/Crediário"
+              : "Cartão de crédito"}
+          />
+          <DetailRow label="Parcelas" value={`${divisao.quantidadeParcelas ?? 0}x`} />
+          {divisao.dataPrimeiraParcela && (
+            <DetailRow label="Primeira competência" value={formatDate(divisao.dataPrimeiraParcela)} />
+          )}
+        </>
+      )}
       {convidado && (
         <>
           <DetailRow label="Sua parte" value={formatCurrency(convidado.valor)} />
@@ -517,6 +537,10 @@ function obterAlteracaoPendente(divisao: DivisaoTransacao): DivisaoVersao | null
 
 function isStatus(value: string | number, text: string, numeric: number) {
   return value === text || value === numeric;
+}
+
+function isFormaPagamentoCarne(value: string | number | null | undefined) {
+  return value === "Carne" || value === 2;
 }
 
 function valorRecusado(divisao: DivisaoTransacao) {
@@ -596,4 +620,8 @@ function formatDateTime(value: string) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("pt-BR").format(new Date(`${value}T12:00:00`));
 }

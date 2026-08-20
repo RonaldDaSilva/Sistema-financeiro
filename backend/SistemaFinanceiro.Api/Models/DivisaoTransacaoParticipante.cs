@@ -14,6 +14,7 @@ public sealed class DivisaoTransacaoParticipante : IHasGuidId, IMustHaveTenant
     public DivisaoTransacaoParticipanteStatus Status { get; set; } = DivisaoTransacaoParticipanteStatus.Pendente;
     public DateTimeOffset? ExpiraEm { get; set; }
     public Guid? TransacaoGeradaId { get; set; }
+    public Guid? CompraParceladaGeradaId { get; set; }
     public DateTimeOffset? RespondidoEm { get; set; }
     public int? VersaoAceita { get; set; }
     public int VersaoConvite { get; set; } = 1;
@@ -23,4 +24,5 @@ public sealed class DivisaoTransacaoParticipante : IHasGuidId, IMustHaveTenant
     public DivisaoTransacao DivisaoTransacao { get; set; } = null!;
     public Usuario? ParticipanteUsuario { get; set; }
     public Transacao? TransacaoGerada { get; set; }
+    public CompraParcelada? CompraParceladaGerada { get; set; }
 }

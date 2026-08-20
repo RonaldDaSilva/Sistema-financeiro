@@ -22,14 +22,14 @@ internal sealed class SqliteTestDatabase : IDisposable
     public Guid TenantId { get; }
     public AppDbContext Context { get; }
 
-    public AppDbContext CreateContext()
+    public AppDbContext CreateContext(Guid? tenantId = null)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseSqlite(_connection)
             .EnableSensitiveDataLogging()
             .Options;
 
-        return new AppDbContext(options, new FixedTenantProvider(TenantId));
+        return new AppDbContext(options, new FixedTenantProvider(tenantId ?? TenantId));
     }
 
     public void Dispose()

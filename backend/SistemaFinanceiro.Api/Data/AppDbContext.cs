@@ -1109,6 +1109,9 @@ public sealed class AppDbContext : DbContext
             entity.Property(participante => participante.TransacaoGeradaId)
                 .HasColumnName("id_transacao_gerada");
 
+            entity.Property(participante => participante.CompraParceladaGeradaId)
+                .HasColumnName("id_compra_parcelada_gerada");
+
             entity.Property(participante => participante.RespondidoEm)
                 .HasColumnName("respondido_em");
 
@@ -1144,10 +1147,16 @@ public sealed class AppDbContext : DbContext
                 .HasForeignKey(participante => participante.TransacaoGeradaId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            entity.HasOne(participante => participante.CompraParceladaGerada)
+                .WithMany()
+                .HasForeignKey(participante => participante.CompraParceladaGeradaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             entity.HasIndex(participante => participante.UsuarioId);
             entity.HasIndex(participante => participante.DivisaoTransacaoId);
             entity.HasIndex(participante => participante.ParticipanteUsuarioId);
             entity.HasIndex(participante => participante.TransacaoGeradaId);
+            entity.HasIndex(participante => participante.CompraParceladaGeradaId);
             entity.HasIndex(participante => new { participante.DivisaoTransacaoId, participante.TipoParticipante })
                 .IsUnique()
                 .HasFilter("tipo_participante = 'Criador' AND ativo = true");

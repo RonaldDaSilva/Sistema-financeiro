@@ -396,7 +396,8 @@ export type ResolverConvidadoDivisaoResponse = {
 };
 
 export type CriarConviteDivisaoRequest = {
-  transacaoOrigemId: string;
+  transacaoOrigemId?: string | null;
+  compraParceladaId?: string | null;
   emailConvidado?: string;
   percentualConvidado?: number | null;
   salvarContato?: boolean;
@@ -424,6 +425,7 @@ export type DivisaoParticipante = {
   versaoConvite: number;
   expiraEm: string | null;
   transacaoGeradaId: string | null;
+  compraParceladaGeradaId?: string | null;
   ativo: boolean;
 };
 
@@ -461,6 +463,11 @@ export type DivisaoTransacao = {
   id: string;
   usuarioCriadorId: string;
   transacaoOrigemId: string | null;
+  compraParceladaId?: string | null;
+  quantidadeParcelas?: number | null;
+  formaPagamentoCompraParcelada?: number | string | null;
+  dataPrimeiraParcela?: string | null;
+  descricaoOrigem?: string | null;
   valorTotal: number;
   status: number | string;
   versaoAtual: number;
@@ -495,6 +502,10 @@ export type CriarCompraParceladaRequest = {
   dataCompra: string;
   dataPrimeiroVencimento?: string | null;
   formaPagamento: 1 | 2 | 'CartaoCredito' | 'Carne';
+  divisaoVinculada?: {
+    participantesUsuarios: NonNullable<CriarConviteDivisaoRequest['participantesUsuarios']>;
+    participantesExternos: NonNullable<CriarConviteDivisaoRequest['participantesExternos']>;
+  } | null;
 };
 
 export type TipoTransacaoFiltro = 'todos' | 'receita' | 'despesa' | 'investimento';

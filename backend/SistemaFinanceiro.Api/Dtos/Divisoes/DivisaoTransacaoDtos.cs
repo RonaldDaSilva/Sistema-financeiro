@@ -21,8 +21,9 @@ public sealed class ResolverConvidadoDivisaoResponse
 
 public sealed class CriarConviteDivisaoRequest
 {
-    [Required]
-    public Guid TransacaoOrigemId { get; set; }
+    public Guid? TransacaoOrigemId { get; set; }
+
+    public Guid? CompraParceladaId { get; set; }
 
     [MaxLength(254)]
     public string? EmailConvidado { get; set; }
@@ -37,6 +38,12 @@ public sealed class CriarConviteDivisaoRequest
 
     public IReadOnlyList<CriarParticipanteUsuarioDivisaoRequest> ParticipantesUsuarios { get; set; } = [];
 
+    public IReadOnlyList<CriarParticipanteExternoDivisaoRequest> ParticipantesExternos { get; set; } = [];
+}
+
+public sealed class CriarDivisaoCompraParceladaRequest
+{
+    public IReadOnlyList<CriarParticipanteUsuarioDivisaoRequest> ParticipantesUsuarios { get; set; } = [];
     public IReadOnlyList<CriarParticipanteExternoDivisaoRequest> ParticipantesExternos { get; set; } = [];
 }
 
@@ -134,6 +141,11 @@ public sealed class DivisaoTransacaoResponse
     public Guid Id { get; set; }
     public Guid UsuarioCriadorId { get; set; }
     public Guid? TransacaoOrigemId { get; set; }
+    public Guid? CompraParceladaId { get; set; }
+    public int? QuantidadeParcelas { get; set; }
+    public FormaPagamentoCompraParcelada? FormaPagamentoCompraParcelada { get; set; }
+    public DateOnly? DataPrimeiraParcela { get; set; }
+    public string? DescricaoOrigem { get; set; }
     public decimal ValorTotal { get; set; }
     public DivisaoTransacaoStatus Status { get; set; }
     public int VersaoAtual { get; set; }
@@ -155,6 +167,7 @@ public sealed class DivisaoParticipanteResponse
     public int VersaoConvite { get; set; }
     public DateTimeOffset? ExpiraEm { get; set; }
     public Guid? TransacaoGeradaId { get; set; }
+    public Guid? CompraParceladaGeradaId { get; set; }
     public bool Ativo { get; set; }
 }
 

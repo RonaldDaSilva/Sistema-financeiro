@@ -1,17 +1,23 @@
 using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.ComprasParceladas;
+using SistemaFinanceiro.Api.Dtos.Divisoes;
 using SistemaFinanceiro.Api.Models;
+using SistemaFinanceiro.Api.Services.Divisoes;
 
 namespace SistemaFinanceiro.Api.Services.ComprasParceladas;
 
 public sealed class CompraParceladaService : ICompraParceladaService
 {
     private readonly AppDbContext _dbContext;
+    private readonly IDivisaoTransacaoService? _divisaoTransacaoService;
 
-    public CompraParceladaService(AppDbContext dbContext)
+    public CompraParceladaService(
+        AppDbContext dbContext,
+        IDivisaoTransacaoService? divisaoTransacaoService = null)
     {
         _dbContext = dbContext;
+        _divisaoTransacaoService = divisaoTransacaoService;
     }
 
     public async Task<CompraParceladaResponse> CriarAsync(
@@ -39,6 +45,11 @@ public sealed class CompraParceladaService : ICompraParceladaService
 
         await ValidarFormaPagamentoAsync(request, usuarioId, cancellationToken);
 
+        if (request.DivisaoVinculada is not null && !request.IsDividida)
+        {
+            throw new InvalidOperationException("A divisão vinculada exige uma compra marcada como dividida.");
+        }
+
         var compra = new CompraParcelada
         {
             UsuarioId = usuarioId,
@@ -57,10 +68,35 @@ public sealed class CompraParceladaService : ICompraParceladaService
             PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null
         };
 
+        await using var dbTransaction = request.DivisaoVinculada is not null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
         _dbContext.ComprasParceladas.Add(compra);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return Mapear(compra);
+        Guid? divisaoTransacaoId = null;
+        if (request.DivisaoVinculada is not null)
+        {
+            if (_divisaoTransacaoService is null)
+            {
+                throw new InvalidOperationException("Serviço de divisão vinculada não configurado.");
+            }
+
+            var divisao = await _divisaoTransacaoService.CriarConviteAsync(
+                usuarioId,
+                new CriarConviteDivisaoRequest
+                {
+                    CompraParceladaId = compra.Id,
+                    ParticipantesUsuarios = request.DivisaoVinculada.ParticipantesUsuarios,
+                    ParticipantesExternos = request.DivisaoVinculada.ParticipantesExternos
+                },
+                cancellationToken);
+            divisaoTransacaoId = divisao.Id;
+            await dbTransaction!.CommitAsync(cancellationToken);
+        }
+
+        return Mapear(compra, divisaoTransacaoId);
     }
 
     public async Task<CompraParceladaResponse?> AtualizarProjecaoAsync(
@@ -79,9 +115,19 @@ public sealed class CompraParceladaService : ICompraParceladaService
             return null;
         }
 
+        await GarantirSemDivisaoVinculadaAsync(compraOriginal.Id, usuarioId, cancellationToken);
+
         ValidarNumeroParcela(compraOriginal, numeroParcela);
         ValidarDivisao(request);
         await ValidarRelacionamentosAsync(request, usuarioId, cancellationToken);
+        if (request.DivisaoVinculada is not null && !request.IsDividida)
+        {
+            throw new InvalidOperationException("A divisão vinculada exige uma compra marcada como dividida.");
+        }
+
+        await using var dbTransaction = request.DivisaoVinculada is not null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
         var parcelasRestantes = compraOriginal.QuantidadeParcelas - numeroParcela + 1;
         var novaCompra = new CompraParcelada
@@ -125,7 +171,28 @@ public sealed class CompraParceladaService : ICompraParceladaService
         _dbContext.ComprasParceladas.Add(novaCompra);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
-        return Mapear(novaCompra);
+        Guid? divisaoTransacaoId = null;
+        if (request.DivisaoVinculada is not null)
+        {
+            if (_divisaoTransacaoService is null)
+            {
+                throw new InvalidOperationException("Serviço de divisão vinculada não configurado.");
+            }
+
+            var divisao = await _divisaoTransacaoService.CriarConviteAsync(
+                usuarioId,
+                new CriarConviteDivisaoRequest
+                {
+                    CompraParceladaId = novaCompra.Id,
+                    ParticipantesUsuarios = request.DivisaoVinculada.ParticipantesUsuarios,
+                    ParticipantesExternos = request.DivisaoVinculada.ParticipantesExternos
+                },
+                cancellationToken);
+            divisaoTransacaoId = divisao.Id;
+            await dbTransaction!.CommitAsync(cancellationToken);
+        }
+
+        return Mapear(novaCompra, divisaoTransacaoId);
     }
 
     public async Task<bool> ExcluirProjecaoAsync(
@@ -141,6 +208,8 @@ public sealed class CompraParceladaService : ICompraParceladaService
         {
             return false;
         }
+
+        await GarantirSemDivisaoVinculadaAsync(compra.Id, usuarioId, cancellationToken);
 
         ValidarNumeroParcela(compra, numeroParcela);
 
@@ -295,7 +364,26 @@ public sealed class CompraParceladaService : ICompraParceladaService
             : valorBase;
     }
 
-    private static CompraParceladaResponse Mapear(CompraParcelada compra)
+    private async Task GarantirSemDivisaoVinculadaAsync(
+        Guid compraParceladaId,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var possuiDivisao = await _dbContext.DivisoesTransacoes
+            .AsNoTracking()
+            .AnyAsync(
+                divisao => divisao.UsuarioCriadorId == usuarioId &&
+                    divisao.CompraParceladaId == compraParceladaId &&
+                    divisao.EncerradoEm == null,
+                cancellationToken);
+        if (possuiDivisao)
+        {
+            throw new InvalidOperationException(
+                "Esta compra possui divisão vinculada. Use o fluxo de alteração da divisão.");
+        }
+    }
+
+    private static CompraParceladaResponse Mapear(CompraParcelada compra, Guid? divisaoTransacaoId = null)
     {
         return new CompraParceladaResponse
         {
@@ -311,7 +399,8 @@ public sealed class CompraParceladaService : ICompraParceladaService
             PercentualDivisao = compra.PercentualDivisao,
             DataCompra = compra.DataCompra,
             DataPrimeiroVencimento = compra.DataPrimeiroVencimento,
-            FormaPagamento = compra.FormaPagamento
+            FormaPagamento = compra.FormaPagamento,
+            DivisaoTransacaoId = divisaoTransacaoId
         };
     }
 }

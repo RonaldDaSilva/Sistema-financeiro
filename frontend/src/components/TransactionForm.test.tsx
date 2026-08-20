@@ -530,7 +530,7 @@ describe("TransactionForm", () => {
     );
   });
 
-  it("mantém limitação explícita para compra parcelada existente sem contrato de vínculo", async () => {
+  it("converte compra parcelada existente para divisão vinculada pelo contrato atômico", async () => {
     const user = userEvent.setup();
     const onUpdateCompraParcelada = vi.fn().mockResolvedValue(undefined);
 
@@ -559,9 +559,64 @@ describe("TransactionForm", () => {
     await screen.findByText("Salvar nos meus contatos");
     await user.click(screen.getByRole("button", { name: "Atualizar" }));
 
-    expect(await screen.findByText(/Para parceladas, use a divisão manual/i)).toBeInTheDocument();
     expect(serviceMocks.criarConviteDivisao).not.toHaveBeenCalled();
-    expect(onUpdateCompraParcelada).not.toHaveBeenCalled();
+    await waitFor(() => expect(onUpdateCompraParcelada).toHaveBeenCalledTimes(1));
+    expect(onUpdateCompraParcelada).toHaveBeenCalledWith(
+      "compra-1",
+      1,
+      expect.any(String),
+      expect.objectContaining({
+        divisaoVinculada: expect.objectContaining({
+          participantesUsuarios: [
+            expect.objectContaining({
+              email: "maria@email.com",
+              percentual: 50,
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("cria compra parcelada no cartão com divisão vinculada em uma única requisição", async () => {
+    const user = userEvent.setup();
+    const onCreateCompraParcelada = vi.fn().mockResolvedValue(undefined);
+    renderForm({ onCreateCompraParcelada });
+
+    await user.type(screen.getByPlaceholderText("0,00"), "120000");
+    await user.type(screen.getByLabelText("Descrição"), "Notebook");
+    await user.click(screen.getByLabelText("Parcelada"));
+    await user.selectOptions(screen.getByLabelText("Cartão"), "cartao-1");
+    await user.clear(screen.getByLabelText("Parcelas"));
+    await user.type(screen.getByLabelText("Parcelas"), "12");
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.type(
+      screen.getByPlaceholderText("Buscar contato ou informar e-mail"),
+      "maria@email.com",
+    );
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+    await screen.findByText("Salvar nos meus contatos");
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+
+    await waitFor(() => expect(onCreateCompraParcelada).toHaveBeenCalledTimes(1));
+    expect(onCreateCompraParcelada).toHaveBeenCalledWith(
+      expect.objectContaining({
+        valorTotal: 600,
+        valorTotalOriginal: 1200,
+        quantidadeParcelas: 12,
+        cartaoCreditoId: "cartao-1",
+        divisaoVinculada: expect.objectContaining({
+          participantesUsuarios: [
+            expect.objectContaining({
+              email: "maria@email.com",
+              percentual: 50,
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(serviceMocks.criarConviteDivisao).not.toHaveBeenCalled();
   });
 
   it("mostra fatura total e parte pessoal em compra dividida no cartão", async () => {
