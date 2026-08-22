@@ -28,6 +28,9 @@ public sealed class Transacao : IHasGuidId, IMustHaveTenant
     public Guid? CompraParceladaId { get; set; }
     public int? NumeroParcelaQuitada { get; set; }
     public Guid? ReembolsoDivisaoId { get; set; }
+    public Guid? EmprestimoId { get; set; }
+    public Guid? ParcelaEmprestimoId { get; set; }
+    public Guid? PagamentoEmprestimoId { get; set; }
 
     public Usuario Usuario { get; set; } = null!;
     public Categoria? Categoria { get; set; }
@@ -35,4 +38,7 @@ public sealed class Transacao : IHasGuidId, IMustHaveTenant
     public ContaBancaria? ContaBancaria { get; set; }
     public CompraParcelada? CompraParcelada { get; set; }
     public ReembolsoDivisao? ReembolsoDivisao { get; set; }
+    public Emprestimo? Emprestimo { get; set; }
+    public ParcelaEmprestimo? ParcelaEmprestimo { get; set; }
+    public PagamentoEmprestimo? PagamentoEmprestimo { get; set; }
 }

@@ -12,6 +12,7 @@ import {
   FolderTree,
   LayoutDashboard,
   Landmark,
+  HandCoins,
   LogOut,
   Moon,
   Settings,
@@ -31,6 +32,7 @@ type AppLayoutProps = {
 const navItems = [
   { to: "/", label: "Início", Icon: LayoutDashboard },
   { to: "/relatorios", label: "Relatórios", Icon: BarChart3 },
+  { to: "/emprestimos", label: "Empréstimos", Icon: HandCoins },
   { to: "/cartoes", label: "Cartões", Icon: CreditCard },
   { to: "/contas", label: "Contas", Icon: Landmark },
   { to: "/categorias", label: "Categorias", Icon: FolderTree },
@@ -302,11 +304,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[color:var(--app-card-border)] bg-[var(--app-card)]/95 px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_42px_rgba(15,23,42,0.12)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95 md:hidden" aria-label="Navegação principal mobile">
-        <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
+        <div className="mx-auto flex max-w-lg gap-1 overflow-x-auto">
           {navItems.map(({ to, label, Icon }) => (
             <NavLink
               className={({ isActive }) =>
-                `flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-bold transition-all ${
+                `flex min-h-14 min-w-[4.5rem] flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-bold transition-all ${
                   isActive
                     ? "bg-slate-950 text-white shadow-md shadow-slate-900/20 dark:bg-white dark:text-slate-950"
                     : "text-slate-500 hover:bg-[var(--app-card-muted)] hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"

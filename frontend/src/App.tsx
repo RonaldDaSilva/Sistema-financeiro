@@ -13,6 +13,7 @@ const AccountsPage = lazy(() => import('./pages/AccountsPage').then((module) => 
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((module) => ({ default: module.ProfilePage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })));
 const QuickTransactionPage = lazy(() => import('./pages/QuickTransactionPage').then((module) => ({ default: module.QuickTransactionPage })));
+const LoansPage = lazy(() => import('./pages/LoansPage').then((module) => ({ default: module.LoansPage })));
 
 export function App() {
   return (
@@ -41,6 +42,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <ReportsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/emprestimos"
+          element={
+            <ProtectedRoute>
+              <LoansPage />
             </ProtectedRoute>
           }
         />

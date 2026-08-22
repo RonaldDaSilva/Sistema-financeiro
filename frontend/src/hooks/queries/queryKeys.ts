@@ -48,6 +48,11 @@ export const queryKeys = {
   cartoesOpcoes: ["cartoes", "opcoes"] as const,
   contas: ["contas"] as const,
   distribuicaoContas: ["distribuicao-contas"] as const,
+  emprestimosScope: ["emprestimos"] as const,
+  emprestimos: (contatoId: string | null = null, incluirArquivados = false) =>
+    ["emprestimos", "lista", contatoId ?? "todos", incluirArquivados ? "com-arquivados" : "ativos"] as const,
+  emprestimo: (id: string) => ["emprestimos", "detalhe", id] as const,
+  contatosEmprestimo: ["emprestimos", "contatos"] as const,
   dashboardScope: ["dashboard"] as const,
   dashboardInicio: (
     dataInicial = "",

@@ -35,6 +35,10 @@ public sealed class AppDbContext : DbContext
     public DbSet<DivisaoTransacaoVersao> DivisoesTransacoesVersoes => Set<DivisaoTransacaoVersao>();
     public DbSet<ReembolsoDivisao> ReembolsosDivisao => Set<ReembolsoDivisao>();
     public DbSet<ContatoDivisao> ContatosDivisao => Set<ContatoDivisao>();
+    public DbSet<ContatoEmprestimo> ContatosEmprestimos => Set<ContatoEmprestimo>();
+    public DbSet<Emprestimo> Emprestimos => Set<Emprestimo>();
+    public DbSet<ParcelaEmprestimo> ParcelasEmprestimos => Set<ParcelaEmprestimo>();
+    public DbSet<PagamentoEmprestimo> PagamentosEmprestimos => Set<PagamentoEmprestimo>();
 
     public Guid? TenantId => _tenantProvider.UsuarioId;
 
@@ -61,6 +65,10 @@ public sealed class AppDbContext : DbContext
         ConfigureDivisaoTransacaoVersao(modelBuilder);
         ConfigureReembolsoDivisao(modelBuilder);
         ConfigureContatoDivisao(modelBuilder);
+        ConfigureContatoEmprestimo(modelBuilder);
+        ConfigureEmprestimo(modelBuilder);
+        ConfigurePagamentoEmprestimo(modelBuilder);
+        ConfigureParcelaEmprestimo(modelBuilder);
         ConfigureTenantFilters(modelBuilder);
     }
 
@@ -497,6 +505,15 @@ public sealed class AppDbContext : DbContext
             entity.Property(transacao => transacao.ReembolsoDivisaoId)
                 .HasColumnName("id_reembolso_divisao");
 
+            entity.Property(transacao => transacao.EmprestimoId)
+                .HasColumnName("id_emprestimo");
+
+            entity.Property(transacao => transacao.ParcelaEmprestimoId)
+                .HasColumnName("id_parcela_emprestimo");
+
+            entity.Property(transacao => transacao.PagamentoEmprestimoId)
+                .HasColumnName("id_pagamento_emprestimo");
+
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.CodigoExibicao })
                 .IsUnique();
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.DataOcorrencia });
@@ -509,6 +526,13 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.OrigemTransacao, transacao.DataOcorrencia });
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.TransferenciaId });
             entity.HasIndex(transacao => transacao.ReembolsoDivisaoId);
+            entity.HasIndex(transacao => transacao.EmprestimoId);
+            entity.HasIndex(transacao => transacao.ParcelaEmprestimoId)
+                .IsUnique()
+                .HasFilter("id_parcela_emprestimo IS NOT NULL");
+            entity.HasIndex(transacao => transacao.PagamentoEmprestimoId)
+                .IsUnique()
+                .HasFilter("id_pagamento_emprestimo IS NOT NULL");
 
             entity.HasOne(transacao => transacao.Usuario)
                 .WithMany(usuario => usuario.Transacoes)
@@ -539,6 +563,21 @@ public sealed class AppDbContext : DbContext
                 .WithMany(reembolso => reembolso.TransacoesReembolso)
                 .HasForeignKey(transacao => transacao.ReembolsoDivisaoId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(transacao => transacao.Emprestimo)
+                .WithMany(emprestimo => emprestimo.LancamentosFinanceiros)
+                .HasForeignKey(transacao => transacao.EmprestimoId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(transacao => transacao.ParcelaEmprestimo)
+                .WithOne(parcela => parcela.LancamentoFinanceiro)
+                .HasForeignKey<Transacao>(transacao => transacao.ParcelaEmprestimoId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(transacao => transacao.PagamentoEmprestimo)
+                .WithOne(pagamento => pagamento.LancamentoFinanceiro)
+                .HasForeignKey<Transacao>(transacao => transacao.PagamentoEmprestimoId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 
@@ -1447,6 +1486,244 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(reembolso => reembolso.DivisaoTransacaoId);
             entity.HasIndex(reembolso => reembolso.ParticipanteId);
             entity.HasIndex(reembolso => reembolso.ParticipanteUsuarioId);
+        });
+    }
+
+    private static void ConfigureContatoEmprestimo(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ContatoEmprestimo>(entity =>
+        {
+            entity.ToTable("contatos_emprestimos");
+            entity.HasKey(contato => contato.Id);
+
+            entity.Property(contato => contato.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+            entity.Property(contato => contato.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+            entity.Property(contato => contato.Nome)
+                .HasColumnName("nome")
+                .HasMaxLength(160)
+                .IsRequired();
+            entity.Property(contato => contato.Observacao)
+                .HasColumnName("observacao")
+                .HasMaxLength(500);
+            entity.Property(contato => contato.Ativo)
+                .HasColumnName("ativo")
+                .HasDefaultValue(true)
+                .IsRequired();
+            entity.Property(contato => contato.CriadoEm)
+                .HasColumnName("criado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+            entity.Property(contato => contato.AtualizadoEm)
+                .HasColumnName("atualizado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.HasOne(contato => contato.Usuario)
+                .WithMany()
+                .HasForeignKey(contato => contato.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(contato => contato.UsuarioId);
+        });
+    }
+
+    private static void ConfigureEmprestimo(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Emprestimo>(entity =>
+        {
+            entity.ToTable("emprestimos");
+            entity.HasKey(emprestimo => emprestimo.Id);
+
+            entity.Property(emprestimo => emprestimo.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+            entity.Property(emprestimo => emprestimo.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.ContatoId)
+                .HasColumnName("id_contato")
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.Descricao)
+                .HasColumnName("descricao")
+                .HasMaxLength(180)
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.ValorTotal)
+                .HasColumnName("valor_total")
+                .HasPrecision(18, 2)
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.Data)
+                .HasColumnName("data")
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.OrigemFinanceira)
+                .HasColumnName("origem_financeira")
+                .HasConversion<string>()
+                .HasMaxLength(30)
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.CartaoCreditoId)
+                .HasColumnName("id_cartao_credito");
+            entity.Property(emprestimo => emprestimo.ContaBancariaId)
+                .HasColumnName("id_conta_bancaria");
+            entity.Property(emprestimo => emprestimo.QuantidadeParcelas)
+                .HasColumnName("quantidade_parcelas")
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.Observacao)
+                .HasColumnName("observacao")
+                .HasMaxLength(500);
+            entity.Property(emprestimo => emprestimo.Status)
+                .HasColumnName("status")
+                .HasConversion<string>()
+                .HasMaxLength(30)
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.IsArquivado)
+                .HasColumnName("is_arquivado")
+                .HasDefaultValue(false)
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.CriadoEm)
+                .HasColumnName("criado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.AtualizadoEm)
+                .HasColumnName("atualizado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.HasOne(emprestimo => emprestimo.Usuario)
+                .WithMany()
+                .HasForeignKey(emprestimo => emprestimo.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(emprestimo => emprestimo.Contato)
+                .WithMany(contato => contato.Emprestimos)
+                .HasForeignKey(emprestimo => emprestimo.ContatoId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(emprestimo => emprestimo.CartaoCredito)
+                .WithMany()
+                .HasForeignKey(emprestimo => emprestimo.CartaoCreditoId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(emprestimo => emprestimo.ContaBancaria)
+                .WithMany()
+                .HasForeignKey(emprestimo => emprestimo.ContaBancariaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(emprestimo => emprestimo.UsuarioId);
+            entity.HasIndex(emprestimo => emprestimo.ContatoId);
+            entity.HasIndex(emprestimo => emprestimo.Status);
+            entity.HasIndex(emprestimo => new { emprestimo.UsuarioId, emprestimo.IsArquivado });
+            entity.HasIndex(emprestimo => emprestimo.CartaoCreditoId);
+            entity.HasIndex(emprestimo => emprestimo.ContaBancariaId);
+        });
+    }
+
+    private static void ConfigurePagamentoEmprestimo(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<PagamentoEmprestimo>(entity =>
+        {
+            entity.ToTable("pagamentos_emprestimos");
+            entity.HasKey(pagamento => pagamento.Id);
+
+            entity.Property(pagamento => pagamento.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+            entity.Property(pagamento => pagamento.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+            entity.Property(pagamento => pagamento.EmprestimoId)
+                .HasColumnName("id_emprestimo")
+                .IsRequired();
+            entity.Property(pagamento => pagamento.Data)
+                .HasColumnName("data")
+                .IsRequired();
+            entity.Property(pagamento => pagamento.ContaBancariaId)
+                .HasColumnName("id_conta_bancaria");
+            entity.Property(pagamento => pagamento.ValorTotal)
+                .HasColumnName("valor_total")
+                .HasPrecision(18, 2)
+                .IsRequired();
+            entity.Property(pagamento => pagamento.Observacao)
+                .HasColumnName("observacao")
+                .HasMaxLength(500);
+            entity.Property(pagamento => pagamento.CriadoEm)
+                .HasColumnName("criado_em")
+                .HasDefaultValueSql("now()")
+                .IsRequired();
+
+            entity.HasOne(pagamento => pagamento.Emprestimo)
+                .WithMany(emprestimo => emprestimo.Pagamentos)
+                .HasForeignKey(pagamento => pagamento.EmprestimoId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(pagamento => pagamento.Usuario)
+                .WithMany()
+                .HasForeignKey(pagamento => pagamento.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(pagamento => pagamento.ContaBancaria)
+                .WithMany()
+                .HasForeignKey(pagamento => pagamento.ContaBancariaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(pagamento => pagamento.UsuarioId);
+            entity.HasIndex(pagamento => pagamento.EmprestimoId);
+            entity.HasIndex(pagamento => pagamento.ContaBancariaId);
+        });
+    }
+
+    private static void ConfigureParcelaEmprestimo(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ParcelaEmprestimo>(entity =>
+        {
+            entity.ToTable("parcelas_emprestimos");
+            entity.HasKey(parcela => parcela.Id);
+
+            entity.Property(parcela => parcela.Id)
+                .HasColumnName("id")
+                .ValueGeneratedNever();
+            entity.Property(parcela => parcela.UsuarioId)
+                .HasColumnName("id_usuario")
+                .IsRequired();
+            entity.Property(parcela => parcela.EmprestimoId)
+                .HasColumnName("id_emprestimo")
+                .IsRequired();
+            entity.Property(parcela => parcela.PagamentoEmprestimoId)
+                .HasColumnName("id_pagamento_emprestimo");
+            entity.Property(parcela => parcela.NumeroParcela)
+                .HasColumnName("numero_parcela")
+                .IsRequired();
+            entity.Property(parcela => parcela.DataVencimento)
+                .HasColumnName("data_vencimento")
+                .IsRequired();
+            entity.Property(parcela => parcela.Valor)
+                .HasColumnName("valor")
+                .HasPrecision(18, 2)
+                .IsRequired();
+            entity.Property(parcela => parcela.Status)
+                .HasColumnName("status")
+                .HasConversion<string>()
+                .HasMaxLength(30)
+                .IsRequired();
+            entity.Property(parcela => parcela.DataPagamento)
+                .HasColumnName("data_pagamento");
+
+            entity.HasOne(parcela => parcela.Emprestimo)
+                .WithMany(emprestimo => emprestimo.Parcelas)
+                .HasForeignKey(parcela => parcela.EmprestimoId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(parcela => parcela.Usuario)
+                .WithMany()
+                .HasForeignKey(parcela => parcela.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(parcela => parcela.PagamentoEmprestimo)
+                .WithMany(pagamento => pagamento.Parcelas)
+                .HasForeignKey(parcela => parcela.PagamentoEmprestimoId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(parcela => parcela.UsuarioId);
+            entity.HasIndex(parcela => parcela.EmprestimoId);
+            entity.HasIndex(parcela => parcela.PagamentoEmprestimoId);
+            entity.HasIndex(parcela => parcela.Status);
+            entity.HasIndex(parcela => new { parcela.EmprestimoId, parcela.NumeroParcela })
+                .IsUnique();
         });
     }
 

@@ -477,6 +477,10 @@ public sealed class RelatorioService : IRelatorioService
                 transacao.DataOcorrencia,
                 transacao.OrigemTransacao == OrigemTransacao.ReembolsoDivisao
                     ? "ReembolsoDivisao"
+                    : transacao.OrigemTransacao == OrigemTransacao.EmprestimoConcedido
+                    ? "EmprestimoConcedido"
+                    : transacao.OrigemTransacao == OrigemTransacao.RecebimentoEmprestimo
+                    ? "RecebimentoEmprestimo"
                     : transacao.FormaPagamento == FormaPagamentoFaturaCartao
                     ? "PagamentoFatura"
                     : transacao.CartaoCreditoId.HasValue
@@ -781,9 +785,15 @@ public sealed class RelatorioService : IRelatorioService
             item.DataOcorrencia,
             item.OrigemTransacao == OrigemTransacao.ReembolsoDivisao
                 ? "ReembolsoDivisao"
+                : item.OrigemTransacao == OrigemTransacao.EmprestimoConcedido
+                ? "EmprestimoConcedido"
+                : item.OrigemTransacao == OrigemTransacao.RecebimentoEmprestimo
+                ? "RecebimentoEmprestimo"
                 : isPagamentoFatura ? "PagamentoFatura" : item.Origem,
             item.OrigemTransacao == OrigemTransacao.Lancamento && !isFatura && !isPagamentoFatura,
-            item.OrigemTransacao == OrigemTransacao.ReembolsoDivisao ||
+            item.OrigemTransacao is OrigemTransacao.ReembolsoDivisao or OrigemTransacao.RecebimentoEmprestimo ||
+                (item.OrigemTransacao == OrigemTransacao.EmprestimoConcedido &&
+                    !item.CartaoCreditoId.HasValue) ||
                 (item.OrigemTransacao == OrigemTransacao.Lancamento &&
                     (!item.CartaoCreditoId.HasValue || isFatura || isPagamentoFatura)),
             !item.IsPaga && (isFatura || (!item.CartaoCreditoId.HasValue && item.Tipo != TipoTransacao.Receita)));
@@ -818,7 +828,7 @@ public sealed class RelatorioService : IRelatorioService
             detalhe.NumeroParcela,
             fatura.DataVencimento,
             detalhe.Origem,
-            true,
+            detalhe.OrigemTransacao == OrigemTransacao.Lancamento,
             false,
             !fatura.IsPaga);
     }
@@ -888,7 +898,7 @@ public sealed class RelatorioService : IRelatorioService
         var receitas = itens
             .Where(item =>
                 item.Tipo == TipoTransacao.Receita &&
-                !item.EhReembolsoDivisao)
+                !item.EhReceitaNaoPessoal)
             .Sum(item => item.Valor);
         var despesas = itens
             .Where(item =>
@@ -919,7 +929,7 @@ public sealed class RelatorioService : IRelatorioService
             .Where(item =>
                 item.Tipo == TipoTransacao.Receita &&
                 item.Realizada &&
-                !item.EhReembolsoDivisao)
+                !item.EhReceitaNaoPessoal)
             .Sum(item => item.Valor);
     }
 
@@ -961,7 +971,7 @@ public sealed class RelatorioService : IRelatorioService
                         .Where(transacao =>
                             transacao.Tipo == TipoTransacao.Receita &&
                             transacao.Realizada &&
-                            (fluxoCaixa || !transacao.EhReembolsoDivisao))
+                            (fluxoCaixa || !transacao.EhReceitaNaoPessoal))
                         .Sum(transacao => transacao.Valor);
                     var despesas = grupo
                         .Where(transacao =>
@@ -1056,7 +1066,7 @@ public sealed class RelatorioService : IRelatorioService
 
         var receitasPrevistas = Previsto(item =>
             item.Tipo == TipoTransacao.Receita &&
-            !item.EhReembolsoDivisao);
+            !item.EhReceitaNaoPessoal);
         var despesasPrevistas = transacoes
             .Where(item =>
                 item.Tipo == TipoTransacao.Despesa &&
@@ -1070,7 +1080,7 @@ public sealed class RelatorioService : IRelatorioService
             .Sum(item => item.Valor);
         var receitasRealizadas = Realizado(item =>
             item.Tipo == TipoTransacao.Receita &&
-            !item.EhReembolsoDivisao);
+            !item.EhReceitaNaoPessoal);
         var despesasRealizadas = transacoes
             .Where(item =>
                 item.Tipo == TipoTransacao.Despesa &&
@@ -1546,7 +1556,7 @@ public sealed class RelatorioService : IRelatorioService
         var receitasPrevistas = transacoesPeriodo
             .Where(transacao =>
                 transacao.Tipo == TipoTransacao.Receita &&
-                !transacao.EhReembolsoDivisao &&
+                !transacao.EhReceitaNaoPessoal &&
                 transacao.Pendente &&
                 transacao.DataOcorrencia >= hoje &&
                 transacao.DataOcorrencia <= dataLimite)
@@ -1580,7 +1590,7 @@ public sealed class RelatorioService : IRelatorioService
             .Where(transacao =>
                 transacao.Tipo == TipoTransacao.Receita &&
                 transacao.Realizada &&
-                !transacao.EhReembolsoDivisao)
+                !transacao.EhReceitaNaoPessoal)
             .Sum(transacao => transacao.Valor);
         var despesas = transacoes
             .Where(transacao =>
@@ -1607,12 +1617,12 @@ public sealed class RelatorioService : IRelatorioService
             .Where(item =>
                 item.Tipo == TipoTransacao.Receita &&
                 item.Realizada &&
-                !item.EhReembolsoDivisao)
+                !item.EhReceitaNaoPessoal)
             .Sum(item => item.Valor);
         var receitasPrevistas = transacoesConsumo
             .Where(item =>
                 item.Tipo == TipoTransacao.Receita &&
-                !item.EhReembolsoDivisao &&
+                !item.EhReceitaNaoPessoal &&
                 item.Pendente &&
                 item.DataOcorrencia >= hoje &&
                 item.DataOcorrencia <= dataLimite)
@@ -1620,7 +1630,7 @@ public sealed class RelatorioService : IRelatorioService
         var receitasVencidas = transacoesConsumo
             .Where(item =>
                 item.Tipo == TipoTransacao.Receita &&
-                !item.EhReembolsoDivisao &&
+                !item.EhReceitaNaoPessoal &&
                 item.Pendente &&
                 item.DataOcorrencia < hoje)
             .Sum(item => item.Valor);
@@ -1820,7 +1830,8 @@ public sealed class RelatorioService : IRelatorioService
         public bool Realizada => IsPaga;
         public bool Pendente => !IsPaga;
         public bool Projetada => !IsPaga && DataOcorrencia > DateOnly.FromDateTime(DateTime.Today);
-        public bool EhReembolsoDivisao => Origem == "ReembolsoDivisao";
+        public bool EhReceitaNaoPessoal =>
+            Origem is "ReembolsoDivisao" or "RecebimentoEmprestimo";
         public string Competencia => $"{DataCompetencia.Year:D4}-{DataCompetencia.Month:D2}";
     }
 

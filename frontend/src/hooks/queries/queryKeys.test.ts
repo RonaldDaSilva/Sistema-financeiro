@@ -7,6 +7,23 @@ describe("queryKeys.relatorios", () => {
     expect(queryKeys.cartoesOpcoes).not.toEqual(queryKeys.cartoes);
   });
 
+  it("separa listas de empréstimos por pessoa", () => {
+    expect(queryKeys.emprestimos(null)).toEqual(["emprestimos", "lista", "todos", "ativos"]);
+    expect(queryKeys.emprestimos("contato-1")).toEqual([
+      "emprestimos",
+      "lista",
+      "contato-1",
+      "ativos",
+    ]);
+    expect(queryKeys.emprestimos(null)).not.toEqual(queryKeys.emprestimos("contato-1"));
+    expect(queryKeys.emprestimos(null, true)).toEqual([
+      "emprestimos",
+      "lista",
+      "todos",
+      "com-arquivados",
+    ]);
+  });
+
   it("inclui secoes normalizadas para preservar cache por aba", () => {
     const keyA = queryKeys.relatorios(
       "2026-01-01",

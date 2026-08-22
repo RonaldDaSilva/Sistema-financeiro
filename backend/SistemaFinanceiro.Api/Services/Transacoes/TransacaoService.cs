@@ -795,6 +795,9 @@ public sealed class TransacaoService : ITransacaoService
             CompraParceladaId = transacao.CompraParceladaId,
             NumeroParcelaQuitada = transacao.NumeroParcelaQuitada,
             ReembolsoDivisaoId = transacao.ReembolsoDivisaoId,
+            EmprestimoId = transacao.EmprestimoId,
+            ParcelaEmprestimoId = transacao.ParcelaEmprestimoId,
+            PagamentoEmprestimoId = transacao.PagamentoEmprestimoId,
             Categoria = transacao.Categoria == null
                 ? null
                 : new Categoria
@@ -809,6 +812,16 @@ public sealed class TransacaoService : ITransacaoService
                 {
                     Id = transacao.CartaoCredito.Id,
                     ApelidoCartao = transacao.CartaoCredito.ApelidoCartao
+                },
+            ParcelaEmprestimo = transacao.ParcelaEmprestimo == null
+                ? null
+                : new ParcelaEmprestimo
+                {
+                    NumeroParcela = transacao.ParcelaEmprestimo.NumeroParcela,
+                    Emprestimo = new Emprestimo
+                    {
+                        QuantidadeParcelas = transacao.ParcelaEmprestimo.Emprestimo.QuantidadeParcelas
+                    }
                 }
         });
     }
@@ -1933,7 +1946,8 @@ public sealed class TransacaoService : ITransacaoService
             OrigemTransacao = transacao.OrigemTransacao,
             CompraParceladaId = transacao.CompraParceladaId,
             NumeroParcela = transacao.NumeroParcelaQuitada,
-            ReembolsoDivisaoId = transacao.ReembolsoDivisaoId
+            ReembolsoDivisaoId = transacao.ReembolsoDivisaoId,
+            EmprestimoId = transacao.EmprestimoId
         };
     }
 
@@ -1984,7 +1998,8 @@ public sealed class TransacaoService : ITransacaoService
             PercentualDivisao = detalhe.PercentualDivisao,
             IsProjetada = detalhe.Origem != "Transacao",
             Origem = detalhe.Origem,
-            OrigemTransacao = OrigemTransacao.Lancamento,
+            OrigemTransacao = detalhe.OrigemTransacao,
+            EmprestimoId = detalhe.EmprestimoId,
             CompraParceladaId = detalhe.CompraParceladaId,
             NumeroParcela = detalhe.NumeroParcela,
             QuantidadeParcelas = detalhe.QuantidadeParcelas
@@ -2005,7 +2020,13 @@ public sealed class TransacaoService : ITransacaoService
             CategoriaId = transacao.CategoriaId,
             CategoriaNome = transacao.Categoria?.Nome ?? "Sem categoria",
             CategoriaCorHexa = transacao.Categoria?.CorHexa ?? "#64748B",
-            Origem = "Transacao"
+            Origem = transacao.OrigemTransacao == OrigemTransacao.EmprestimoConcedido
+                ? "EmprestimoCartao"
+                : "Transacao",
+            OrigemTransacao = transacao.OrigemTransacao,
+            EmprestimoId = transacao.EmprestimoId,
+            NumeroParcela = transacao.ParcelaEmprestimo?.NumeroParcela,
+            QuantidadeParcelas = transacao.ParcelaEmprestimo?.Emprestimo.QuantidadeParcelas
         };
     }
 
