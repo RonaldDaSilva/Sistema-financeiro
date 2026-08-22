@@ -3,6 +3,7 @@ using SistemaFinanceiro.Api.Dtos;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Transacoes;
 using SistemaFinanceiro.Api.Models;
+using SistemaFinanceiro.Api.Services.CartoesCredito;
 
 namespace SistemaFinanceiro.Api.Services.Transacoes;
 
@@ -601,10 +602,10 @@ public sealed class TransacaoService : ITransacaoService
         }
 
         var menorInicioCompetencia = cartoes
-            .Select(cartao => CalcularPeriodoFatura(cartao, mes, ano).InicioCompetencia)
+            .Select(cartao => CicloFaturaCartaoCalculator.CalcularPorMesVencimento(cartao, mes, ano).InicioCompetencia)
             .Min();
         var maiorFimCompetencia = cartoes
-            .Select(cartao => CalcularPeriodoFatura(cartao, mes, ano).FimCompetencia)
+            .Select(cartao => CicloFaturaCartaoCalculator.CalcularPorMesVencimento(cartao, mes, ano).FimCompetencia)
             .Max();
 
         var transacoesCredito = await ProjetarTransacoesParaLeitura(
@@ -680,7 +681,7 @@ public sealed class TransacaoService : ITransacaoService
             .ToHashSet();
 
         var datasVencimento = cartoes
-            .Select(cartao => CalcularPeriodoFatura(cartao, mes, ano).DataVencimento)
+            .Select(cartao => CicloFaturaCartaoCalculator.CalcularPorMesVencimento(cartao, mes, ano).DataVencimento)
             .Distinct()
             .ToList();
 
@@ -699,7 +700,7 @@ public sealed class TransacaoService : ITransacaoService
         return cartoes
             .Select(cartao =>
             {
-                var periodo = CalcularPeriodoFatura(cartao, mes, ano);
+                var periodo = CicloFaturaCartaoCalculator.CalcularPorMesVencimento(cartao, mes, ano);
                 var detalhes = new List<FaturaDetalheResponse>();
 
                 detalhes.AddRange(transacoesCredito
@@ -959,7 +960,9 @@ public sealed class TransacaoService : ITransacaoService
             .Append(new DateOnly(hoje.Year, hoje.Month, 1))
             .Max();
         var maiorFimCompetencia = cartoes
-            .Select(cartao => CalcularPeriodoFatura(cartao, ultimoMes.Month, ultimoMes.Year).FimCompetencia)
+            .Select(cartao => CicloFaturaCartaoCalculator
+                .CalcularPorMesVencimento(cartao, ultimoMes.Month, ultimoMes.Year)
+                .FimCompetencia)
             .Max();
 
         // Todo o histórico necessário é carregado uma única vez. O cálculo mensal abaixo
@@ -1042,7 +1045,10 @@ public sealed class TransacaoService : ITransacaoService
         {
             for (var cursor = primeiroMes; cursor <= ultimoMes; cursor = cursor.AddMonths(1))
             {
-                var periodo = CalcularPeriodoFatura(cartao, cursor.Month, cursor.Year);
+                var periodo = CicloFaturaCartaoCalculator.CalcularPorMesVencimento(
+                    cartao,
+                    cursor.Month,
+                    cursor.Year);
                 var temPagamentoRegistrado = pagamentosMap.TryGetValue(
                     (cartao.Id, periodo.DataVencimento),
                     out var isFaturaPaga);
@@ -2540,20 +2546,6 @@ public sealed class TransacaoService : ITransacaoService
         return new DateOnly(inicioMes.Year, inicioMes.Month, Math.Min(dia, ultimoDia));
     }
 
-    private static FaturaPeriodo CalcularPeriodoFatura(CartaoCredito cartao, int mes, int ano)
-    {
-        var mesAtual = new DateOnly(ano, mes, 1);
-        var mesAnterior = mesAtual.AddMonths(-1);
-
-        // A competência da fatura vai do fechamento do mês anterior até a véspera do fechamento atual.
-        var inicioCompetencia = CriarDataNoMes(mesAnterior, cartao.MelhorDiaCompra);
-        var fechamentoAtual = CriarDataNoMes(mesAtual, cartao.MelhorDiaCompra);
-        var fimCompetencia = fechamentoAtual.AddDays(-1);
-        var dataVencimento = CriarDataNoMes(mesAtual, cartao.DiaVencimento);
-
-        return new FaturaPeriodo(inicioCompetencia, fimCompetencia, dataVencimento);
-    }
-
     private static string CalcularStatusFatura(DateOnly dataVencimento, DateOnly fimCompetencia)
     {
         var hoje = DateOnly.FromDateTime(DateTime.Today);
@@ -2629,8 +2621,4 @@ public sealed class TransacaoService : ITransacaoService
         return DateOnly.FromDateTime(instanteLocal.DateTime);
     }
 
-    private sealed record FaturaPeriodo(
-        DateOnly InicioCompetencia,
-        DateOnly FimCompetencia,
-        DateOnly DataVencimento);
 }

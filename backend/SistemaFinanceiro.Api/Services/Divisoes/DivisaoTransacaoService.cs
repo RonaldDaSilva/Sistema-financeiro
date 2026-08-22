@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Divisoes;
 using SistemaFinanceiro.Api.Models;
+using SistemaFinanceiro.Api.Services.CartoesCredito;
 
 namespace SistemaFinanceiro.Api.Services.Divisoes;
 
@@ -1321,14 +1322,9 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             return compra.DataCompra;
         }
 
-        var mesVencimento = compra.DataCompra.Day >= compra.CartaoCredito.MelhorDiaCompra
-            ? new DateOnly(compra.DataCompra.Year, compra.DataCompra.Month, 1).AddMonths(1)
-            : new DateOnly(compra.DataCompra.Year, compra.DataCompra.Month, 1);
-        var ultimoDia = DateTime.DaysInMonth(mesVencimento.Year, mesVencimento.Month);
-        return new DateOnly(
-            mesVencimento.Year,
-            mesVencimento.Month,
-            Math.Min(compra.CartaoCredito.DiaVencimento, ultimoDia));
+        return CicloFaturaCartaoCalculator
+            .CalcularParaCompra(compra.CartaoCredito, compra.DataCompra)
+            .DataVencimento;
     }
 
     private static void AplicarPrimeiraCompetencia(CompraParcelada compra, DateOnly? primeiraCompetencia)

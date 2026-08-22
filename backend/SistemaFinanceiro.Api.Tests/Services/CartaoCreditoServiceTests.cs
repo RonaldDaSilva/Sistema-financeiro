@@ -421,27 +421,8 @@ public sealed class CartaoCreditoServiceTests
         Assert.Equal(response.ValorUtilizado, response.LimiteTotal - response.LimiteDisponivel);
     }
 
-    private static FaturaPeriodo CalcularPeriodoFatura(CartaoCredito cartao, int mes, int ano)
-    {
-        var mesAtual = new DateOnly(ano, mes, 1);
-        var mesAnterior = mesAtual.AddMonths(-1);
-        var inicioCompetencia = CriarDataNoMes(mesAnterior, cartao.MelhorDiaCompra);
-        var fechamentoAtual = CriarDataNoMes(mesAtual, cartao.MelhorDiaCompra);
-        return new FaturaPeriodo(
-            inicioCompetencia,
-            fechamentoAtual.AddDays(-1),
-            CriarDataNoMes(mesAtual, cartao.DiaVencimento));
-    }
-
-    private static DateOnly CriarDataNoMes(DateOnly mes, int dia)
-    {
-        return new DateOnly(mes.Year, mes.Month, Math.Min(dia, DateTime.DaysInMonth(mes.Year, mes.Month)));
-    }
-
-    private readonly record struct FaturaPeriodo(
-        DateOnly InicioCompetencia,
-        DateOnly FimCompetencia,
-        DateOnly DataVencimento);
+    private static CicloFaturaCartao CalcularPeriodoFatura(CartaoCredito cartao, int mes, int ano) =>
+        CicloFaturaCartaoCalculator.CalcularPorMesVencimento(cartao, mes, ano);
 
     private static async Task SeedUsuarioAsync(AppDbContext context, Guid usuarioId)
     {

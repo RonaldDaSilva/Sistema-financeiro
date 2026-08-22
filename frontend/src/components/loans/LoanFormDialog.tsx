@@ -332,7 +332,11 @@ export function LoanFormDialog({
                 <strong className="block text-sm text-slate-900 dark:text-white">
                   Parcelado
                 </strong>
-                {/* <span className="text-xs text-slate-500 dark:text-slate-400">O backend gerará o cronograma mensal.</span> */}
+                {form.parcelado && (
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    O cronograma mensal será gerado automaticamente.
+                  </span>
+                )}
               </span>
               <input
                 type="checkbox"
@@ -368,8 +372,13 @@ export function LoanFormDialog({
                 />
                 <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
                   Estimativa: {formatCurrencyInput(parcelaEstimada)}
-                  {/* por
-                  parcela. O fechamento exato é calculado pelo backend. */}
+                  {form.parcelado && (
+                    <span>
+                      {" "}
+                      por parcela. O fechamento exato é calculado
+                      automaticamente.
+                    </span>
+                  )}
                 </span>
               </Field>
             )}
