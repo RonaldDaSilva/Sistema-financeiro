@@ -31,26 +31,18 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
 
         var hoje = DateOnly.FromDateTime(DateTime.Today);
         var usoPorCartao = await CalcularUsoDetalhadoPorCartaoAsync(usuarioId, hoje, cancellationToken);
-        var faturasAtual = (await _transacaoService.GetFaturasDoMesAsync(
-                hoje.Month,
-                hoje.Year,
-                usuarioId,
-                cancellationToken))
-            .ToDictionary(fatura => fatura.CartaoCreditoId);
-        var proximoMes = new DateOnly(hoje.Year, hoje.Month, 1).AddMonths(1);
-        var faturasProximoMes = (await _transacaoService.GetFaturasDoMesAsync(
-                proximoMes.Month,
-                proximoMes.Year,
-                usuarioId,
-                cancellationToken))
-            .ToDictionary(fatura => fatura.CartaoCreditoId);
+        var faturasPorCartao = await ObterFaturasAtualEProximaAsync(
+            cartoes,
+            usuarioId,
+            hoje,
+            cancellationToken);
 
         return cartoes
             .Select(cartao => Mapear(
                 cartao,
                 usoPorCartao.GetValueOrDefault(cartao.Id),
-                faturasAtual.GetValueOrDefault(cartao.Id),
-                faturasProximoMes.GetValueOrDefault(cartao.Id)))
+                faturasPorCartao.GetValueOrDefault(cartao.Id).Atual,
+                faturasPorCartao.GetValueOrDefault(cartao.Id).Proxima))
             .ToList();
     }
 
@@ -81,25 +73,18 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
 
         var hoje = DateOnly.FromDateTime(DateTime.Today);
         var usoPorCartao = await CalcularUsoDetalhadoPorCartaoAsync(usuarioId, hoje, cancellationToken);
-        var faturaAtual = (await _transacaoService.GetFaturasDoMesAsync(
-                hoje.Month,
-                hoje.Year,
-                usuarioId,
-                cancellationToken))
-            .FirstOrDefault(fatura => fatura.CartaoCreditoId == cartao.Id);
-        var proximoMes = new DateOnly(hoje.Year, hoje.Month, 1).AddMonths(1);
-        var proximaFatura = (await _transacaoService.GetFaturasDoMesAsync(
-                proximoMes.Month,
-                proximoMes.Year,
-                usuarioId,
-                cancellationToken))
-            .FirstOrDefault(fatura => fatura.CartaoCreditoId == cartao.Id);
+        var faturas = await ObterFaturasAtualEProximaAsync(
+            [cartao],
+            usuarioId,
+            hoje,
+            cancellationToken);
+        var faturasDoCartao = faturas.GetValueOrDefault(cartao.Id);
 
         return Mapear(
             cartao,
             usoPorCartao.GetValueOrDefault(cartao.Id),
-            faturaAtual,
-            proximaFatura);
+            faturasDoCartao.Atual,
+            faturasDoCartao.Proxima);
     }
 
     public async Task<CartaoCreditoResponse> CriarAsync(
@@ -152,25 +137,66 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         await _dbContext.SaveChangesAsync(cancellationToken);
         var hoje = DateOnly.FromDateTime(DateTime.Today);
         var usoPorCartao = await CalcularUsoDetalhadoPorCartaoAsync(usuarioId, hoje, cancellationToken);
-        var faturaAtual = (await _transacaoService.GetFaturasDoMesAsync(
-                hoje.Month,
-                hoje.Year,
-                usuarioId,
-                cancellationToken))
-            .FirstOrDefault(fatura => fatura.CartaoCreditoId == cartao.Id);
-        var proximoMes = new DateOnly(hoje.Year, hoje.Month, 1).AddMonths(1);
-        var proximaFatura = (await _transacaoService.GetFaturasDoMesAsync(
-                proximoMes.Month,
-                proximoMes.Year,
-                usuarioId,
-                cancellationToken))
-            .FirstOrDefault(fatura => fatura.CartaoCreditoId == cartao.Id);
+        var faturas = await ObterFaturasAtualEProximaAsync(
+            [cartao],
+            usuarioId,
+            hoje,
+            cancellationToken);
+        var faturasDoCartao = faturas.GetValueOrDefault(cartao.Id);
 
         return Mapear(
             cartao,
             usoPorCartao.GetValueOrDefault(cartao.Id),
-            faturaAtual,
-            proximaFatura);
+            faturasDoCartao.Atual,
+            faturasDoCartao.Proxima);
+    }
+
+    private async Task<Dictionary<Guid, FaturasCartaoReferencia>> ObterFaturasAtualEProximaAsync(
+        IReadOnlyList<CartaoCredito> cartoes,
+        Guid usuarioId,
+        DateOnly hoje,
+        CancellationToken cancellationToken)
+    {
+        var ciclos = cartoes.ToDictionary(
+            cartao => cartao.Id,
+            cartao =>
+            {
+                var atual = CicloFaturaCartaoCalculator.CalcularParaCompra(cartao, hoje);
+                var proxima = CicloFaturaCartaoCalculator.CalcularParaCompra(
+                    cartao,
+                    atual.FimCompetencia.AddDays(1));
+                return (Atual: atual, Proxima: proxima);
+            });
+
+        var referencias = ciclos.Values
+            .SelectMany(item => new[]
+            {
+                (item.Atual.DataVencimento.Year, item.Atual.DataVencimento.Month),
+                (item.Proxima.DataVencimento.Year, item.Proxima.DataVencimento.Month)
+            })
+            .Distinct()
+            .OrderBy(item => item.Year)
+            .ThenBy(item => item.Month)
+            .ToList();
+
+        var faturas = new List<FaturaConsolidadaResponse>();
+        foreach (var (ano, mes) in referencias)
+        {
+            faturas.AddRange(await _transacaoService.GetFaturasDoMesAsync(
+                mes,
+                ano,
+                usuarioId,
+                cancellationToken));
+        }
+
+        var faturasPorChave = faturas.ToDictionary(
+            fatura => (fatura.CartaoCreditoId, fatura.DataVencimento));
+
+        return ciclos.ToDictionary(
+            item => item.Key,
+            item => new FaturasCartaoReferencia(
+                faturasPorChave.GetValueOrDefault((item.Key, item.Value.Atual.DataVencimento)),
+                faturasPorChave.GetValueOrDefault((item.Key, item.Value.Proxima.DataVencimento))));
     }
 
     public async Task<CartaoCreditoResponse?> ArquivarAsync(
@@ -246,13 +272,18 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         var cartoes = await _dbContext.CartoesCredito
             .AsNoTracking()
             .Where(cartao => cartao.UsuarioId == usuarioId)
-            .Select(cartao => cartao.Id)
             .ToListAsync(cancellationToken);
 
         if (cartoes.Count == 0)
         {
             return [];
         }
+
+        var cartoesIds = cartoes.Select(cartao => cartao.Id).ToList();
+        var cartoesPorId = cartoes.ToDictionary(cartao => cartao.Id);
+        var vencimentoFaturaAtualPorCartao = cartoes.ToDictionary(
+            cartao => cartao.Id,
+            cartao => CicloFaturaCartaoCalculator.CalcularParaCompra(cartao, hoje).DataVencimento);
 
         var primeiraTransacaoCredito = await _dbContext.Transacoes
             .AsNoTracking()
@@ -271,6 +302,7 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
                 compra.CartaoCreditoId.HasValue)
             .Select(compra => new
             {
+                CartaoCreditoId = compra.CartaoCreditoId!.Value,
                 compra.DataCompra,
                 compra.QuantidadeParcelas
             })
@@ -291,14 +323,26 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             return [];
         }
 
-        var ultimaTransacaoCredito = await _dbContext.Transacoes
+        var ultimasTransacoesCredito = await _dbContext.Transacoes
             .AsNoTracking()
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.CartaoCreditoId.HasValue &&
                 transacao.Tipo == TipoTransacao.Despesa &&
                 transacao.FormaPagamento != FormaPagamentoFaturaCartao)
-            .MaxAsync(transacao => (DateOnly?)transacao.DataOcorrencia, cancellationToken);
+            .GroupBy(transacao => transacao.CartaoCreditoId!.Value)
+            .Select(grupo => new
+            {
+                CartaoCreditoId = grupo.Key,
+                DataOcorrencia = grupo.Max(transacao => transacao.DataOcorrencia)
+            })
+            .ToListAsync(cancellationToken);
+
+        var ultimaCompetenciaTransacaoCredito = ultimasTransacoesCredito.Count == 0
+            ? null
+            : ultimasTransacoesCredito.Max(item => (DateOnly?)CicloFaturaCartaoCalculator
+                .CalcularParaCompra(cartoesPorId[item.CartaoCreditoId], item.DataOcorrencia)
+                .DataVencimento);
 
         var ultimaParcelaCredito = comprasParceladas.Count == 0
             ? null
@@ -306,25 +350,33 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
             {
                 var mesFinal = new DateOnly(compra.DataCompra.Year, compra.DataCompra.Month, 1)
                     .AddMonths(compra.QuantidadeParcelas - 1);
-                return (DateOnly?)AjustarDiaMes(mesFinal.Year, mesFinal.Month, compra.DataCompra.Day).AddMonths(1);
+                var dataUltimaParcela = AjustarDiaMes(
+                    mesFinal.Year,
+                    mesFinal.Month,
+                    compra.DataCompra.Day);
+                return (DateOnly?)CicloFaturaCartaoCalculator
+                    .CalcularParaCompra(cartoesPorId[compra.CartaoCreditoId], dataUltimaParcela)
+                    .DataVencimento;
             });
 
-        // Compras avulsas feitas após o fechamento pertencem à próxima competência,
-        // então o horizonte do limite precisa avançar um mês além da data da compra.
-        var ultimaCompetenciaTransacaoCredito = ultimaTransacaoCredito?.AddMonths(1);
-        var ultimaDataCredito = new DateOnly?[] { ultimaCompetenciaTransacaoCredito, ultimaParcelaCredito, hoje }
+        var ultimoVencimentoAtual = vencimentoFaturaAtualPorCartao.Values.Max();
+        var ultimaDataCredito = new DateOnly?[]
+            {
+                ultimaCompetenciaTransacaoCredito,
+                ultimaParcelaCredito,
+                ultimoVencimentoAtual
+            }
             .Where(data => data.HasValue)
             .Select(data => data!.Value)
             .Max();
 
-        var mesAtual = new DateOnly(hoje.Year, hoje.Month, 1);
         var ultimoMesReferencia = new DateOnly(ultimaDataCredito.Year, ultimaDataCredito.Month, 1);
 
         var cursor = new DateOnly(primeiraDataCredito.Year, primeiraDataCredito.Month, 1);
-        var usoPorCartao = cartoes.ToDictionary(
+        var usoPorCartao = cartoesIds.ToDictionary(
             cartaoId => cartaoId,
             _ => UsoCartaoDetalhado.Vazio);
-        var chavesPorCartao = cartoes.ToDictionary(
+        var chavesPorCartao = cartoesIds.ToDictionary(
             cartaoId => cartaoId,
             _ => new HashSet<CompromissoCartaoKey>());
 
@@ -341,8 +393,9 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
                 var atual = usoPorCartao.GetValueOrDefault(fatura.CartaoCreditoId);
                 var competencia = new DateOnly(cursor.Year, cursor.Month, 1);
                 var chaves = chavesPorCartao[fatura.CartaoCreditoId];
+                var vencimentoFaturaAtual = vencimentoFaturaAtualPorCartao[fatura.CartaoCreditoId];
 
-                if (cursor < mesAtual)
+                if (fatura.DataVencimento < vencimentoFaturaAtual)
                 {
                     var valorLimiteFatura = SomarValorLimiteComChaveUnica(
                         fatura.CartaoCreditoId,
@@ -357,7 +410,7 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
                     continue;
                 }
 
-                if (cursor == mesAtual)
+                if (fatura.DataVencimento == vencimentoFaturaAtual)
                 {
                     var valorLimiteFatura = SomarValorLimiteComChaveUnica(
                         fatura.CartaoCreditoId,
@@ -591,4 +644,8 @@ public sealed class CartaoCreditoService : ICartaoCreditoService
         int? NumeroParcela,
         DateOnly Competencia,
         string TipoCompromisso);
+
+    private readonly record struct FaturasCartaoReferencia(
+        FaturaConsolidadaResponse? Atual,
+        FaturaConsolidadaResponse? Proxima);
 }

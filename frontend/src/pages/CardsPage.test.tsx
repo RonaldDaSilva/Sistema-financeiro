@@ -9,6 +9,7 @@ import type { CartaoCredito } from "../types/finance";
 const mocks = vi.hoisted(() => ({
   cartoes: [] as CartaoCredito[],
   arquivarCartaoCredito: vi.fn(),
+  getFaturasDoMes: vi.fn(),
 }));
 
 vi.mock("../components/AppLayout", () => ({
@@ -45,12 +46,14 @@ vi.mock("../services/financeService", () => ({
   alternarStatusFatura: vi.fn(),
   atualizarCartaoCredito: vi.fn(),
   criarCartaoCredito: vi.fn(),
+  getFaturasDoMes: mocks.getFaturasDoMes,
 }));
 
 describe("CardsPage", () => {
   beforeEach(() => {
     mocks.cartoes = [];
     mocks.arquivarCartaoCredito.mockReset();
+    mocks.getFaturasDoMes.mockReset();
   });
 
   it("renderiza cartão sem fatura com status e datas semânticas", () => {
@@ -96,6 +99,40 @@ describe("CardsPage", () => {
     await user.click(screen.getByRole("button", { name: /arquivar cartão cartão teste/i }));
 
     expect(mocks.arquivarCartaoCredito).toHaveBeenCalledWith("cartao-1");
+  });
+
+  it("carrega a fatura atual pelo mês real do vencimento ao iniciar pagamento", async () => {
+    const user = userEvent.setup();
+    mocks.cartoes = [
+      criarCartao({
+        faturaAtual: 175,
+        valorFaturaAtual: 175,
+        statusFaturaAtual: "Aberta",
+        dataFechamentoAtual: "2026-08-30",
+        dataVencimentoAtual: "2026-09-08",
+      }),
+    ];
+    mocks.getFaturasDoMes.mockResolvedValue([
+      {
+        cartaoCreditoId: "cartao-1",
+        nomeCartao: "Cartão Teste",
+        valorTotal: 175,
+        valorTotalOriginal: 175,
+        dataVencimento: "2026-09-08",
+        inicioCompetencia: "2026-07-31",
+        fimCompetencia: "2026-08-30",
+        status: "Aberta",
+        isPaga: false,
+        detalhes: [],
+      },
+    ]);
+
+    renderWithClient(<CardsPage />);
+
+    await user.click(screen.getByRole("button", { name: /pagar fatura do cartão/i }));
+
+    expect(mocks.getFaturasDoMes).toHaveBeenCalledWith(9, 2026);
+    expect(await screen.findByRole("heading", { name: "Pagamento de fatura" })).toBeInTheDocument();
   });
 });
 

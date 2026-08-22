@@ -68,8 +68,6 @@ export function CardsPage() {
   const { confirm, dialog } = useConfirmDialog();
   const cartoesQuery = useCartoes();
   const contasQuery = useContas();
-  const hoje = new Date();
-  const faturasAtualQuery = useFaturaMes(hoje.getMonth() + 1, hoje.getFullYear());
   const cartoes = cartoesQuery.data ?? [];
   const contas = contasQuery.data ?? [];
   const [form, setForm] = useState<CardForm>(emptyForm);
@@ -78,6 +76,8 @@ export function CardsPage() {
   const [faturaModal, setFaturaModal] = useState<FaturaModalState | null>(null);
   const [pagamentoFatura, setPagamentoFatura] =
     useState<PagamentoFaturaState | null>(null);
+  const [cartaoCarregandoPagamentoId, setCartaoCarregandoPagamentoId] =
+    useState<string | null>(null);
   const [isPagandoFatura, setIsPagandoFatura] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const isLoading = cartoesQuery.isLoading;
@@ -172,15 +172,44 @@ export function CardsPage() {
     });
   }
 
-  function abrirPagamentoFatura(cartao: CartaoCredito) {
-    const fatura = obterFaturaAtual(cartao);
-
-    if (!fatura) {
-      setErro("Não foi possível localizar a fatura desta competência.");
+  async function abrirPagamentoFatura(cartao: CartaoCredito) {
+    if (!cartao.dataVencimentoAtual || cartaoCarregandoPagamentoId) {
       return;
     }
 
-    setPagamentoFatura({ cartao, fatura, erro: null, saldoInsuficiente: false });
+    const referencia = new Date(`${cartao.dataVencimentoAtual}T00:00:00`);
+    setCartaoCarregandoPagamentoId(cartao.id);
+    setErro(null);
+
+    try {
+      const faturas = await queryClient.fetchQuery({
+        queryKey: queryKeys.faturas(
+          referencia.getMonth() + 1,
+          referencia.getFullYear(),
+        ),
+        queryFn: () =>
+          financeService.getFaturasDoMes(
+            referencia.getMonth() + 1,
+            referencia.getFullYear(),
+          ),
+      });
+      const fatura = faturas.find(
+        (item) =>
+          item.cartaoCreditoId === cartao.id &&
+          item.dataVencimento === cartao.dataVencimentoAtual,
+      );
+
+      if (!fatura) {
+        setErro("Não foi possível localizar a fatura desta competência.");
+        return;
+      }
+
+      setPagamentoFatura({ cartao, fatura, erro: null, saldoInsuficiente: false });
+    } catch {
+      setErro("Não foi possível carregar a fatura desta competência.");
+    } finally {
+      setCartaoCarregandoPagamentoId(null);
+    }
   }
 
   async function confirmarPagamentoFatura(
@@ -252,14 +281,6 @@ export function CardsPage() {
     }
   }
 
-  function obterFaturaAtual(cartao: CartaoCredito) {
-    return (faturasAtualQuery.data ?? []).find(
-      (fatura) =>
-        fatura.cartaoCreditoId === cartao.id &&
-        fatura.dataVencimento === cartao.dataVencimentoAtual,
-    );
-  }
-
   return (
     <AppLayout>
       <section className="mx-auto max-w-[1400px] px-3 py-6 sm:px-6 sm:py-8 lg:px-8">
@@ -312,12 +333,11 @@ export function CardsPage() {
                 (conta) => conta.id === cartao.contaBancariaId,
               );
               const possuiFaturaAtual = cartao.statusFaturaAtual !== "SemFatura";
-              const faturaAtual = obterFaturaAtual(cartao);
               const podePagarFatura =
                 possuiFaturaAtual &&
                 cartao.statusFaturaAtual !== "Paga" &&
-                Boolean(faturaAtual) &&
-                !faturaAtual?.isPaga;
+                cartao.faturaAtual > 0 &&
+                Boolean(cartao.dataVencimentoAtual);
               const alertas = [
                 percentualUtilizado >= 90 ? "Uso acima de 90%" : null,
                 percentualUtilizado >= 70 && percentualUtilizado < 90
@@ -458,9 +478,12 @@ export function CardsPage() {
                           className="rounded-xl bg-[var(--app-accent)] px-3 py-2 text-sm font-bold text-[var(--app-accent-contrast)] transition hover:opacity-90 dark:bg-emerald-500 dark:text-slate-950"
                           type="button"
                           onClick={() => abrirPagamentoFatura(cartao)}
+                          disabled={cartaoCarregandoPagamentoId === cartao.id}
                           aria-label={`Pagar fatura do cartão ${cartao.apelidoCartao}`}
                         >
-                          Pagar fatura
+                          {cartaoCarregandoPagamentoId === cartao.id
+                            ? "Carregando..."
+                            : "Pagar fatura"}
                         </button>
                       ) : (
                         <span className="rounded-xl border border-transparent px-3 py-2 text-center text-sm font-semibold text-slate-500 dark:text-slate-400">

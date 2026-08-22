@@ -107,7 +107,7 @@ public sealed class CartaoCreditoServiceTests
             LimiteTotal = 1500m
         };
 
-        var periodoAtual = CalcularPeriodoFatura(cartao, hoje.Month, hoje.Year);
+        var periodoAtual = CalcularPeriodoAtual(cartao, hoje);
         database.Context.CartoesCredito.Add(cartao);
         database.Context.Transacoes.Add(new Transacao
         {
@@ -145,7 +145,7 @@ public sealed class CartaoCreditoServiceTests
 
         var hoje = DateOnly.FromDateTime(DateTime.Today);
         var cartao = CriarCartao(usuarioId, limite: 1000m);
-        var periodoAtual = CalcularPeriodoFatura(cartao, hoje.Month, hoje.Year);
+        var periodoAtual = CalcularPeriodoAtual(cartao, hoje);
 
         database.Context.CartoesCredito.Add(cartao);
         database.Context.Transacoes.Add(CriarDespesaCartao(
@@ -174,7 +174,7 @@ public sealed class CartaoCreditoServiceTests
 
         var hoje = DateOnly.FromDateTime(DateTime.Today);
         var cartao = CriarCartao(usuarioId, limite: 1000m);
-        var periodoAtual = CalcularPeriodoFatura(cartao, hoje.Month, hoje.Year);
+        var periodoAtual = CalcularPeriodoAtual(cartao, hoje);
 
         database.Context.CartoesCredito.Add(cartao);
         database.Context.Transacoes.Add(CriarDespesaCartao(
@@ -202,7 +202,7 @@ public sealed class CartaoCreditoServiceTests
 
         var hoje = DateOnly.FromDateTime(DateTime.Today);
         var cartao = CriarCartao(usuarioId, limite: 3000m);
-        var periodoAtual = CalcularPeriodoFatura(cartao, hoje.Month, hoje.Year);
+        var periodoAtual = CalcularPeriodoAtual(cartao, hoje);
 
         database.Context.CartoesCredito.Add(cartao);
         database.Context.Transacoes.Add(CriarDespesaCartao(
@@ -241,7 +241,10 @@ public sealed class CartaoCreditoServiceTests
 
         var hoje = DateOnly.FromDateTime(DateTime.Today);
         var cartao = CriarCartao(usuarioId, limite: 1000m);
-        var periodoAnterior = CalcularPeriodoFatura(cartao, hoje.AddMonths(-1).Month, hoje.AddMonths(-1).Year);
+        var periodoAtual = CalcularPeriodoAtual(cartao, hoje);
+        var periodoAnterior = CicloFaturaCartaoCalculator.CalcularParaCompra(
+            cartao,
+            periodoAtual.InicioCompetencia.AddDays(-1));
 
         database.Context.CartoesCredito.Add(cartao);
         database.Context.Transacoes.Add(CriarDespesaCartao(
@@ -275,7 +278,7 @@ public sealed class CartaoCreditoServiceTests
 
         var hoje = DateOnly.FromDateTime(DateTime.Today);
         var cartao = CriarCartao(usuarioId, limite: 1000m);
-        var periodoAtual = CalcularPeriodoFatura(cartao, hoje.Month, hoje.Year);
+        var periodoAtual = CalcularPeriodoAtual(cartao, hoje);
 
         database.Context.CartoesCredito.Add(cartao);
         database.Context.Transacoes.Add(CriarDespesaCartao(
@@ -298,6 +301,42 @@ public sealed class CartaoCreditoServiceTests
         Assert.Equal(0m, response.ValorUtilizado);
         Assert.Equal(response.LimiteTotal, response.LimiteDisponivel);
         AssertDecomposicao(response);
+    }
+
+    [Fact]
+    public async Task ListarAsync_CompraHistorica_UsaCicloAtualDoCartaoEmVezDoMesCivil()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var cartao = new CartaoCredito
+        {
+            UsuarioId = usuarioId,
+            ApelidoCartao = "Cartao fechamento 31",
+            Banco = "Banco teste",
+            DiaVencimento = 8,
+            MelhorDiaCompra = 31,
+            LimiteTotal = 1000m
+        };
+        var cicloAtual = CicloFaturaCartaoCalculator.CalcularParaCompra(cartao, hoje);
+
+        database.Context.CartoesCredito.Add(cartao);
+        database.Context.Transacoes.Add(CriarDespesaCartao(
+            usuarioId,
+            cartao,
+            cicloAtual.InicioCompetencia,
+            175m,
+            "Compra cadastrada antes da correcao"));
+        await database.Context.SaveChangesAsync();
+
+        var response = Assert.Single(await CriarService(database.Context).ListarAsync(usuarioId));
+
+        Assert.Equal(cicloAtual.DataVencimento, response.DataVencimentoAtual);
+        Assert.Equal(cicloAtual.FimCompetencia, response.DataFechamentoAtual);
+        Assert.Equal(175m, response.FaturaAtual);
+        Assert.Equal(175m, response.ValorFaturaAtual);
     }
 
     [Fact]
@@ -421,8 +460,8 @@ public sealed class CartaoCreditoServiceTests
         Assert.Equal(response.ValorUtilizado, response.LimiteTotal - response.LimiteDisponivel);
     }
 
-    private static CicloFaturaCartao CalcularPeriodoFatura(CartaoCredito cartao, int mes, int ano) =>
-        CicloFaturaCartaoCalculator.CalcularPorMesVencimento(cartao, mes, ano);
+    private static CicloFaturaCartao CalcularPeriodoAtual(CartaoCredito cartao, DateOnly hoje) =>
+        CicloFaturaCartaoCalculator.CalcularParaCompra(cartao, hoje);
 
     private static async Task SeedUsuarioAsync(AppDbContext context, Guid usuarioId)
     {
