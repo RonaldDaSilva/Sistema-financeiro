@@ -51,6 +51,7 @@ export function useExtratoMensalPaginado({
   statuses = status !== "todos" ? [status] : [],
   ordenarPor = "data",
   direcao = "desc",
+  enabled = true,
 }: {
   mes: number;
   ano: number;
@@ -66,6 +67,7 @@ export function useExtratoMensalPaginado({
   statuses?: StatusFiltro[];
   ordenarPor?: CampoOrdenacaoExtrato;
   direcao?: DirecaoOrdenacao;
+  enabled?: boolean;
 }) {
   const canFetch = hasUsableStoredAuth();
   const tipo = tipoTransacao === "receita"
@@ -107,13 +109,17 @@ export function useExtratoMensalPaginado({
         ordenarPor,
         direcao,
       }, signal),
-    enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
+    enabled: enabled && canFetch && mes >= 1 && mes <= 12 && ano > 0,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
   });
 }
 
-export function useExtratosMensais(meses: MesAno[], apenasDivididas = false) {
+export function useExtratosMensais(
+  meses: MesAno[],
+  apenasDivididas = false,
+  enabled = true,
+) {
   const canFetch = hasUsableStoredAuth();
 
   return useQueries({
@@ -121,7 +127,7 @@ export function useExtratosMensais(meses: MesAno[], apenasDivididas = false) {
       queryKey: queryKeys.extrato(mes, ano, apenasDivididas),
       queryFn: ({ signal }: { signal?: AbortSignal }) =>
         financeService.getExtratoMensal(mes, ano, apenasDivididas, "todos", signal),
-      enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
+      enabled: enabled && canFetch && mes >= 1 && mes <= 12 && ano > 0,
     })),
   });
 }
@@ -218,7 +224,7 @@ export function usePerfilUsuario(enabled = true) {
   });
 }
 
-export function useFaturasMensais(meses: MesAno[]) {
+export function useFaturasMensais(meses: MesAno[], enabled = true) {
   const canFetch = hasUsableStoredAuth();
 
   return useQueries({
@@ -226,7 +232,7 @@ export function useFaturasMensais(meses: MesAno[]) {
       queryKey: queryKeys.faturas(mes, ano),
       queryFn: ({ signal }: { signal?: AbortSignal }) =>
         financeService.getFaturasDoMes(mes, ano, signal),
-      enabled: canFetch && mes >= 1 && mes <= 12 && ano > 0,
+      enabled: enabled && canFetch && mes >= 1 && mes <= 12 && ano > 0,
     })),
   });
 }
@@ -250,6 +256,35 @@ export function useCartoes(enabled = true) {
     queryFn: ({ signal }) => financeService.listarCartoesCredito(signal),
     enabled: enabled && canFetch,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useDivisoesCompartilhadas(
+  params: {
+    dataInicial: string;
+    dataFinal: string;
+    participanteUsuarioId: string | null;
+    status: string | null;
+    pagina: number;
+    tamanhoPagina: number;
+  },
+  enabled = true,
+) {
+  const canFetch = hasUsableStoredAuth();
+
+  return useQuery({
+    queryKey: queryKeys.divisoesCompartilhadas(
+      params.dataInicial,
+      params.dataFinal,
+      params.participanteUsuarioId,
+      params.status,
+      params.pagina,
+      params.tamanhoPagina,
+    ),
+    queryFn: ({ signal }) => financeService.listarDivisoesCompartilhadas(params, signal),
+    enabled: enabled && canFetch && Boolean(params.dataInicial) && Boolean(params.dataFinal),
+    placeholderData: keepPreviousData,
+    staleTime: 2 * 60 * 1000,
   });
 }
 

@@ -47,6 +47,152 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
         return divisao is null ? null : Mapear(divisao, usuarioId);
     }
 
+    public async Task<DivisoesCompartilhadasResponse> ListarCompartilhadasAsync(
+        Guid usuarioId,
+        ListarDivisoesCompartilhadasRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _dbContext.DivisoesTransacoes
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(divisao =>
+                divisao.UsuarioCriadorId == usuarioId ||
+                divisao.Participantes.Any(participante =>
+                    participante.ParticipanteUsuarioId == usuarioId));
+
+        query = request.Status.HasValue
+            ? query.Where(divisao => divisao.Status == request.Status.Value)
+            : query.Where(divisao => divisao.Status != DivisaoTransacaoStatus.Cancelada);
+
+        query = query.Where(divisao =>
+            (divisao.TransacaoOrigem != null &&
+                divisao.TransacaoOrigem.DataOcorrencia <= request.DataFinal &&
+                (divisao.TransacaoOrigem.IsFixa ||
+                    divisao.TransacaoOrigem.DataOcorrencia >= request.DataInicial ||
+                    (divisao.TransacaoOrigem.CartaoCreditoId != null &&
+                        divisao.TransacaoOrigem.DataOcorrencia >= request.DataInicial.AddMonths(-1)))) ||
+            (divisao.CompraParcelada != null &&
+                divisao.CompraParcelada.DataCompra <= request.DataFinal));
+
+        var divisoes = await query
+            .Include(divisao => divisao.UsuarioCriador)
+            .Include(divisao => divisao.Participantes)
+                .ThenInclude(participante => participante.ParticipanteUsuario)
+            .Include(divisao => divisao.TransacaoOrigem)
+                .ThenInclude(transacao => transacao!.CartaoCredito)
+            .Include(divisao => divisao.CompraParcelada)
+                .ThenInclude(compra => compra!.CartaoCredito)
+            .AsSplitQuery()
+            .ToListAsync(cancellationToken);
+
+        var idsPessoas = divisoes
+            .SelectMany(divisao => divisao.Participantes)
+            .Where(participante =>
+                participante.ParticipanteUsuarioId.HasValue &&
+                participante.ParticipanteUsuarioId != usuarioId)
+            .Select(participante => participante.ParticipanteUsuarioId!.Value)
+            .Concat(divisoes
+                .Where(divisao => divisao.UsuarioCriadorId != usuarioId)
+                .Select(divisao => divisao.UsuarioCriadorId))
+            .Distinct()
+            .ToList();
+
+        var apelidos = await _dbContext.ContatosDivisao
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(contato =>
+                contato.UsuarioId == usuarioId &&
+                contato.Ativo &&
+                idsPessoas.Contains(contato.UsuarioContatoId))
+            .ToDictionaryAsync(
+                contato => contato.UsuarioContatoId,
+                contato => contato.Apelido,
+                cancellationToken);
+
+        var pessoas = divisoes
+            .SelectMany(divisao => divisao.Participantes
+                .Where(participante =>
+                    participante.ParticipanteUsuarioId.HasValue &&
+                    participante.ParticipanteUsuarioId != usuarioId &&
+                    participante.ParticipanteUsuario != null)
+                .Select(participante => new
+                {
+                    UsuarioId = participante.ParticipanteUsuarioId!.Value,
+                    Nome = participante.ParticipanteUsuario!.Nome
+                })
+                .Append(divisao.UsuarioCriadorId != usuarioId
+                    ? new { UsuarioId = divisao.UsuarioCriadorId, Nome = divisao.UsuarioCriador.Nome }
+                    : null))
+            .Where(pessoa => pessoa is not null)
+            .Select(pessoa => pessoa!)
+            .GroupBy(pessoa => pessoa.UsuarioId)
+            .Select(grupo => new PessoaDivisaoCompartilhadaResponse
+            {
+                UsuarioId = grupo.Key,
+                NomeExibicao = ObterNomePessoa(grupo.Key, grupo.First().Nome, apelidos)
+            })
+            .OrderBy(pessoa => pessoa.NomeExibicao)
+            .ToList();
+
+        if (request.ParticipanteUsuarioId.HasValue)
+        {
+            var pessoaId = request.ParticipanteUsuarioId.Value;
+            divisoes = divisoes
+                .Where(divisao =>
+                    divisao.UsuarioCriadorId == pessoaId ||
+                    divisao.Participantes.Any(participante =>
+                        participante.ParticipanteUsuarioId == pessoaId))
+                .ToList();
+        }
+
+        var itens = divisoes
+            .Select(divisao => ProjetarDivisaoCompartilhada(
+                divisao,
+                usuarioId,
+                request.DataInicial,
+                request.DataFinal,
+                apelidos))
+            .Where(item => item is not null)
+            .Select(item => item!)
+            .OrderByDescending(item => item.DataReferencia)
+            .ThenBy(item => item.Descricao)
+            .ToList();
+
+        var partePessoaSelecionada = request.ParticipanteUsuarioId.HasValue
+            ? itens.Sum(item => item.Participantes
+                .Where(participante => participante.UsuarioId == request.ParticipanteUsuarioId)
+                .Sum(participante => participante.Valor))
+            : (decimal?)null;
+        var possuiOutrosParticipantes = request.ParticipanteUsuarioId.HasValue && itens.Any(item =>
+            item.Participantes.Any(participante =>
+                !participante.SouEu &&
+                participante.UsuarioId != request.ParticipanteUsuarioId));
+        var totalItens = itens.Count;
+        var totalPaginas = totalItens == 0
+            ? 0
+            : (int)Math.Ceiling(totalItens / (decimal)request.TamanhoPagina);
+
+        return new DivisoesCompartilhadasResponse
+        {
+            Itens = itens
+                .Skip((request.Pagina - 1) * request.TamanhoPagina)
+                .Take(request.TamanhoPagina)
+                .ToList(),
+            Pessoas = pessoas,
+            Resumo = new ResumoDivisoesCompartilhadasResponse
+            {
+                MinhaParte = itens.Sum(item => item.MinhaParte),
+                ValorTotal = itens.Sum(item => item.ValorTotal),
+                PartePessoaSelecionada = partePessoaSelecionada,
+                PossuiOutrosParticipantes = possuiOutrosParticipantes
+            },
+            Pagina = request.Pagina,
+            TamanhoPagina = request.TamanhoPagina,
+            TotalItens = totalItens,
+            TotalPaginas = totalPaginas
+        };
+    }
+
     public async Task<ResolverConvidadoDivisaoResponse> ResolverConvidadoAsync(
         Guid usuarioId,
         ResolverConvidadoDivisaoRequest request,
@@ -1990,6 +2136,211 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             notificacao.AcaoPendente = null;
         }
     }
+
+    private static DivisaoCompartilhadaResponse? ProjetarDivisaoCompartilhada(
+        DivisaoTransacao divisao,
+        Guid usuarioId,
+        DateOnly dataInicial,
+        DateOnly dataFinal,
+        IReadOnlyDictionary<Guid, string?> apelidos)
+    {
+        var ocorrencias = ObterOcorrenciasNoPeriodo(divisao, dataInicial, dataFinal);
+        if (ocorrencias.Count == 0)
+        {
+            return null;
+        }
+
+        var participantesVigentes = divisao.Participantes.Any(participante => participante.Ativo)
+            ? divisao.Participantes.Where(participante => participante.Ativo).ToList()
+            : divisao.Participantes
+                .GroupBy(participante => participante.ParticipanteUsuarioId?.ToString() ?? participante.Id.ToString())
+                .Select(grupo => grupo.OrderByDescending(participante => participante.VersaoConvite).First())
+                .ToList();
+        var participanteAtual = participantesVigentes
+            .Where(participante => participante.ParticipanteUsuarioId == usuarioId)
+            .OrderByDescending(participante => participante.VersaoConvite)
+            .FirstOrDefault();
+        if (participanteAtual is null)
+        {
+            return null;
+        }
+
+        var quantidadeParcelas = divisao.CompraParcelada?.QuantidadeParcelas ?? 1;
+        decimal ProjetarValor(decimal valor)
+        {
+            return divisao.CompraParcelada is null
+                ? valor * ocorrencias.Count
+                : ocorrencias.Sum(ocorrencia =>
+                    CalcularValorParcela(valor, quantidadeParcelas, ocorrencia.NumeroParcela!.Value));
+        }
+
+        var participantes = participantesVigentes
+            .OrderBy(participante => participante.TipoParticipante)
+            .ThenBy(participante => participante.ParticipanteUsuario?.Nome)
+            .Select(participante => new ParticipanteDivisaoCompartilhadaResponse
+            {
+                Id = participante.Id,
+                UsuarioId = participante.ParticipanteUsuarioId,
+                NomeExibicao = participante.TipoParticipante == TipoParticipanteDivisao.Externo
+                    ? NormalizarTexto(participante.MotivoResposta) ?? "Participante externo"
+                    : participante.ParticipanteUsuario is null
+                        ? "Participante"
+                        : ObterNomePessoa(
+                            participante.ParticipanteUsuario.Id,
+                            participante.ParticipanteUsuario.Nome,
+                            apelidos),
+                Tipo = participante.TipoParticipante,
+                Percentual = participante.Percentual,
+                Valor = ProjetarValor(participante.Valor),
+                Status = participante.Status,
+                SouEu = participante.ParticipanteUsuarioId == usuarioId,
+                Ativo = participante.Ativo
+            })
+            .ToList();
+
+        var compra = divisao.CompraParcelada;
+        var transacao = divisao.TransacaoOrigem;
+        var origem = compra is not null
+            ? compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito
+                ? "CartaoParcelado"
+                : "Carne"
+            : transacao?.CartaoCreditoId.HasValue == true
+                ? transacao.IsFixa ? "CartaoRecorrente" : "CartaoCredito"
+                : transacao?.IsFixa == true ? "Fixa" : "Avulsa";
+
+        return new DivisaoCompartilhadaResponse
+        {
+            DivisaoId = divisao.Id,
+            Descricao = compra?.Descricao ?? transacao?.Descricao ?? "Despesa compartilhada",
+            DataReferencia = ocorrencias.Max(ocorrencia => ocorrencia.Data),
+            ValorTotal = ProjetarValor(divisao.ValorTotal),
+            ValorTotalSerie = divisao.ValorTotal,
+            MinhaParte = ProjetarValor(participanteAtual.Valor),
+            MeuPercentual = participanteAtual.Percentual,
+            UsuarioCriadorId = divisao.UsuarioCriadorId,
+            NomeCriador = ObterNomePessoa(
+                divisao.UsuarioCriadorId,
+                divisao.UsuarioCriador.Nome,
+                apelidos),
+            MeuPapel = divisao.UsuarioCriadorId == usuarioId ? "Criador" : "Convidado",
+            Origem = origem,
+            Status = divisao.Status,
+            QuantidadeParcelas = quantidadeParcelas,
+            ParcelaInicial = ocorrencias.Min(ocorrencia => ocorrencia.NumeroParcela),
+            ParcelaFinal = ocorrencias.Max(ocorrencia => ocorrencia.NumeroParcela),
+            QuantidadeOcorrenciasPeriodo = ocorrencias.Count,
+            ParticipanteAtualId = participanteAtual.Id,
+            TransacaoLocalId = divisao.UsuarioCriadorId == usuarioId
+                ? divisao.TransacaoOrigemId
+                : participanteAtual.TransacaoGeradaId,
+            CompraParceladaLocalId = divisao.UsuarioCriadorId == usuarioId
+                ? divisao.CompraParceladaId
+                : participanteAtual.CompraParceladaGeradaId,
+            Participantes = participantes
+        };
+    }
+
+    private static IReadOnlyList<OcorrenciaDivisaoCompartilhada> ObterOcorrenciasNoPeriodo(
+        DivisaoTransacao divisao,
+        DateOnly dataInicial,
+        DateOnly dataFinal)
+    {
+        if (divisao.CompraParcelada is { } compra)
+        {
+            var primeiraData = compra.FormaPagamento == FormaPagamentoCompraParcelada.CartaoCredito
+                ? compra.CartaoCredito is null
+                    ? (DateOnly?)null
+                    : CicloFaturaCartaoCalculator.CalcularParaCompra(
+                        compra.CartaoCredito,
+                        compra.DataCompra).DataVencimento
+                : compra.DataPrimeiroVencimento ?? compra.DataCompra;
+            if (!primeiraData.HasValue)
+            {
+                return [];
+            }
+
+            return Enumerable.Range(1, compra.QuantidadeParcelas)
+                .Select(numero => new OcorrenciaDivisaoCompartilhada(
+                    primeiraData.Value.AddMonths(numero - 1),
+                    numero))
+                .Where(ocorrencia => ocorrencia.Data >= dataInicial && ocorrencia.Data <= dataFinal)
+                .ToList();
+        }
+
+        if (divisao.TransacaoOrigem is not { } transacao)
+        {
+            return [];
+        }
+
+        DateOnly ObterDataFinanceira(DateOnly dataOcorrencia)
+        {
+            return transacao.CartaoCredito is null
+                ? dataOcorrencia
+                : CicloFaturaCartaoCalculator.CalcularParaCompra(
+                    transacao.CartaoCredito,
+                    dataOcorrencia).DataVencimento;
+        }
+
+        if (!transacao.IsFixa)
+        {
+            var data = ObterDataFinanceira(transacao.DataOcorrencia);
+            return data >= dataInicial && data <= dataFinal
+                ? [new OcorrenciaDivisaoCompartilhada(data, null)]
+                : [];
+        }
+
+        var ocorrencias = new List<OcorrenciaDivisaoCompartilhada>();
+        var inicioBusca = transacao.CartaoCredito is null
+            ? dataInicial
+            : dataInicial.AddMonths(-1);
+        var referencia = transacao.DataOcorrencia;
+        if (referencia < inicioBusca)
+        {
+            var meses = ((inicioBusca.Year - referencia.Year) * 12) +
+                inicioBusca.Month - referencia.Month;
+            referencia = referencia.AddMonths(Math.Max(0, meses));
+        }
+
+        while (referencia <= dataFinal)
+        {
+            var data = ObterDataFinanceira(referencia);
+            if (data >= dataInicial && data <= dataFinal)
+            {
+                ocorrencias.Add(new OcorrenciaDivisaoCompartilhada(data, null));
+            }
+
+            referencia = referencia.AddMonths(1);
+        }
+
+        return ocorrencias;
+    }
+
+    private static decimal CalcularValorParcela(
+        decimal valorTotal,
+        int quantidadeParcelas,
+        int numeroParcela)
+    {
+        var valorBase = Math.Round(
+            valorTotal / quantidadeParcelas,
+            2,
+            MidpointRounding.AwayFromZero);
+        return numeroParcela == quantidadeParcelas
+            ? valorTotal - (valorBase * (quantidadeParcelas - 1))
+            : valorBase;
+    }
+
+    private static string ObterNomePessoa(
+        Guid usuarioId,
+        string nome,
+        IReadOnlyDictionary<Guid, string?> apelidos)
+    {
+        return apelidos.TryGetValue(usuarioId, out var apelido) &&
+            !string.IsNullOrWhiteSpace(apelido)
+                ? apelido.Trim()
+                : nome;
+    }
+
+    private sealed record OcorrenciaDivisaoCompartilhada(DateOnly Data, int? NumeroParcela);
 
     private DivisaoTransacaoResponse Mapear(
         DivisaoTransacao divisao,

@@ -13,6 +13,7 @@ import type {
   CriarCompraParceladaRequest,
   CriarConviteDivisaoRequest,
   CriarTransacaoRequest,
+  DivisoesCompartilhadas,
   DashboardInicio,
   DivisaoTransacao,
   ExtratoMensal,
@@ -340,6 +341,37 @@ export async function obterDivisaoTransacao(id: string, signal?: AbortSignal) {
   const { data } = await api.get<DivisaoTransacao>(
     `/api/divisoes-transacoes/${id}`,
     { signal },
+  );
+  return data;
+}
+
+export async function listarDivisoesCompartilhadas(
+  params: {
+    dataInicial: string;
+    dataFinal: string;
+    participanteUsuarioId?: string | null;
+    status?: string | null;
+    pagina: number;
+    tamanhoPagina: number;
+  },
+  signal?: AbortSignal,
+) {
+  const requestParams = new URLSearchParams({
+    dataInicial: params.dataInicial,
+    dataFinal: params.dataFinal,
+    pagina: String(params.pagina),
+    tamanhoPagina: String(params.tamanhoPagina),
+  });
+  if (params.participanteUsuarioId) {
+    requestParams.set('participanteUsuarioId', params.participanteUsuarioId);
+  }
+  if (params.status) {
+    requestParams.set('status', params.status);
+  }
+
+  const { data } = await api.get<DivisoesCompartilhadas>(
+    '/api/divisoes-transacoes/compartilhadas',
+    { params: requestParams, signal },
   );
   return data;
 }

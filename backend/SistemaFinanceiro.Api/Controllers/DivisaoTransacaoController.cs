@@ -18,6 +18,29 @@ public sealed class DivisaoTransacaoController : ControllerBase
         _service = service;
     }
 
+    [HttpGet("compartilhadas")]
+    public async Task<ActionResult<DivisoesCompartilhadasResponse>> ListarCompartilhadas(
+        [FromQuery] ListarDivisoesCompartilhadasRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        if (request.DataInicial == default || request.DataFinal == default ||
+            request.DataInicial > request.DataFinal)
+        {
+            return BadRequest(new { message = "Informe um período válido." });
+        }
+
+        return Ok(await _service.ListarCompartilhadasAsync(
+            usuarioId.Value,
+            request,
+            cancellationToken));
+    }
+
     [HttpGet("{divisaoId:guid}")]
     public async Task<ActionResult<DivisaoTransacaoResponse>> Obter(
         Guid divisaoId,

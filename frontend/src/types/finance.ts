@@ -498,6 +498,56 @@ export type DivisaoTransacao = {
   versoes: DivisaoVersao[];
 };
 
+export type DivisaoCompartilhadaParticipante = {
+  id: string;
+  usuarioId: string | null;
+  nomeExibicao: string;
+  tipo: number | string;
+  percentual: number;
+  valor: number;
+  status: number | string;
+  souEu: boolean;
+  ativo: boolean;
+};
+
+export type DivisaoCompartilhada = {
+  divisaoId: string;
+  descricao: string;
+  dataReferencia: string;
+  valorTotal: number;
+  valorTotalSerie: number;
+  minhaParte: number;
+  meuPercentual: number;
+  usuarioCriadorId: string;
+  nomeCriador: string;
+  meuPapel: "Criador" | "Convidado" | string;
+  origem: string;
+  status: number | string;
+  quantidadeParcelas: number;
+  parcelaInicial: number | null;
+  parcelaFinal: number | null;
+  quantidadeOcorrenciasPeriodo: number;
+  participanteAtualId: string | null;
+  transacaoLocalId: string | null;
+  compraParceladaLocalId: string | null;
+  participantes: DivisaoCompartilhadaParticipante[];
+};
+
+export type DivisoesCompartilhadas = {
+  itens: DivisaoCompartilhada[];
+  pessoas: Array<{ usuarioId: string; nomeExibicao: string }>;
+  resumo: {
+    minhaParte: number;
+    valorTotal: number;
+    partePessoaSelecionada: number | null;
+    possuiOutrosParticipantes: boolean;
+  };
+  pagina: number;
+  tamanhoPagina: number;
+  totalItens: number;
+  totalPaginas: number;
+};
+
 export type ReembolsoDivisao = {
   id: string;
   divisaoTransacaoId: string;

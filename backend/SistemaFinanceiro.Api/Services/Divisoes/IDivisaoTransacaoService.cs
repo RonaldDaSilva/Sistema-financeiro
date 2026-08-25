@@ -5,6 +5,7 @@ namespace SistemaFinanceiro.Api.Services.Divisoes;
 public interface IDivisaoTransacaoService
 {
     Task<DivisaoTransacaoResponse?> ObterAsync(Guid usuarioId, Guid divisaoId, CancellationToken cancellationToken = default);
+    Task<DivisoesCompartilhadasResponse> ListarCompartilhadasAsync(Guid usuarioId, ListarDivisoesCompartilhadasRequest request, CancellationToken cancellationToken = default);
     Task<ResolverConvidadoDivisaoResponse> ResolverConvidadoAsync(Guid usuarioId, ResolverConvidadoDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse> CriarConviteAsync(Guid usuarioId, CriarConviteDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> AceitarAsync(Guid usuarioId, Guid participanteId, ClassificarAceiteDivisaoRequest? request = null, CancellationToken cancellationToken = default);

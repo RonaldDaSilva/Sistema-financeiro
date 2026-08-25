@@ -22,12 +22,14 @@ import { NewTransactionModal } from "../components/NewTransactionModal";
 import { PeriodFilter } from "../components/PeriodFilter";
 import { PaymentConfirmationModal } from "../components/PaymentConfirmationModal";
 import { TransactionList } from "../components/TransactionList";
+import { SharedTransactionsList } from "../components/SharedTransactionsList";
 import { DashboardInicioPanel } from "../components/dashboard/DashboardInicioPanel";
 import { useAuth } from "../contexts/useAuth";
 import {
   useCartoesOpcoes,
   useCategorias,
   useContas,
+  useDivisoesCompartilhadas,
   useExtratoMensalPaginado,
   useExtratosMensais,
   useFaturasMensais,
@@ -47,6 +49,7 @@ import type {
   CartaoCreditoOpcao,
   CampoOrdenacaoExtrato,
   DirecaoOrdenacao,
+  DivisaoCompartilhada,
   ExtratoMensal,
   ExtratoMensalItem,
   FaturaConsolidada,
@@ -88,6 +91,8 @@ export function DashboardPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [toastErro, setToastErro] = useState<string | null>(null);
   const [apenasDivididas, setApenasDivididas] = useState(false);
+  const [pessoaCompartilhadaId, setPessoaCompartilhadaId] = useState<string | null>(null);
+  const [statusCompartilhada, setStatusCompartilhada] = useState<string | null>(null);
   const [statusesFiltro, setStatusesFiltro] = useState<StatusFiltro[]>(() =>
     obterStatusesIniciais(searchParams),
   );
@@ -135,7 +140,7 @@ export function DashboardPage() {
   const cartoesQuery = useCartoesOpcoes(isModalOpen);
   const contasQuery = useContas(isModalOpen || Boolean(payingTransaction));
   const configuracoesQuery = useConfiguracoesNotificacao(isModalOpen);
-  const extratosQueries = useExtratosMensais(mesesPeriodo, apenasDivididas);
+  const extratosQueries = useExtratosMensais(mesesPeriodo, false, !apenasDivididas);
   const extratoPaginadoQuery = useExtratoMensalPaginado({
     mes: mesesPeriodo[0]?.mes ?? hoje.getMonth() + 1,
     ano: mesesPeriodo[0]?.ano ?? hoje.getFullYear(),
@@ -149,30 +154,37 @@ export function DashboardPage() {
     statuses: statusesFiltro,
     ordenarPor: ordenacao.campo,
     direcao: ordenacao.direcao,
+    enabled: !apenasDivididas,
   });
-  const faturasQueries = useFaturasMensais(mesesPeriodo);
+  const faturasQueries = useFaturasMensais(mesesPeriodo, !apenasDivididas);
+  const divisoesCompartilhadasQuery = useDivisoesCompartilhadas({
+    dataInicial: toDateInputValue(rangePeriodo.inicio),
+    dataFinal: toDateInputValue(rangePeriodo.fim),
+    participanteUsuarioId: pessoaCompartilhadaId,
+    status: statusCompartilhada,
+    pagina: paginaMovimentacoes,
+    tamanhoPagina: pageSizeMovimentacoes,
+  }, apenasDivididas);
   const categorias = categoriasQuery.data ?? [];
   const cartoes = cartoesQuery.data ?? [];
   const contas = contasQuery.data ?? [];
   const percentualPadraoDivisao =
     configuracoesQuery.data?.percentualPadraoDivisao ?? 50;
-  const isLoading = [
-    categoriasQuery,
-    ...extratosQueries,
-    ...faturasQueries,
-    extratoPaginadoQuery,
-  ].some((query) => query.isLoading);
-  const hasLoadError = [
-    categoriasQuery,
-    ...extratosQueries,
-    ...faturasQueries,
-    extratoPaginadoQuery,
-  ].some((query) => query.isError);
+  const isLoading = categoriasQuery.isLoading || (apenasDivididas
+    ? divisoesCompartilhadasQuery.isLoading
+    : [...extratosQueries, ...faturasQueries, extratoPaginadoQuery]
+        .some((query) => query.isLoading));
+  const hasLoadError = categoriasQuery.isError || (apenasDivididas
+    ? divisoesCompartilhadasQuery.isError
+    : [...extratosQueries, ...faturasQueries, extratoPaginadoQuery]
+        .some((query) => query.isError));
 
   useEffect(() => {
     setPaginaMovimentacoes(1);
   }, [
     apenasDivididas,
+    pessoaCompartilhadaId,
+    statusCompartilhada,
     categoriaIdsFiltro,
     periodo.tipoTransacao,
     rangePeriodo.fim,
@@ -231,6 +243,10 @@ export function DashboardPage() {
   ]);
   const totalPaginasMovimentacoes = extratoPaginadoQuery.data?.totalPages ?? 0;
   const totalMovimentacoes = extratoPaginadoQuery.data?.totalCount ?? 0;
+  const divisoesCompartilhadas = divisoesCompartilhadasQuery.data;
+  const pessoaCompartilhada = divisoesCompartilhadas?.pessoas.find(
+    (pessoa) => pessoa.usuarioId === pessoaCompartilhadaId,
+  );
 
   async function invalidarDadosFinanceiros() {
     await Promise.all([
@@ -366,24 +382,78 @@ export function DashboardPage() {
     setSearchParams(nextParams, { replace: true });
   }
 
-  const resumoDivididas = useMemo(() => {
-    return extratosQueries.reduce(
-      (acc, item) => {
-        const resumo = item.data?.resumoDivididas;
-        if (!resumo) {
-          return acc;
+  const divisaoCompartilhadaMutation = useMutation({
+    mutationFn: async ({
+      acao,
+      item,
+    }: {
+      acao: "aceitar" | "recusar" | "cancelar";
+      item: DivisaoCompartilhada;
+    }) => {
+      if (acao === "aceitar") {
+        if (!item.participanteAtualId) {
+          throw new Error("Participação não encontrada.");
         }
+        return financeService.aceitarDivisao(item.participanteAtualId);
+      }
+      if (acao === "recusar") {
+        if (!item.participanteAtualId) {
+          throw new Error("Participação não encontrada.");
+        }
+        return financeService.recusarDivisao(item.participanteAtualId);
+      }
+      if (item.meuPapel === "Criador") {
+        await financeService.excluirDivisao(item.divisaoId, "EstaOcorrencia");
+      } else if (item.participanteAtualId) {
+        await financeService.cancelarParticipacaoDivisao(item.participanteAtualId);
+      }
+      return null;
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.divisoesCompartilhadasScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.notificacoesNaoLidas }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),
+      ]);
+    },
+    onError: () => {
+      setToastErro("Não foi possível concluir a ação sobre a divisão.");
+      window.setTimeout(() => setToastErro(null), 3500);
+    },
+  });
 
-        acc.totalSuaParte += resumo.totalSuaParte;
-        acc.totalOriginal += resumo.totalOriginal;
-        return acc;
-      },
-      {
-        totalSuaParte: 0,
-        totalOriginal: 0,
-      },
-    );
-  }, [extratosQueries]);
+  async function responderDivisaoCompartilhada(
+    item: DivisaoCompartilhada,
+    acao: "aceitar" | "recusar",
+  ) {
+    if (acao === "recusar") {
+      const confirmou = await confirm({
+        title: "Recusar divisão",
+        message: "Essa despesa não será adicionada ao seu extrato. O criador será notificado.",
+        confirmLabel: "Recusar divisão",
+        variant: "danger",
+      });
+      if (!confirmou) return;
+    }
+    divisaoCompartilhadaMutation.mutate({ acao, item });
+  }
+
+  async function cancelarDivisaoCompartilhada(item: DivisaoCompartilhada) {
+    const criador = item.meuPapel === "Criador";
+    const confirmou = await confirm({
+      title: criador ? "Cancelar divisão" : "Remover participação",
+      message: criador
+        ? "A divisão será cancelada e os participantes afetados serão notificados."
+        : "Sua participação será removida sem afetar os demais participantes.",
+      confirmLabel: criador ? "Cancelar divisão" : "Remover participação",
+      variant: "danger",
+    });
+    if (confirmou) {
+      divisaoCompartilhadaMutation.mutate({ acao: "cancelar", item });
+    }
+  }
 
   const periodoExportacao = useMemo(() => {
     const range = obterRangePeriodo(periodo);
@@ -963,21 +1033,37 @@ export function DashboardPage() {
         </div>
 
         {apenasDivididas ? (
-          <div className="relative z-10 grid gap-6 md:grid-cols-2">
+          <div className={`relative z-10 grid gap-6 ${pessoaCompartilhadaId ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
             <ResumoCard
-              label="Sua parte nestas despesas"
-              value={resumoDivididas.totalSuaParte}
+              label={pessoaCompartilhada
+                ? `Sua parte com ${pessoaCompartilhada.nomeExibicao}`
+                : "Sua parte nas compartilhadas"}
+              value={divisoesCompartilhadas?.resumo.minhaParte ?? 0}
               tone="investment"
               icon="shared"
               hiddenValues={valoresOcultos}
             />
+            {pessoaCompartilhadaId && (
+              <ResumoCard
+                label={`Parte de ${pessoaCompartilhada?.nomeExibicao ?? "pessoa selecionada"}`}
+                value={divisoesCompartilhadas?.resumo.partePessoaSelecionada ?? 0}
+                tone="investment"
+                icon="shared"
+                hiddenValues={valoresOcultos}
+              />
+            )}
             <ResumoCard
-              label="Valor total original"
-              value={resumoDivididas.totalOriginal}
+              label={pessoaCompartilhadaId ? "Valor total das divisões" : "Valor total compartilhado"}
+              value={divisoesCompartilhadas?.resumo.valorTotal ?? 0}
               tone="danger"
               icon="expense"
               hiddenValues={valoresOcultos}
             />
+            {divisoesCompartilhadas?.resumo.possuiOutrosParticipantes && (
+              <p className="md:col-span-3 text-xs text-slate-500 dark:text-slate-400">
+                O valor total também inclui partes de outros participantes nestas divisões.
+              </p>
+            )}
           </div>
         ) : (
           <DashboardInicioPanel
@@ -1003,8 +1089,42 @@ export function DashboardPage() {
                 onClick={() => setApenasDivididas((current) => !current)}
               >
                 <UsersRound size={16} />
-                Apenas Divididas
+                Compartilhadas
               </button>
+              {apenasDivididas && (
+                <>
+                  <label className="sr-only" htmlFor="pessoa-compartilhada">Pessoa</label>
+                  <select
+                    id="pessoa-compartilhada"
+                    className="min-h-10 rounded-lg border border-[color:var(--app-card-border)] bg-[var(--app-card)] px-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    value={pessoaCompartilhadaId ?? ""}
+                    onChange={(event) => setPessoaCompartilhadaId(event.target.value || null)}
+                  >
+                    <option value="">Pessoa: Todas</option>
+                    {(divisoesCompartilhadas?.pessoas ?? []).map((pessoa) => (
+                      <option value={pessoa.usuarioId} key={pessoa.usuarioId}>
+                        {pessoa.nomeExibicao}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="sr-only" htmlFor="status-compartilhada">Status</label>
+                  <select
+                    id="status-compartilhada"
+                    className="min-h-10 rounded-lg border border-[color:var(--app-card-border)] bg-[var(--app-card)] px-3 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    value={statusCompartilhada ?? ""}
+                    onChange={(event) => setStatusCompartilhada(event.target.value || null)}
+                  >
+                    <option value="">Status: Ativas</option>
+                    <option value="Pendente">Pendente</option>
+                    <option value="ParcialmenteAceita">Parcialmente aceita</option>
+                    <option value="Aceita">Aceita</option>
+                    <option value="RecusadaAguardandoDecisao">Recusa pendente</option>
+                    <option value="AlteracaoPendente">Alteração pendente</option>
+                    <option value="Expirada">Expirada</option>
+                    <option value="Cancelada">Cancelada</option>
+                  </select>
+                </>
+              )}
               {isLoading && (
                 <span className="text-sm text-slate-500 dark:text-slate-400">
                   Carregando...
@@ -1019,7 +1139,17 @@ export function DashboardPage() {
           )}
           {!isLoading && (
             <>
-              <TransactionList
+              {apenasDivididas ? (
+                <SharedTransactionsList
+                  items={divisoesCompartilhadas?.itens ?? []}
+                  hiddenValues={valoresOcultos}
+                  isMutating={divisaoCompartilhadaMutation.isPending}
+                  onAccept={(item) => responderDivisaoCompartilhada(item, "aceitar")}
+                  onDecline={(item) => responderDivisaoCompartilhada(item, "recusar")}
+                  onCancel={cancelarDivisaoCompartilhada}
+                />
+              ) : (
+                <TransactionList
                 items={movimentacoesPaginadas}
                 faturas={faturas}
                 ordenacao={ordenacao}
@@ -1041,12 +1171,19 @@ export function DashboardPage() {
                 onDelete={handleDeleteTransacao}
                 onAnticipate={setAnticipatingInstallment}
                 onTogglePagamento={handleTogglePagamento}
-              />
-              {totalMovimentacoes > pageSizeMovimentacoes && (
+                />
+              )}
+              {(apenasDivididas
+                ? (divisoesCompartilhadas?.totalItens ?? 0) > pageSizeMovimentacoes
+                : totalMovimentacoes > pageSizeMovimentacoes) && (
                 <div className="flex flex-col gap-3 rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 sm:flex-row sm:items-center sm:justify-between">
                   <span>
-                    Página {paginaMovimentacoes} de {totalPaginasMovimentacoes} •{" "}
-                    {totalMovimentacoes} movimentações
+                    Página {paginaMovimentacoes} de {apenasDivididas
+                      ? divisoesCompartilhadas?.totalPaginas ?? 0
+                      : totalPaginasMovimentacoes} •{" "}
+                    {apenasDivididas
+                      ? `${divisoesCompartilhadas?.totalItens ?? 0} divisões`
+                      : `${totalMovimentacoes} movimentações`}
                   </span>
                   <div className="flex gap-2">
                     <button
@@ -1063,12 +1200,21 @@ export function DashboardPage() {
                       className="rounded-xl border border-[color:var(--app-card-border)] px-4 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700"
                       type="button"
                       disabled={
-                        totalPaginasMovimentacoes === 0 ||
-                        paginaMovimentacoes >= totalPaginasMovimentacoes
+                        (apenasDivididas
+                          ? divisoesCompartilhadas?.totalPaginas ?? 0
+                          : totalPaginasMovimentacoes) === 0 ||
+                        paginaMovimentacoes >= (apenasDivididas
+                          ? divisoesCompartilhadas?.totalPaginas ?? 0
+                          : totalPaginasMovimentacoes)
                       }
                       onClick={() =>
                         setPaginaMovimentacoes((current) =>
-                          Math.min(totalPaginasMovimentacoes, current + 1),
+                          Math.min(
+                            apenasDivididas
+                              ? divisoesCompartilhadas?.totalPaginas ?? 0
+                              : totalPaginasMovimentacoes,
+                            current + 1,
+                          ),
                         )
                       }
                     >

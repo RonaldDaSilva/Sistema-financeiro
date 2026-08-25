@@ -175,6 +175,82 @@ public sealed class DivisaoTransacaoResponse
     public IReadOnlyList<DivisaoVersaoResponse> Versoes { get; set; } = [];
 }
 
+public sealed class ListarDivisoesCompartilhadasRequest
+{
+    public DateOnly DataInicial { get; set; }
+    public DateOnly DataFinal { get; set; }
+    public Guid? ParticipanteUsuarioId { get; set; }
+    public DivisaoTransacaoStatus? Status { get; set; }
+
+    [Range(1, int.MaxValue)]
+    public int Pagina { get; set; } = 1;
+
+    [Range(1, 100)]
+    public int TamanhoPagina { get; set; } = 25;
+}
+
+public sealed class DivisoesCompartilhadasResponse
+{
+    public IReadOnlyList<DivisaoCompartilhadaResponse> Itens { get; set; } = [];
+    public IReadOnlyList<PessoaDivisaoCompartilhadaResponse> Pessoas { get; set; } = [];
+    public ResumoDivisoesCompartilhadasResponse Resumo { get; set; } = new();
+    public int Pagina { get; set; }
+    public int TamanhoPagina { get; set; }
+    public int TotalItens { get; set; }
+    public int TotalPaginas { get; set; }
+}
+
+public sealed class DivisaoCompartilhadaResponse
+{
+    public Guid DivisaoId { get; set; }
+    public string Descricao { get; set; } = string.Empty;
+    public DateOnly DataReferencia { get; set; }
+    public decimal ValorTotal { get; set; }
+    public decimal ValorTotalSerie { get; set; }
+    public decimal MinhaParte { get; set; }
+    public decimal MeuPercentual { get; set; }
+    public Guid UsuarioCriadorId { get; set; }
+    public string NomeCriador { get; set; } = string.Empty;
+    public string MeuPapel { get; set; } = string.Empty;
+    public string Origem { get; set; } = string.Empty;
+    public DivisaoTransacaoStatus Status { get; set; }
+    public int QuantidadeParcelas { get; set; }
+    public int? ParcelaInicial { get; set; }
+    public int? ParcelaFinal { get; set; }
+    public int QuantidadeOcorrenciasPeriodo { get; set; }
+    public Guid? ParticipanteAtualId { get; set; }
+    public Guid? TransacaoLocalId { get; set; }
+    public Guid? CompraParceladaLocalId { get; set; }
+    public IReadOnlyList<ParticipanteDivisaoCompartilhadaResponse> Participantes { get; set; } = [];
+}
+
+public sealed class ParticipanteDivisaoCompartilhadaResponse
+{
+    public Guid Id { get; set; }
+    public Guid? UsuarioId { get; set; }
+    public string NomeExibicao { get; set; } = string.Empty;
+    public TipoParticipanteDivisao Tipo { get; set; }
+    public decimal Percentual { get; set; }
+    public decimal Valor { get; set; }
+    public DivisaoTransacaoParticipanteStatus Status { get; set; }
+    public bool SouEu { get; set; }
+    public bool Ativo { get; set; }
+}
+
+public sealed class PessoaDivisaoCompartilhadaResponse
+{
+    public Guid UsuarioId { get; set; }
+    public string NomeExibicao { get; set; } = string.Empty;
+}
+
+public sealed class ResumoDivisoesCompartilhadasResponse
+{
+    public decimal MinhaParte { get; set; }
+    public decimal ValorTotal { get; set; }
+    public decimal? PartePessoaSelecionada { get; set; }
+    public bool PossuiOutrosParticipantes { get; set; }
+}
+
 public sealed class DivisaoParticipanteResponse
 {
     public Guid Id { get; set; }

@@ -1918,6 +1918,183 @@ public sealed class DivisaoTransacaoServiceTests
             divisao => Assert.Null(divisao.TransacaoOrigemId));
     }
 
+    [Fact]
+    public async Task ListarCompartilhadasAsync_BilateralRetornaMesmoEventoComPerspectivaDeCadaUsuario()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        transacao.Valor = 600m;
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                TransacaoOrigemId = transacao.Id,
+                EmailConvidado = convidado.Email,
+                PercentualConvidado = 50m
+            });
+        var participante = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
+        await service.AceitarAsync(convidado.Id, participante.Id);
+        var request = CriarFiltroCompartilhadas(transacao.DataOcorrencia);
+
+        var visaoCriador = await service.ListarCompartilhadasAsync(criador.Id, request);
+        var visaoConvidado = await service.ListarCompartilhadasAsync(convidado.Id, request);
+
+        var itemCriador = Assert.Single(visaoCriador.Itens);
+        var itemConvidado = Assert.Single(visaoConvidado.Itens);
+        Assert.Equal(divisao.Id, itemCriador.DivisaoId);
+        Assert.Equal(divisao.Id, itemConvidado.DivisaoId);
+        Assert.Equal(600m, itemCriador.ValorTotal);
+        Assert.Equal(300m, itemCriador.MinhaParte);
+        Assert.Equal(300m, itemConvidado.MinhaParte);
+        Assert.Equal("Criador", itemCriador.MeuPapel);
+        Assert.Equal("Convidado", itemConvidado.MeuPapel);
+        Assert.NotEqual(transacao.Id, itemConvidado.TransacaoLocalId);
+    }
+
+    [Fact]
+    public async Task ListarCompartilhadasAsync_FiltroPessoaFuncionaNasDuasDirecoesEComTerceiro()
+    {
+        var (database, ronald, ana, transacaoRonald, joao) = await CriarCenarioAsync();
+        ana.Nome = "Ana";
+        joao.Nome = "João";
+        transacaoRonald.Valor = 1000m;
+        var service = new DivisaoTransacaoService(database.Context);
+        await service.CriarConviteAsync(
+            ronald.Id,
+            new CriarConviteDivisaoRequest
+            {
+                TransacaoOrigemId = transacaoRonald.Id,
+                ParticipantesUsuarios =
+                [
+                    new() { Email = ana.Email, Percentual = 30m },
+                    new() { Email = joao.Email, Percentual = 30m }
+                ]
+            });
+        var transacaoAna = new Transacao
+        {
+            UsuarioId = ana.Id,
+            CodigoExibicao = 2,
+            Tipo = TipoTransacao.Despesa,
+            Descricao = "Criada por Ana",
+            Valor = 600m,
+            DataOcorrencia = transacaoRonald.DataOcorrencia,
+            FormaPagamento = "Pix"
+        };
+        database.Context.Transacoes.Add(transacaoAna);
+        await database.Context.SaveChangesAsync();
+        using var contextoAna = database.CreateContext(ana.Id);
+        var serviceAna = new DivisaoTransacaoService(contextoAna);
+        await serviceAna.CriarConviteAsync(
+            ana.Id,
+            new CriarConviteDivisaoRequest
+            {
+                TransacaoOrigemId = transacaoAna.Id,
+                EmailConvidado = ronald.Email,
+                PercentualConvidado = 50m
+            });
+        var request = CriarFiltroCompartilhadas(transacaoRonald.DataOcorrencia);
+        request.ParticipanteUsuarioId = ana.Id;
+
+        var response = await service.ListarCompartilhadasAsync(ronald.Id, request);
+
+        Assert.Equal(2, response.TotalItens);
+        var tresParticipantes = response.Itens.Single(item => item.ValorTotal == 1000m);
+        Assert.Equal(400m, tresParticipantes.MinhaParte);
+        Assert.Equal(300m, tresParticipantes.Participantes.Single(item => item.UsuarioId == ana.Id).Valor);
+        Assert.Equal(300m, tresParticipantes.Participantes.Single(item => item.UsuarioId == joao.Id).Valor);
+        Assert.Equal(600m, response.Resumo.PartePessoaSelecionada);
+        Assert.True(response.Resumo.PossuiOutrosParticipantes);
+    }
+
+    [Fact]
+    public async Task ListarCompartilhadasAsync_CompraParceladaRetornaUmaLinhaESomenteCompetenciaDoPeriodo()
+    {
+        var (database, criador, convidado, _, _) = await CriarCenarioAsync();
+        var categoria = await CriarCategoriaGlobalAsync(database.Context);
+        var compra = await CriarCompraParceladaAsync(
+            database.Context,
+            criador.Id,
+            categoria.Id,
+            1200m,
+            12,
+            new DateOnly(2026, 8, 10));
+        var service = new DivisaoTransacaoService(database.Context);
+        await service.CriarConviteAsync(
+            criador.Id,
+            new CriarConviteDivisaoRequest
+            {
+                CompraParceladaId = compra.Id,
+                EmailConvidado = convidado.Email,
+                PercentualConvidado = 40m
+            });
+
+        var response = await service.ListarCompartilhadasAsync(
+            criador.Id,
+            CriarFiltroCompartilhadas(new DateOnly(2026, 9, 10)));
+
+        var item = Assert.Single(response.Itens);
+        Assert.Equal(100m, item.ValorTotal);
+        Assert.Equal(60m, item.MinhaParte);
+        Assert.Equal(2, item.ParcelaInicial);
+        Assert.Equal(2, item.ParcelaFinal);
+        Assert.Equal(1200m, item.ValorTotalSerie);
+    }
+
+    [Fact]
+    public async Task ListarCompartilhadasAsync_CartaoUsaVencimentoDaFaturaSemExporInstrumento()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var cartao = await CriarCartaoAsync(database.Context, criador.Id);
+        cartao.MelhorDiaCompra = 20;
+        cartao.DiaVencimento = 8;
+        transacao.DataOcorrencia = new DateOnly(2026, 8, 15);
+        transacao.CartaoCreditoId = cartao.Id;
+        transacao.FormaPagamento = "Cartão de crédito";
+        await database.Context.SaveChangesAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        await CriarConvitePadraoAsync(service, criador, convidado, transacao);
+
+        var agosto = await service.ListarCompartilhadasAsync(
+            convidado.Id,
+            CriarFiltroCompartilhadas(new DateOnly(2026, 8, 1)));
+        var setembro = await service.ListarCompartilhadasAsync(
+            convidado.Id,
+            CriarFiltroCompartilhadas(new DateOnly(2026, 9, 1)));
+
+        Assert.Empty(agosto.Itens);
+        var item = Assert.Single(setembro.Itens);
+        Assert.Equal(new DateOnly(2026, 9, 8), item.DataReferencia);
+        Assert.Equal("CartaoCredito", item.Origem);
+        Assert.Null(item.TransacaoLocalId);
+    }
+
+    [Fact]
+    public async Task ListarCompartilhadasAsync_UsuarioAlheioNaoVisualizaDivisao()
+    {
+        var (database, criador, convidado, transacao, outro) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarConvitePadraoAsync(service, criador, convidado, transacao);
+
+        var lista = await service.ListarCompartilhadasAsync(
+            outro.Id,
+            CriarFiltroCompartilhadas(transacao.DataOcorrencia));
+        var detalhe = await service.ObterAsync(outro.Id, divisao.Id);
+
+        Assert.Empty(lista.Itens);
+        Assert.Null(detalhe);
+    }
+
+    private static ListarDivisoesCompartilhadasRequest CriarFiltroCompartilhadas(DateOnly data)
+    {
+        return new ListarDivisoesCompartilhadasRequest
+        {
+            DataInicial = new DateOnly(data.Year, data.Month, 1),
+            DataFinal = new DateOnly(data.Year, data.Month, DateTime.DaysInMonth(data.Year, data.Month)),
+            Pagina = 1,
+            TamanhoPagina = 25
+        };
+    }
+
     private static async Task<DivisaoTransacaoResponse> CriarConvitePadraoAsync(
         DivisaoTransacaoService service,
         Usuario criador,
