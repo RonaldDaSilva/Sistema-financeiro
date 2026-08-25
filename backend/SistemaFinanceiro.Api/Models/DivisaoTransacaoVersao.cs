@@ -37,4 +37,6 @@ public sealed class DivisaoTransacaoVersao : IHasGuidId, IMustHaveTenant
     public string? MotivoResposta { get; set; }
 
     public DivisaoTransacao DivisaoTransacao { get; set; } = null!;
+    public ICollection<DivisaoTransacaoVersaoParticipante> Participantes { get; set; } =
+        new List<DivisaoTransacaoVersaoParticipante>();
 }

@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TransactionForm } from "./TransactionForm";
+import { AuthContext } from "../contexts/authContextCore";
 import type {
   CartaoCreditoOpcao,
   Categoria,
@@ -15,6 +16,8 @@ const serviceMocks = vi.hoisted(() => ({
   listarReembolsosPendentes: vi.fn(),
   resolverConvidadoDivisao: vi.fn(),
   criarConviteDivisao: vi.fn(),
+  obterDivisaoTransacao: vi.fn(),
+  proporAlteracaoDivisao: vi.fn(),
 }));
 
 vi.mock("../services/financeService", () => serviceMocks);
@@ -84,14 +87,27 @@ function criarItemExtrato(overrides: Partial<ExtratoMensalItem> = {}): ExtratoMe
   };
 }
 
-function renderForm(overrides = {}) {
+function renderForm(
+  overrides = {},
+  authUser = { id: "user-1", nome: "Usuário", email: "user@email.com" },
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
 
   return render(
-    <QueryClientProvider client={queryClient}>
-      <TransactionForm
+    <AuthContext.Provider value={{
+      user: authUser,
+      session: null,
+      isAuthenticated: true,
+      isAuthRestoring: false,
+      login: vi.fn(),
+      register: vi.fn(),
+      updateUser: vi.fn(),
+      logout: vi.fn(),
+    }}>
+      <QueryClientProvider client={queryClient}>
+        <TransactionForm
         variant="page"
         categorias={categorias}
         cartoes={cartoes}
@@ -101,8 +117,9 @@ function renderForm(overrides = {}) {
         onCreateTransacao={vi.fn().mockResolvedValue(undefined)}
         onCreateCompraParcelada={vi.fn().mockResolvedValue(undefined)}
         {...overrides}
-      />
-    </QueryClientProvider>,
+        />
+      </QueryClientProvider>
+    </AuthContext.Provider>,
   );
 }
 
@@ -118,6 +135,25 @@ describe("TransactionForm", () => {
       identificador: "user-2",
     });
     serviceMocks.criarConviteDivisao.mockResolvedValue({ id: "div-1" });
+    serviceMocks.proporAlteracaoDivisao.mockResolvedValue({ id: "div-1" });
+    serviceMocks.obterDivisaoTransacao.mockResolvedValue({
+      id: "div-1",
+      usuarioCriadorId: "user-1",
+      transacaoOrigemId: "tx-vinculada-1",
+      compraParceladaId: null,
+      descricaoOrigem: "Restaurante",
+      valorTotal: 1000,
+      status: "Pendente",
+      versaoAtual: 1,
+      quantidadeReenvios: 0,
+      criadoEm: "2026-08-01T00:00:00Z",
+      atualizadoEm: "2026-08-01T00:00:00Z",
+      participantes: [
+        { id: "criador-1", participanteUsuarioId: "user-1", nomeExibicao: "Usuário", tipoParticipante: "Criador", percentual: 60, valor: 600, status: "Aceito", versaoConvite: 1, expiraEm: null, transacaoGeradaId: null, ativo: true },
+        { id: "part-1", participanteUsuarioId: "user-2", nomeExibicao: "Maria", tipoParticipante: "UsuarioSistema", percentual: 40, valor: 400, status: "Pendente", versaoConvite: 1, expiraEm: null, transacaoGeradaId: null, ativo: true },
+      ],
+      versoes: [],
+    });
   });
 
   it("cria receita usando a mesma transformação de request do modal", async () => {
@@ -288,9 +324,9 @@ describe("TransactionForm", () => {
     await user.type(busca, "maria");
     await user.click(screen.getByRole("button", { name: "Buscar" }));
 
-    expect(await screen.findByRole("button", { name: "Selecionar contato Amor" }))
-      .toHaveAttribute("aria-pressed", "true");
-    expect(busca).toHaveValue("Amor");
+    expect((await screen.findAllByText("Amor")).length).toBeGreaterThan(0);
+    expect(busca).toHaveValue("");
+    expect(screen.getByLabelText("Percentual de Amor")).toBeInTheDocument();
     expect(serviceMocks.resolverConvidadoDivisao).not.toHaveBeenCalled();
   });
 
@@ -312,9 +348,11 @@ describe("TransactionForm", () => {
     );
     await user.click(screen.getByRole("button", { name: "Buscar" }));
     await screen.findByText("Salvar nos meus contatos");
-    await user.click(screen.getByLabelText("Existe também uma parte de pessoa externa"));
-    await user.clear(screen.getByDisplayValue("0"));
-    await user.type(screen.getByLabelText("Percentual da parte externa"), "10");
+    await user.clear(screen.getByLabelText("Percentual de Maria"));
+    await user.type(screen.getByLabelText("Percentual de Maria"), "30");
+    await user.click(screen.getByRole("button", { name: "Pessoa externa" }));
+    await user.clear(screen.getByLabelText("Percentual da pessoa externa 1"));
+    await user.type(screen.getByLabelText("Percentual da pessoa externa 1"), "10");
     await user.click(screen.getByRole("button", { name: "Salvar transação" }));
 
     await waitFor(() => expect(serviceMocks.criarConviteDivisao).toHaveBeenCalled());
@@ -328,7 +366,9 @@ describe("TransactionForm", () => {
         ],
         participantesExternos: [
           {
+            modoDefinicao: "Percentual",
             percentual: 10,
+            valor: null,
             nome: null,
           },
         ],
@@ -462,8 +502,13 @@ describe("TransactionForm", () => {
     expect(serviceMocks.criarConviteDivisao).not.toHaveBeenCalled();
   });
 
-  it("bloqueia edição comum quando já existe divisão vinculada", () => {
+  it("envia alteração econômica existente como proposta", async () => {
+    const user = userEvent.setup();
     const onUpdateTransacao = vi.fn().mockResolvedValue(undefined);
+    serviceMocks.obterDivisaoTransacao.mockResolvedValue({
+      ...await serviceMocks.obterDivisaoTransacao(),
+      status: "Aceita",
+    });
 
     renderForm({
       initialTransaction: criarItemExtrato({
@@ -478,10 +523,54 @@ describe("TransactionForm", () => {
       onUpdateTransacao,
     });
 
-    expect(screen.getByText("Divisão vinculada existente")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Use alteração da divisão" })).toBeDisabled();
-    expect(screen.getByLabelText("Minha parte")).toBeDisabled();
+    expect(await screen.findByText("Divisão vinculada existente")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Enviar proposta" }, { timeout: 3000 })).toBeEnabled();
+    expect(screen.getByLabelText("Minha parte")).toBeEnabled();
+    await user.clear(screen.getByLabelText("Minha parte"));
+    await user.type(screen.getByLabelText("Minha parte"), "55");
+    await user.clear(screen.getByLabelText("Percentual de Maria"));
+    await user.type(screen.getByLabelText("Percentual de Maria"), "45");
+    await user.click(screen.getByRole("button", { name: "Enviar proposta" }));
+    await waitFor(() => expect(serviceMocks.proporAlteracaoDivisao).toHaveBeenCalledWith(
+      "div-1",
+      expect.objectContaining({
+        participantes: [{ participanteId: "part-1", percentual: 45 }],
+      }),
+    ));
     expect(serviceMocks.criarConviteDivisao).not.toHaveBeenCalled();
+  });
+
+  it("permite ao convidado editar data e categoria sem alterar valor econômico", async () => {
+    const user = userEvent.setup();
+    const onUpdateTransacao = vi.fn().mockResolvedValue(undefined);
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: "tx-convidado-1",
+        valor: 400,
+        isDividida: true,
+        valorTotalOriginal: 1000,
+        percentualDivisao: 40,
+        divisaoTransacaoId: "div-1",
+        statusDivisao: "Aceita",
+      }),
+      onUpdateTransacao,
+    }, { id: "user-2", nome: "Maria", email: "maria@email.com" });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar" })).toBeEnabled());
+    expect(screen.getByLabelText("Minha parte")).toBeDisabled();
+    await user.clear(screen.getByLabelText("Data"));
+    await user.type(screen.getByLabelText("Data"), "2026-09-05");
+    await user.selectOptions(screen.getByLabelText("Categoria"), "cat-1");
+    await user.click(screen.getByRole("button", { name: "Atualizar" }));
+    await waitFor(() => expect(onUpdateTransacao).toHaveBeenCalledWith(
+      "tx-convidado-1",
+      expect.objectContaining({
+        dataOcorrencia: "2026-09-05",
+        valor: 400,
+        percentualDivisao: 40,
+      }),
+    ));
+    expect(serviceMocks.proporAlteracaoDivisao).not.toHaveBeenCalled();
   });
 
   it("converte manual existente para vinculada com parte externa", async () => {
@@ -506,9 +595,11 @@ describe("TransactionForm", () => {
     );
     await user.click(screen.getByRole("button", { name: "Buscar" }));
     await screen.findByText("Salvar nos meus contatos");
-    await user.click(screen.getByLabelText("Existe também uma parte de pessoa externa"));
-    await user.clear(screen.getByDisplayValue("0"));
-    await user.type(screen.getByLabelText("Percentual da parte externa"), "10");
+    await user.clear(screen.getByLabelText("Percentual de Maria"));
+    await user.type(screen.getByLabelText("Percentual de Maria"), "30");
+    await user.click(screen.getByRole("button", { name: "Pessoa externa" }));
+    await user.clear(screen.getByLabelText("Percentual da pessoa externa 1"));
+    await user.type(screen.getByLabelText("Percentual da pessoa externa 1"), "10");
     await user.click(screen.getByRole("button", { name: "Atualizar" }));
 
     await waitFor(() => expect(serviceMocks.criarConviteDivisao).toHaveBeenCalled());
@@ -522,7 +613,9 @@ describe("TransactionForm", () => {
         ],
         participantesExternos: [
           {
+            modoDefinicao: "Percentual",
             percentual: 10,
+            valor: null,
             nome: null,
           },
         ],
@@ -574,6 +667,58 @@ describe("TransactionForm", () => {
             }),
           ],
         }),
+      }),
+    );
+  });
+
+  it("edita descrição de compra parcelada vinculada sem recriar a divisão", async () => {
+    const user = userEvent.setup();
+    const onUpdateCompraParcelada = vi.fn().mockResolvedValue(undefined);
+    serviceMocks.obterDivisaoTransacao.mockResolvedValue({
+      ...await serviceMocks.obterDivisaoTransacao(),
+      compraParceladaId: "compra-vinculada-1",
+      transacaoOrigemId: null,
+      valorTotal: 200,
+      status: "Pendente",
+      participantes: [
+        { id: "criador-1", participanteUsuarioId: "user-1", nomeExibicao: "Usuário", tipoParticipante: "Criador", percentual: 60, valor: 120, status: "Aceito", versaoConvite: 1, expiraEm: null, compraParceladaGeradaId: null, ativo: true },
+        { id: "part-1", participanteUsuarioId: "user-2", nomeExibicao: "Maria", tipoParticipante: "UsuarioSistema", percentual: 40, valor: 80, status: "Pendente", versaoConvite: 1, expiraEm: null, compraParceladaGeradaId: null, ativo: true },
+      ],
+    });
+
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: null,
+        descricao: "Teste divisão",
+        valor: 60,
+        isDividida: true,
+        valorTotalOriginal: 100,
+        percentualDivisao: 60,
+        origem: "CompraParcelada",
+        formaPagamento: "Cartão de crédito",
+        cartaoCreditoId: "cartao-1",
+        compraParceladaId: "compra-vinculada-1",
+        numeroParcela: 1,
+        quantidadeParcelas: 2,
+        divisaoTransacaoId: "div-1",
+        statusDivisao: "Pendente",
+      }),
+      onUpdateCompraParcelada,
+    });
+
+    await screen.findByText("Divisão vinculada existente");
+    await user.clear(screen.getByLabelText("Descrição"));
+    await user.type(screen.getByLabelText("Descrição"), "Teste divisão editado");
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+
+    await waitFor(() => expect(onUpdateCompraParcelada).toHaveBeenCalledTimes(1));
+    expect(onUpdateCompraParcelada).toHaveBeenCalledWith(
+      "compra-vinculada-1",
+      1,
+      expect.any(String),
+      expect.objectContaining({
+        descricao: "Teste divisão editado",
+        divisaoVinculada: null,
       }),
     );
   });
@@ -658,13 +803,124 @@ describe("TransactionForm", () => {
     );
     await user.click(screen.getByRole("button", { name: "Buscar" }));
     await screen.findByText("Salvar nos meus contatos");
-    await user.click(screen.getByLabelText("Existe também uma parte de pessoa externa"));
-    await user.clear(screen.getByDisplayValue("0"));
-    await user.type(screen.getByLabelText("Percentual da parte externa"), "10");
+    await user.click(screen.getByRole("button", { name: "Pessoa externa" }));
+    await user.clear(screen.getByLabelText("Percentual da pessoa externa 1"));
+    await user.type(screen.getByLabelText("Percentual da pessoa externa 1"), "10");
     await user.click(screen.getByRole("button", { name: "Salvar transação" }));
 
-    expect(await screen.findByText("A soma entre você, convidado e parte externa deve fechar em 100%.")).toBeInTheDocument();
+    expect((await screen.findAllByText(/distribuição excede o total/i)).length).toBeGreaterThan(0);
     expect(onCreateTransacao).not.toHaveBeenCalled();
+  });
+
+  it("mantém percentual decimal com vírgula e envia número decimal", async () => {
+    const user = userEvent.setup();
+    const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
+    renderForm({ onCreateTransacao });
+
+    await user.type(screen.getByPlaceholderText("0,00"), "10000");
+    await user.type(screen.getByLabelText("Descrição"), "Despesa decimal");
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.clear(screen.getByLabelText("Minha parte"));
+    await user.type(screen.getByLabelText("Minha parte"), "87,5");
+    await user.type(screen.getByPlaceholderText("Buscar contato ou informar e-mail"), "maria@email.com");
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+
+    expect(await screen.findByLabelText("Percentual de Maria")).toHaveValue("12,5");
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+    await waitFor(() => expect(serviceMocks.criarConviteDivisao).toHaveBeenCalled());
+    expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(expect.objectContaining({
+      participantesUsuarios: [expect.objectContaining({ percentual: 12.5 })],
+    }));
+  });
+
+  it("adiciona vários usuários sem substituir os anteriores", async () => {
+    const user = userEvent.setup();
+    const nomes: Record<string, [string, string]> = {
+      "joao@email.com": ["João", "user-2"],
+      "maria@email.com": ["Maria", "user-3"],
+      "pedro@email.com": ["Pedro", "user-4"],
+    };
+    serviceMocks.resolverConvidadoDivisao.mockImplementation(async (email: string) => ({
+      encontrado: true,
+      nomeExibicao: nomes[email][0],
+      emailMascarado: `${email.slice(0, 2)}***@email.com`,
+      identificador: nomes[email][1],
+    }));
+    const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
+    renderForm({ onCreateTransacao });
+    await user.type(screen.getByPlaceholderText("0,00"), "100000");
+    await user.type(screen.getByLabelText("Descrição"), "Compra compartilhada");
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.clear(screen.getByLabelText("Minha parte"));
+    await user.type(screen.getByLabelText("Minha parte"), "40");
+
+    for (const email of Object.keys(nomes)) {
+      await user.type(screen.getByPlaceholderText("Buscar contato ou informar e-mail"), email);
+      await user.click(screen.getByRole("button", { name: "Buscar" }));
+    }
+    for (const [nome, percentual] of [["João", "20"], ["Maria", "25"], ["Pedro", "15"]]) {
+      const input = screen.getByLabelText(`Percentual de ${nome}`);
+      await user.clear(input);
+      await user.type(input, percentual);
+    }
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+    await waitFor(() => expect(serviceMocks.criarConviteDivisao).toHaveBeenCalled());
+    expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(expect.objectContaining({
+      participantesUsuarios: expect.arrayContaining([
+        expect.objectContaining({ email: "joao@email.com", percentual: 20 }),
+        expect.objectContaining({ email: "maria@email.com", percentual: 25 }),
+        expect.objectContaining({ email: "pedro@email.com", percentual: 15 }),
+      ]),
+    }));
+  });
+
+  it("remove somente o participante escolhido e bloqueia contato duplicado", async () => {
+    const user = userEvent.setup();
+    serviceMocks.listarContatosDivisao.mockResolvedValue([
+      { id: "contato-1", usuarioContatoId: "user-2", nomeExibicao: "João", emailMascarado: "jo***@email.com", apelido: null, ultimoUsoEm: null, criadoEm: "2026-08-01", ativo: true },
+      { id: "contato-2", usuarioContatoId: "user-3", nomeExibicao: "Maria", emailMascarado: "ma***@email.com", apelido: null, ultimoUsoEm: null, criadoEm: "2026-08-01", ativo: true },
+    ]);
+    renderForm();
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.click(await screen.findByRole("button", { name: "Selecionar contato João" }));
+    const contatoJoao = screen.getByRole("button", { name: "Selecionar contato João" });
+    expect(contatoJoao).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Selecionar contato Maria" }));
+    await user.click(screen.getByRole("button", { name: "Remover Maria" }));
+    expect(screen.getByLabelText("Percentual de João")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Percentual de Maria")).not.toBeInTheDocument();
+  });
+
+  it("preserva valor em reais de participante externo", async () => {
+    const user = userEvent.setup();
+    const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
+    renderForm({ onCreateTransacao });
+    await user.type(screen.getByPlaceholderText("0,00"), "20000");
+    await user.type(screen.getByLabelText("Descrição"), "Compra com externo");
+    await user.click(screen.getByLabelText("Dividir esta transação"));
+    await user.click(screen.getByLabelText("Dividir com outra pessoa"));
+    await user.type(screen.getByPlaceholderText("Buscar contato ou informar e-mail"), "maria@email.com");
+    await user.click(screen.getByRole("button", { name: "Buscar" }));
+    await user.clear(screen.getByLabelText("Percentual de Maria"));
+    await user.type(screen.getByLabelText("Percentual de Maria"), "6,29");
+    await user.click(screen.getByRole("button", { name: "Pessoa externa" }));
+    await user.click(screen.getByRole("button", { name: "R$" }));
+    const valorExterno = screen.getByLabelText("Valor da pessoa externa 1");
+    await user.clear(valorExterno);
+    await user.type(valorExterno, "8742");
+    expect(valorExterno).toHaveValue("R$ 87,42");
+    await user.click(screen.getByRole("button", { name: "Salvar transação" }));
+    await waitFor(() => expect(serviceMocks.criarConviteDivisao).toHaveBeenCalled());
+    expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(expect.objectContaining({
+      participantesExternos: [expect.objectContaining({
+        modoDefinicao: "Valor",
+        valor: 87.42,
+        percentual: null,
+      })],
+    }));
   });
 
   it("vincula receita a reembolso pendente", async () => {

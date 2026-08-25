@@ -34,6 +34,10 @@ export function ReportsPage() {
   const previousMonth = shiftReportMonth(monthValue, -1);
   const nextMonth = shiftReportMonth(monthValue, 1);
   const resumo = resumoQuery.data;
+  const mesSelecionado = parseReportMonth(monthValue);
+  const hoje = new Date();
+  const mesFuturo = mesSelecionado.ano > hoje.getFullYear() ||
+    (mesSelecionado.ano === hoje.getFullYear() && mesSelecionado.mes > hoje.getMonth() + 1);
 
   const selectMonth = useCallback((value: string) => {
     setSearchParams(buildReportMonthSearchParams(value));
@@ -127,11 +131,15 @@ export function ReportsPage() {
             tooltip="Receitas realizadas, sem tratar reembolsos de divisão como renda normal."
           />
           <SummaryCard
-            title="Despesas"
-            value={resumo?.despesasRealizadas}
-            helper={resumo && resumo.despesasPrevistas > resumo.despesasRealizadas
-              ? `Previsto até o fim do mês: ${formatCurrency(resumo.despesasPrevistas)}`
-              : "Gasto no mês"}
+            title={mesFuturo ? "Despesas previstas" : "Despesas"}
+            value={mesFuturo ? resumo?.despesasPrevistas : resumo?.despesasRealizadas}
+            helper={mesFuturo
+              ? resumo && resumo.despesasRealizadas > 0
+                ? `Pago/realizado: ${formatCurrency(resumo.despesasRealizadas)}`
+                : "Total conhecido para o mês"
+              : resumo && resumo.despesasPrevistas > resumo.despesasRealizadas
+                ? `Previsto até o fim do mês: ${formatCurrency(resumo.despesasPrevistas)}`
+                : "Gasto no mês"}
             tone="negative"
             icon={<ArrowDownRight size={20} />}
             loading={resumoQuery.isLoading}

@@ -33,6 +33,8 @@ public sealed class AppDbContext : DbContext
     public DbSet<DivisaoTransacao> DivisoesTransacoes => Set<DivisaoTransacao>();
     public DbSet<DivisaoTransacaoParticipante> DivisoesTransacoesParticipantes => Set<DivisaoTransacaoParticipante>();
     public DbSet<DivisaoTransacaoVersao> DivisoesTransacoesVersoes => Set<DivisaoTransacaoVersao>();
+    public DbSet<DivisaoTransacaoVersaoParticipante> DivisoesTransacoesVersoesParticipantes =>
+        Set<DivisaoTransacaoVersaoParticipante>();
     public DbSet<ReembolsoDivisao> ReembolsosDivisao => Set<ReembolsoDivisao>();
     public DbSet<ContatoDivisao> ContatosDivisao => Set<ContatoDivisao>();
     public DbSet<ContatoEmprestimo> ContatosEmprestimos => Set<ContatoEmprestimo>();
@@ -63,6 +65,7 @@ public sealed class AppDbContext : DbContext
         ConfigureDivisaoTransacao(modelBuilder);
         ConfigureDivisaoTransacaoParticipante(modelBuilder);
         ConfigureDivisaoTransacaoVersao(modelBuilder);
+        ConfigureDivisaoTransacaoVersaoParticipante(modelBuilder);
         ConfigureReembolsoDivisao(modelBuilder);
         ConfigureContatoDivisao(modelBuilder);
         ConfigureContatoEmprestimo(modelBuilder);
@@ -825,6 +828,9 @@ public sealed class AppDbContext : DbContext
             entity.Property(notificacao => notificacao.EntidadeId)
                 .HasColumnName("entidade_id");
 
+            entity.Property(notificacao => notificacao.ParticipanteDivisaoId)
+                .HasColumnName("id_participante_divisao");
+
             entity.Property(notificacao => notificacao.Rota)
                 .HasColumnName("rota")
                 .HasMaxLength(240);
@@ -854,7 +860,8 @@ public sealed class AppDbContext : DbContext
                 notificacao.Entidade,
                 notificacao.EntidadeId,
                 notificacao.TipoNotificacao,
-                notificacao.Versao
+                notificacao.Versao,
+                notificacao.ParticipanteDivisaoId
             });
         });
     }
@@ -1136,6 +1143,13 @@ public sealed class AppDbContext : DbContext
                 .HasPrecision(18, 2)
                 .IsRequired();
 
+            entity.Property(participante => participante.ModoDefinicao)
+                .HasColumnName("modo_definicao")
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .HasDefaultValue(ModoDefinicaoParticipacaoDivisao.Percentual)
+                .IsRequired();
+
             entity.Property(participante => participante.Status)
                 .HasColumnName("status")
                 .HasConversion<string>()
@@ -1412,6 +1426,56 @@ public sealed class AppDbContext : DbContext
     }
 
     private static void ConfigureReembolsoDivisao(ModelBuilder modelBuilder)
+    {
+        ConfigureReembolsoDivisaoEntity(modelBuilder);
+    }
+
+    private static void ConfigureDivisaoTransacaoVersaoParticipante(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DivisaoTransacaoVersaoParticipante>(entity =>
+        {
+            entity.ToTable("divisoes_transacoes_versoes_participantes");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(item => item.UsuarioId).HasColumnName("id_usuario").IsRequired();
+            entity.Property(item => item.DivisaoTransacaoVersaoId)
+                .HasColumnName("id_divisao_transacao_versao").IsRequired();
+            entity.Property(item => item.DivisaoTransacaoParticipanteId)
+                .HasColumnName("id_divisao_transacao_participante").IsRequired();
+            entity.Property(item => item.PercentualAnterior)
+                .HasColumnName("percentual_anterior").HasPrecision(5, 2).IsRequired();
+            entity.Property(item => item.PercentualProposto)
+                .HasColumnName("percentual_proposto").HasPrecision(5, 2).IsRequired();
+            entity.Property(item => item.ValorAnterior)
+                .HasColumnName("valor_anterior").HasPrecision(18, 2).IsRequired();
+            entity.Property(item => item.ValorProposto)
+                .HasColumnName("valor_proposto").HasPrecision(18, 2).IsRequired();
+            entity.Property(item => item.Status)
+                .HasColumnName("status").HasConversion<string>().HasMaxLength(30).IsRequired();
+            entity.Property(item => item.RespondidoEm).HasColumnName("respondido_em");
+            entity.Property(item => item.MotivoResposta)
+                .HasColumnName("motivo_resposta").HasMaxLength(500);
+
+            entity.HasOne(item => item.DivisaoTransacaoVersao)
+                .WithMany(versao => versao.Participantes)
+                .HasForeignKey(item => item.DivisaoTransacaoVersaoId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.DivisaoTransacaoParticipante)
+                .WithMany(participante => participante.Alteracoes)
+                .HasForeignKey(item => item.DivisaoTransacaoParticipanteId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(item => item.UsuarioId);
+            entity.HasIndex(item => item.DivisaoTransacaoParticipanteId);
+            entity.HasIndex(item => new
+            {
+                item.DivisaoTransacaoVersaoId,
+                item.DivisaoTransacaoParticipanteId
+            }).IsUnique();
+        });
+    }
+
+    private static void ConfigureReembolsoDivisaoEntity(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ReembolsoDivisao>(entity =>
         {

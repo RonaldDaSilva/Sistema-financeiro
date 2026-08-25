@@ -10,8 +10,11 @@ public interface IDivisaoTransacaoService
     Task<DivisaoTransacaoResponse?> AceitarAsync(Guid usuarioId, Guid participanteId, ClassificarAceiteDivisaoRequest? request = null, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> RecusarAsync(Guid usuarioId, Guid participanteId, RecusarDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> AssumirValorAsync(Guid usuarioId, Guid divisaoId, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> AssumirValorParticipanteAsync(Guid usuarioId, Guid participanteId, CancellationToken cancellationToken = default);
+    Task<DivisaoTransacaoResponse?> ManterParteCriadorAsync(Guid usuarioId, Guid participanteId, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> ReenviarAsync(Guid usuarioId, Guid divisaoId, ReenviarDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<bool> ExcluirAsync(Guid usuarioId, Guid divisaoId, ExcluirDivisaoRequest request, CancellationToken cancellationToken = default);
+    Task<bool> CancelarParticipacaoAsync(Guid usuarioId, Guid participanteId, CancellationToken cancellationToken = default);
     Task<int> ProcessarExpiracoesAsync(DateTimeOffset agora, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> ProporAlteracaoAsync(Guid usuarioId, Guid divisaoId, ProporAlteracaoDivisaoRequest request, CancellationToken cancellationToken = default);
     Task<DivisaoTransacaoResponse?> AceitarAlteracaoAsync(Guid usuarioId, Guid versaoId, CancellationToken cancellationToken = default);

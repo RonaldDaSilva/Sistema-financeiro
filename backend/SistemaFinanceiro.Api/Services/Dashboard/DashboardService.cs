@@ -83,7 +83,8 @@ public sealed class DashboardService : IDashboardService
             .Sum(item => item.Valor);
 
         var despesasEmAberto = despesasPendentes + investimentosPendentes;
-        var saldoPrevistoFimDoPeriodo = saldoAtual - despesasEmAberto;
+        var saldoPrevistoFimDoPeriodo =
+            saldoAtual + receitasPendentes - despesasPendentes - investimentosPendentes;
 
         var limiteProximosSeteDias = hoje.AddDays(7);
         var proximosLancamentos = await ObterProximosLancamentosAsync(

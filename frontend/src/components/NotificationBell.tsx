@@ -110,6 +110,7 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
       | "recusar"
       | "assumir"
       | "reenviar"
+      | "manter-parte"
       | "excluir"
       | "aceitar-alteracao"
       | "recusar-alteracao"
@@ -122,16 +123,22 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
     if (acao === "recusar" && !window.confirm("Essa despesa não será adicionada ao seu extrato. O criador será notificado.")) {
       return;
     }
-    if (acao === "assumir" && !window.confirm(`Você passará a assumir ${formatCurrency(valorRecusado(divisaoAberta))} desta despesa.`)) {
+    const participanteAlvoId = notificacaoAberta?.participanteDivisaoId;
+    if (acao === "manter-parte" && !participanteAlvoId) {
+      setError("Não foi possível identificar a participação recusada.");
       return;
     }
-    if (acao === "excluir" && !window.confirm("Participantes que já aceitaram serão notificados. Continuar com a exclusão?")) {
+    if (acao === "assumir" && !window.confirm(`Você passará a assumir ${formatCurrency(valorRecusado(divisaoAberta, participanteAlvoId))} desta despesa.`)) {
+      return;
+    }
+    if (acao === "manter-parte" && !window.confirm("A parte recusada não será incorporada à sua despesa. Você manterá somente sua responsabilidade atual. Continuar?")) {
       return;
     }
     setIsActionLoading(true);
     try {
       const participantePendente = divisaoAberta.participantes.find((participante) =>
         isStatus(participante.status, "Pendente", 1) &&
+        (!participanteAlvoId || participante.id === participanteAlvoId) &&
         participante.tipoParticipante !== "Criador" &&
         participante.tipoParticipante !== 1,
       );
@@ -151,11 +158,16 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
         await financeService.recusarDivisao(participantePendente.id);
         setMensagemSucesso("Divisão recusada.");
       } else if (acao === "assumir") {
-        await financeService.assumirValorDivisao(divisaoAberta.id);
+        await financeService.assumirValorDivisao(divisaoAberta.id, participanteAlvoId);
         setMensagemSucesso("Valor assumido.");
       } else if (acao === "reenviar") {
-        await financeService.reenviarDivisao(divisaoAberta.id);
+        await financeService.reenviarDivisao(divisaoAberta.id, {
+          participanteId: participanteAlvoId,
+        });
         setMensagemSucesso("Convite reenviado.");
+      } else if (acao === "manter-parte" && participanteAlvoId) {
+        await financeService.manterParteCriadorDivisao(participanteAlvoId);
+        setMensagemSucesso("Sua parte foi mantida.");
       } else if (acao === "excluir") {
         await financeService.excluirDivisao(divisaoAberta.id);
         setMensagemSucesso("Divisão cancelada.");
@@ -288,14 +300,14 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
       )}
 
       {divisaoAberta && notificacaoAberta && (
-        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:items-center">
-          <div className="max-h-[min(90dvh,42rem)] w-full max-w-lg overflow-y-auto rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex items-start justify-between gap-3">
+        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/60 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-sm sm:items-center sm:p-4">
+          <div aria-modal="true" aria-labelledby="division-notification-title" role="dialog" className="max-h-[calc(100dvh-1rem)] w-full max-w-lg overflow-y-auto overscroll-contain rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:max-h-[min(calc(100dvh-2rem),42rem)]">
+            <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-[var(--app-card)] p-5 dark:border-slate-800 dark:bg-slate-900">
               <div>
                 <p className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
                   Divisão
                 </p>
-                <h2 className="mt-1 text-xl font-black text-slate-950 dark:text-white">
+                <h2 id="division-notification-title" className="mt-1 text-xl font-black text-slate-950 dark:text-white">
                   {notificacaoAberta.titulo}
                 </h2>
               </div>
@@ -310,11 +322,11 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
                 Fechar
               </button>
             </div>
-            <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
+            <p className="mx-5 mt-4 text-sm leading-6 text-slate-600 dark:text-slate-300">
               {notificacaoAberta.mensagem}
             </p>
-            <DivisionNotificationDetails divisao={divisaoAberta} notificacao={notificacaoAberta} />
-            <div className="mt-5 grid gap-2 sm:grid-cols-3">
+            <div className="px-5"><DivisionNotificationDetails divisao={divisaoAberta} notificacao={notificacaoAberta} /></div>
+            <div className="sticky bottom-0 mt-5 grid gap-2 border-t border-slate-200 bg-[var(--app-card)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-3">
               {notificacaoAberta.acaoPendente === "ResponderDivisao" && (
                 <>
                   <ActionButton disabled={isActionLoading} onClick={() => executarAcaoDivisao("aceitar")}>
@@ -331,16 +343,16 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
               {notificacaoAberta.acaoPendente === "DecidirRecusaDivisao" && (
                 <>
                   <ActionButton disabled={isActionLoading} onClick={() => executarAcaoDivisao("assumir")}>
-                    Assumir valor
+                    Assumir despesa integralmente
                   </ActionButton>
                   <ActionButton disabled={isActionLoading} onClick={() => executarAcaoDivisao("reenviar")}>
-                    Reenviar
+                    Reenviar convite
                   </ActionButton>
-                  <ActionButton tone="danger" disabled={isActionLoading} onClick={() => executarAcaoDivisao("excluir")}>
-                    Excluir
+                  <ActionButton disabled={isActionLoading} onClick={() => executarAcaoDivisao("manter-parte")}>
+                    Manter somente minha parte
                   </ActionButton>
                   <p className="sm:col-span-3 text-xs text-slate-500 dark:text-slate-400">
-                    Assumir incorpora a parte recusada à sua responsabilidade econômica. Excluir cancela futuras ocorrências conforme o escopo padrão.
+                    A decisão afeta somente a participação recusada indicada acima e preserva os demais participantes.
                   </p>
                 </>
               )}
@@ -380,9 +392,9 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
       )}
 
       {classificacaoAberta && divisaoAberta && (
-        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:items-center">
-          <div className="w-full max-w-md rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-            <h2 className="text-xl font-black text-slate-950 dark:text-white">
+        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-slate-950/60 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-sm sm:items-center sm:p-4">
+          <div aria-modal="true" aria-labelledby="division-classification-title" role="dialog" className="max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:max-h-[calc(100dvh-2rem)]">
+            <h2 id="division-classification-title" className="text-xl font-black text-slate-950 dark:text-white">
               Aceitar e classificar
             </h2>
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
@@ -448,6 +460,7 @@ function DivisionNotificationDetails({
 }) {
   const convidado = divisao.participantes.find(
     (participante) =>
+      (!notificacao.participanteDivisaoId || participante.id === notificacao.participanteDivisaoId) &&
       participante.tipoParticipante !== "Criador" &&
       participante.tipoParticipante !== 1,
   );
@@ -457,6 +470,12 @@ function DivisionNotificationDetails({
     <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950">
       <DetailRow label="Valor total" value={formatCurrency(divisao.valorTotal)} />
       <DetailRow label="Descrição" value={divisao.descricaoOrigem || notificacao.mensagem} />
+      {divisao.dataSugeridaConvidado && (
+        <>
+          <DetailRow label="Vencimento sugerido" value={formatDate(divisao.dataSugeridaConvidado)} />
+          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">Data sugerida com base no vencimento da origem. Você pode ajustá-la depois para o seu controle.</p>
+        </>
+      )}
       {divisao.compraParceladaId && (
         <>
           <DetailRow
@@ -473,7 +492,11 @@ function DivisionNotificationDetails({
       )}
       {convidado && (
         <>
-          <DetailRow label="Sua parte" value={formatCurrency(convidado.valor)} />
+          {convidado.nomeExibicao && <DetailRow label="Participante" value={convidado.nomeExibicao} />}
+          <DetailRow
+            label={notificacao.acaoPendente === "DecidirRecusaDivisao" ? "Valor recusado" : "Sua parte"}
+            value={formatCurrency(convidado.valor)}
+          />
           <DetailRow label="Percentual" value={`${convidado.percentual.toLocaleString("pt-BR")}%`} />
           {convidado.expiraEm && (
             <DetailRow label="Expira em" value={formatDateTime(convidado.expiraEm)} />
@@ -543,9 +566,10 @@ function isFormaPagamentoCarne(value: string | number | null | undefined) {
   return value === "Carne" || value === 2;
 }
 
-function valorRecusado(divisao: DivisaoTransacao) {
+function valorRecusado(divisao: DivisaoTransacao, participanteId?: string | null) {
   const recusadoOuExpirado = divisao.participantes.filter(
     (participante) =>
+      (!participanteId || participante.id === participanteId) &&
       participante.tipoParticipante !== "Criador" &&
       participante.tipoParticipante !== 1 &&
       (isStatus(participante.status, "Recusado", 3) ||
@@ -570,7 +594,7 @@ function invalidacoesPorAcao(acao: string, divisaoId: string) {
     queryKeys.divisaoTransacao(divisaoId),
   ];
 
-  if (acao === "recusar" || acao === "reenviar" || acao === "reenviar-alteracao") {
+  if (acao === "recusar" || acao === "reenviar" || acao === "manter-parte" || acao === "reenviar-alteracao") {
     return keys;
   }
 

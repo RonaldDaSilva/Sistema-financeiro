@@ -2,8 +2,10 @@ using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Dtos;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Transacoes;
+using SistemaFinanceiro.Api.Dtos.Divisoes;
 using SistemaFinanceiro.Api.Models;
 using SistemaFinanceiro.Api.Services.CartoesCredito;
+using SistemaFinanceiro.Api.Services.Divisoes;
 
 namespace SistemaFinanceiro.Api.Services.Transacoes;
 
@@ -12,10 +14,14 @@ public sealed class TransacaoService : ITransacaoService
     private const string FormaPagamentoFaturaCartao = "Pagamento de fatura";
 
     private readonly AppDbContext _dbContext;
+    private readonly IDivisaoTransacaoService? _divisaoTransacaoService;
 
-    public TransacaoService(AppDbContext dbContext)
+    public TransacaoService(
+        AppDbContext dbContext,
+        IDivisaoTransacaoService? divisaoTransacaoService = null)
     {
         _dbContext = dbContext;
+        _divisaoTransacaoService = divisaoTransacaoService;
     }
 
     public Task<ExtratoMensalResponse> GetExtratoMensalAsync(
@@ -697,7 +703,7 @@ public sealed class TransacaoService : ITransacaoService
             pagamento => pagamento.IsPaga);
         var hoje = DateOnly.FromDateTime(DateTime.Today);
 
-        return cartoes
+        var faturas = cartoes
             .Select(cartao =>
             {
                 var periodo = CicloFaturaCartaoCalculator.CalcularPorMesVencimento(cartao, mes, ano);
@@ -754,6 +760,88 @@ public sealed class TransacaoService : ITransacaoService
                 };
             })
             .ToList();
+
+        await EnriquecerDetalhesFaturaComDivisaoVinculadaAsync(
+            faturas,
+            usuarioId,
+            cancellationToken);
+
+        return faturas;
+    }
+
+    private async Task EnriquecerDetalhesFaturaComDivisaoVinculadaAsync(
+        IReadOnlyCollection<FaturaConsolidadaResponse> faturas,
+        Guid usuarioId,
+        CancellationToken cancellationToken)
+    {
+        var detalhes = faturas.SelectMany(fatura => fatura.Detalhes).ToList();
+        var transacaoIds = detalhes
+            .Where(detalhe => detalhe.TransacaoId.HasValue)
+            .Select(detalhe => detalhe.TransacaoId!.Value)
+            .Distinct()
+            .ToList();
+        var compraParceladaIds = detalhes
+            .Where(detalhe => detalhe.CompraParceladaId.HasValue)
+            .Select(detalhe => detalhe.CompraParceladaId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (transacaoIds.Count == 0 && compraParceladaIds.Count == 0)
+        {
+            return;
+        }
+
+        var vinculosDoCriador = _dbContext.DivisoesTransacoes
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(divisao =>
+                divisao.UsuarioCriadorId == usuarioId &&
+                divisao.EncerradoEm == null &&
+                ((divisao.TransacaoOrigemId.HasValue &&
+                    transacaoIds.Contains(divisao.TransacaoOrigemId.Value)) ||
+                 (divisao.CompraParceladaId.HasValue &&
+                    compraParceladaIds.Contains(divisao.CompraParceladaId.Value))))
+            .Select(divisao => new
+            {
+                DivisaoTransacaoId = divisao.Id,
+                divisao.Status,
+                TransacaoId = divisao.TransacaoOrigemId,
+                CompraParceladaId = divisao.CompraParceladaId
+            });
+
+        var vinculosDoParticipante = _dbContext.DivisoesTransacoesParticipantes
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(participante =>
+                participante.ParticipanteUsuarioId == usuarioId &&
+                participante.Ativo &&
+                ((participante.TransacaoGeradaId.HasValue &&
+                    transacaoIds.Contains(participante.TransacaoGeradaId.Value)) ||
+                 (participante.CompraParceladaGeradaId.HasValue &&
+                    compraParceladaIds.Contains(participante.CompraParceladaGeradaId.Value))))
+            .Select(participante => new
+            {
+                participante.DivisaoTransacaoId,
+                participante.DivisaoTransacao.Status,
+                TransacaoId = participante.TransacaoGeradaId,
+                CompraParceladaId = participante.CompraParceladaGeradaId
+            });
+
+        var vinculos = await vinculosDoCriador
+            .Concat(vinculosDoParticipante)
+            .ToListAsync(cancellationToken);
+
+        foreach (var detalhe in detalhes)
+        {
+            var vinculo = vinculos.FirstOrDefault(item =>
+                (detalhe.TransacaoId.HasValue && item.TransacaoId == detalhe.TransacaoId) ||
+                (detalhe.CompraParceladaId.HasValue && item.CompraParceladaId == detalhe.CompraParceladaId));
+            if (vinculo is not null)
+            {
+                detalhe.DivisaoTransacaoId = vinculo.DivisaoTransacaoId;
+                detalhe.StatusDivisao = vinculo.Status;
+            }
+        }
     }
 
     private static decimal CalcularSaldo(IEnumerable<ExtratoMensalItemResponse> itens)
@@ -1212,9 +1300,9 @@ public sealed class TransacaoService : ITransacaoService
         CancellationToken cancellationToken = default)
     {
         ValidarDivisao(request);
-        await ValidarRelacionamentosAsync(request, usuarioId, cancellationToken);
 
         var transacao = await _dbContext.Transacoes
+            .IgnoreQueryFilters()
             .SingleOrDefaultAsync(
                 transacao => transacao.Id == id && transacao.UsuarioId == usuarioId,
                 cancellationToken);
@@ -1222,6 +1310,53 @@ public sealed class TransacaoService : ITransacaoService
         if (transacao is null)
         {
             return null;
+        }
+
+        var participacaoCompartilhada = await _dbContext.DivisoesTransacoesParticipantes
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.TransacaoGeradaId == transacao.Id &&
+                item.ParticipanteUsuarioId == usuarioId &&
+                item.Ativo,
+                cancellationToken);
+        var divisaoComoCriador = await _dbContext.DivisoesTransacoes
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Include(item => item.Participantes)
+            .SingleOrDefaultAsync(item =>
+                item.TransacaoOrigemId == transacao.Id &&
+                item.UsuarioCriadorId == usuarioId &&
+                item.EncerradoEm == null,
+                cancellationToken);
+        await ValidarRelacionamentosAsync(
+            request,
+            usuarioId,
+            cancellationToken,
+            permitirDespesaSemCategoria: participacaoCompartilhada is not null);
+        if (participacaoCompartilhada is not null &&
+            (request.Tipo != TipoTransacao.Despesa ||
+                request.Valor != participacaoCompartilhada.Valor ||
+                request.IsDividida ||
+                request.ValorTotalOriginal.HasValue ||
+                request.PercentualDivisao.HasValue))
+        {
+            throw new InvalidOperationException(
+                "Valor, percentual e responsabilidade de uma divisão aceita exigem o fluxo de alteração da divisão.");
+        }
+        if (divisaoComoCriador is not null)
+        {
+            var parteCriador = divisaoComoCriador.Participantes.Single(item =>
+                item.Ativo && item.TipoParticipante == TipoParticipanteDivisao.Criador);
+            if (!request.IsDividida ||
+                request.Valor != parteCriador.Valor ||
+                request.ValorTotalOriginal != divisaoComoCriador.ValorTotal ||
+                request.PercentualDivisao != parteCriador.Percentual ||
+                request.IsFixa != transacao.IsFixa)
+            {
+                throw new InvalidOperationException(
+                    "Alterações econômicas da transação do criador exigem proposta de alteração da divisão.");
+            }
         }
 
         if (transacao.ReembolsoDivisaoId.HasValue)
@@ -1442,6 +1577,7 @@ public sealed class TransacaoService : ITransacaoService
         CancellationToken cancellationToken = default)
     {
         var transacao = await _dbContext.Transacoes
+            .IgnoreQueryFilters()
             .SingleOrDefaultAsync(
                 transacao => transacao.Id == id && transacao.UsuarioId == usuarioId,
                 cancellationToken);
@@ -1734,6 +1870,7 @@ public sealed class TransacaoService : ITransacaoService
         CancellationToken cancellationToken = default)
     {
         var transacao = await _dbContext.Transacoes
+            .IgnoreQueryFilters()
             .SingleOrDefaultAsync(
                 transacao => transacao.Id == id && transacao.UsuarioId == usuarioId,
                 cancellationToken);
@@ -1741,6 +1878,53 @@ public sealed class TransacaoService : ITransacaoService
         if (transacao is null)
         {
             return false;
+        }
+
+
+        var participacaoCompartilhada = await _dbContext.DivisoesTransacoesParticipantes
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.TransacaoGeradaId == transacao.Id &&
+                item.ParticipanteUsuarioId == usuarioId &&
+                item.Ativo,
+                cancellationToken);
+        if (participacaoCompartilhada is not null)
+        {
+            if (_divisaoTransacaoService is null)
+            {
+                throw new InvalidOperationException(
+                    "Use o fluxo de cancelamento da participação para excluir uma transação compartilhada.");
+            }
+
+            return await _divisaoTransacaoService.CancelarParticipacaoAsync(
+                usuarioId,
+                participacaoCompartilhada.Id,
+                cancellationToken);
+        }
+
+
+        var divisaoComoCriador = await _dbContext.DivisoesTransacoes
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.TransacaoOrigemId == transacao.Id &&
+                item.UsuarioCriadorId == usuarioId &&
+                item.EncerradoEm == null,
+                cancellationToken);
+        if (divisaoComoCriador is not null)
+        {
+            if (_divisaoTransacaoService is null)
+            {
+                throw new InvalidOperationException(
+                    "Use o fluxo de cancelamento da divisão para excluir a transação do criador.");
+            }
+
+            return await _divisaoTransacaoService.ExcluirAsync(
+                usuarioId,
+                divisaoComoCriador.Id,
+                new ExcluirDivisaoRequest { Escopo = "EstaOcorrencia" },
+                cancellationToken);
         }
 
         if (transacao.OrigemTransacao == OrigemTransacao.Transferencia &&
@@ -1752,6 +1936,9 @@ public sealed class TransacaoService : ITransacaoService
                     item.TransferenciaId == transacao.TransferenciaId.Value)
                 .ToListAsync(cancellationToken);
 
+            await DesvincularDivisoesEncerradasAsync(
+                transacoesTransferencia.Select(item => item.Id),
+                cancellationToken);
             _dbContext.Transacoes.RemoveRange(transacoesTransferencia);
             await _dbContext.SaveChangesAsync(cancellationToken);
             return true;
@@ -1771,6 +1958,7 @@ public sealed class TransacaoService : ITransacaoService
                 ultimoCodigo + 1,
                 proximaOcorrencia);
 
+            await DesvincularDivisoesEncerradasAsync([transacao.Id], cancellationToken);
             _dbContext.Transacoes.Add(novaRecorrencia);
             _dbContext.Transacoes.Remove(transacao);
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -1808,9 +1996,34 @@ public sealed class TransacaoService : ITransacaoService
             RemoverRecebimentoReembolso(reembolso, transacao.Valor);
         }
 
+        await DesvincularDivisoesEncerradasAsync([transacao.Id], cancellationToken);
         _dbContext.Transacoes.Remove(transacao);
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    private async Task DesvincularDivisoesEncerradasAsync(
+        IEnumerable<Guid> transacaoIds,
+        CancellationToken cancellationToken)
+    {
+        var ids = transacaoIds.Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        var divisoesEncerradas = await _dbContext.DivisoesTransacoes
+            .IgnoreQueryFilters()
+            .Where(divisao =>
+                divisao.TransacaoOrigemId.HasValue &&
+                ids.Contains(divisao.TransacaoOrigemId.Value) &&
+                divisao.EncerradoEm != null)
+            .ToListAsync(cancellationToken);
+        foreach (var divisao in divisoesEncerradas)
+        {
+            divisao.TransacaoOrigemId = null;
+            divisao.TransacaoOrigem = null;
+        }
     }
 
     private async Task<int> ObterUltimoCodigoExibicaoAsync(
@@ -2039,10 +2252,12 @@ public sealed class TransacaoService : ITransacaoService
     private async Task ValidarRelacionamentosAsync(
         CriarTransacaoRequest request,
         Guid usuarioId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool permitirDespesaSemCategoria = false)
     {
         if (request.Tipo is TipoTransacao.Despesa or TipoTransacao.Investimento &&
-            !request.CategoriaId.HasValue)
+            !request.CategoriaId.HasValue &&
+            !permitirDespesaSemCategoria)
         {
             throw new InvalidOperationException("Categoria é obrigatória para despesas e investimentos.");
         }

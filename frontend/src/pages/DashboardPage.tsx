@@ -455,6 +455,34 @@ export function DashboardPage() {
   }
 
   async function handleDeleteTransacao(item: ExtratoMensalItem) {
+    if (item.divisaoTransacaoId && user?.id) {
+      const divisao = await financeService.obterDivisaoTransacao(item.divisaoTransacaoId);
+      const usuarioEhCriador = divisao.usuarioCriadorId === user.id;
+      const confirmed = await confirm({
+        title: usuarioEhCriador ? "Cancelar divisão" : "Excluir participação",
+        message: usuarioEhCriador
+          ? "Cancelar esta divisão? Os participantes serão notificados."
+          : "Isso removerá sua participação desta divisão e avisará o criador.",
+        confirmLabel: usuarioEhCriador ? "Cancelar divisão" : "Excluir",
+        variant: "danger",
+      });
+      if (!confirmed) return;
+
+      if (usuarioEhCriador) {
+        await financeService.excluirDivisao(divisao.id, "EstaOcorrencia");
+      } else {
+        const participante = divisao.participantes.find(
+          (itemDivisao) => itemDivisao.participanteUsuarioId === user.id,
+        );
+        if (!participante) {
+          throw new Error("Participação vinculada não encontrada.");
+        }
+        await financeService.cancelarParticipacaoDivisao(participante.id);
+      }
+      await invalidarDadosFinanceiros();
+      return;
+    }
+
     if (
       (item.origem === "CompraParcelada" || item.origem === "Carne") &&
       item.compraParceladaId &&

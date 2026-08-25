@@ -675,6 +675,8 @@ function mapFaturaDetalheToExtratoItem(
     isDividida: detalhe.isDividida,
     valorTotalOriginal: detalhe.valorTotalOriginal,
     percentualDivisao: detalhe.percentualDivisao,
+    divisaoTransacaoId: detalhe.divisaoTransacaoId,
+    statusDivisao: detalhe.statusDivisao,
     isProjetada: detalhe.origem !== "Transacao",
     origem: detalhe.origem,
     compraParceladaId: detalhe.compraParceladaId,

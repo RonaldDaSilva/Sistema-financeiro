@@ -45,6 +45,59 @@ public static class DivisaoTransacaoRules
         return valores;
     }
 
+    public static (decimal PercentualCriador, decimal ValorCriador,
+        IReadOnlyList<decimal> Percentuais, IReadOnlyList<decimal> Valores) CalcularDistribuicao(
+        decimal valorTotal,
+        IReadOnlyList<(decimal? Percentual, decimal? Valor)> participacoes)
+    {
+        if (valorTotal <= 0)
+        {
+            throw new InvalidOperationException("O valor total da divisão deve ser maior que zero.");
+        }
+
+        var percentuais = new List<decimal>(participacoes.Count);
+        var valores = new List<decimal>(participacoes.Count);
+        foreach (var participacao in participacoes)
+        {
+            if (participacao.Valor.HasValue == participacao.Percentual.HasValue)
+            {
+                throw new InvalidOperationException(
+                    "Cada participante deve informar exatamente percentual ou valor.");
+            }
+
+            if (participacao.Valor.HasValue)
+            {
+                var valor = decimal.Round(participacao.Valor.Value, 2, MidpointRounding.AwayFromZero);
+                if (valor <= 0 || valor >= valorTotal)
+                {
+                    throw new InvalidOperationException("O valor do participante deve ser maior que zero e menor que o total.");
+                }
+
+                valores.Add(valor);
+                percentuais.Add(decimal.Round(valor * 100m / valorTotal, 2, MidpointRounding.AwayFromZero));
+                continue;
+            }
+
+            var percentual = participacao.Percentual!.Value;
+            if (percentual <= 0 || percentual >= 100m)
+            {
+                throw new InvalidOperationException("O percentual do participante deve ser maior que zero e menor que 100%.");
+            }
+
+            percentuais.Add(percentual);
+            valores.Add(decimal.Round(valorTotal * percentual / 100m, 2, MidpointRounding.AwayFromZero));
+        }
+
+        var valorCriador = valorTotal - valores.Sum();
+        var percentualCriador = 100m - percentuais.Sum();
+        if (valorCriador <= 0 || percentualCriador <= 0)
+        {
+            throw new InvalidOperationException("A soma das partes de terceiros deve ser menor que o total da divisão.");
+        }
+
+        return (percentualCriador, valorCriador, percentuais, valores);
+    }
+
     public static void ValidarParticipantes(
         decimal valorTotal,
         IReadOnlyCollection<DivisaoTransacaoParticipante> participantes)

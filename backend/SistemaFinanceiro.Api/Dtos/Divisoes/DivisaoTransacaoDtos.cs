@@ -66,8 +66,14 @@ public sealed class CriarParticipanteUsuarioDivisaoRequest
 
 public sealed class CriarParticipanteExternoDivisaoRequest
 {
+    public ModoDefinicaoParticipacaoDivisao ModoDefinicao { get; set; } =
+        ModoDefinicaoParticipacaoDivisao.Percentual;
+
     [Range(0.01, 99.99)]
-    public decimal Percentual { get; set; }
+    public decimal? Percentual { get; set; }
+
+    [Range(0.01, 999999999999.99)]
+    public decimal? Valor { get; set; }
 
     [MaxLength(160)]
     public string? Nome { get; set; }
@@ -88,6 +94,8 @@ public sealed class RecusarDivisaoRequest
 
 public sealed class ReenviarDivisaoRequest
 {
+    public Guid? ParticipanteId { get; set; }
+
     [Range(0.01, 99.99)]
     public decimal? PercentualConvidado { get; set; }
 }
@@ -111,6 +119,8 @@ public class ProporAlteracaoDivisaoRequest
     [Range(0.01, 99.99)]
     public decimal? PercentualConvidado { get; set; }
 
+    public IReadOnlyList<AlterarParticipanteDivisaoRequest> Participantes { get; set; } = [];
+
     public DateOnly? Vencimento { get; set; }
 
     [Range(1, 600)]
@@ -124,6 +134,14 @@ public class ProporAlteracaoDivisaoRequest
 
     [MaxLength(80)]
     public string? ResponsabilidadeParticipante { get; set; }
+}
+
+public sealed class AlterarParticipanteDivisaoRequest
+{
+    public Guid ParticipanteId { get; set; }
+
+    [Range(0.01, 99.99)]
+    public decimal Percentual { get; set; }
 }
 
 public sealed class ResponderAlteracaoDivisaoRequest
@@ -146,6 +164,7 @@ public sealed class DivisaoTransacaoResponse
     public FormaPagamentoCompraParcelada? FormaPagamentoCompraParcelada { get; set; }
     public DateOnly? DataPrimeiraParcela { get; set; }
     public string? DescricaoOrigem { get; set; }
+    public DateOnly? DataSugeridaConvidado { get; set; }
     public decimal ValorTotal { get; set; }
     public DivisaoTransacaoStatus Status { get; set; }
     public int VersaoAtual { get; set; }
@@ -160,9 +179,12 @@ public sealed class DivisaoParticipanteResponse
 {
     public Guid Id { get; set; }
     public Guid? ParticipanteUsuarioId { get; set; }
+    public string? NomeExibicao { get; set; }
+    public string? EmailMascarado { get; set; }
     public TipoParticipanteDivisao TipoParticipante { get; set; }
     public decimal Percentual { get; set; }
     public decimal Valor { get; set; }
+    public ModoDefinicaoParticipacaoDivisao ModoDefinicao { get; set; }
     public DivisaoTransacaoParticipanteStatus Status { get; set; }
     public int VersaoConvite { get; set; }
     public DateTimeOffset? ExpiraEm { get; set; }
@@ -198,6 +220,21 @@ public sealed class DivisaoVersaoResponse
     public string? ResponsabilidadeAnterior { get; set; }
     public string? ResponsabilidadeProposta { get; set; }
     public DateTimeOffset CriadoEm { get; set; }
+    public DateTimeOffset? RespondidoEm { get; set; }
+    public string? MotivoResposta { get; set; }
+    public IReadOnlyList<DivisaoVersaoParticipanteResponse> Participantes { get; set; } = [];
+}
+
+public sealed class DivisaoVersaoParticipanteResponse
+{
+    public Guid Id { get; set; }
+    public Guid ParticipanteId { get; set; }
+    public Guid? ParticipanteUsuarioId { get; set; }
+    public decimal PercentualAnterior { get; set; }
+    public decimal PercentualProposto { get; set; }
+    public decimal ValorAnterior { get; set; }
+    public decimal ValorProposto { get; set; }
+    public DivisaoTransacaoVersaoParticipanteStatus Status { get; set; }
     public DateTimeOffset? RespondidoEm { get; set; }
     public string? MotivoResposta { get; set; }
 }

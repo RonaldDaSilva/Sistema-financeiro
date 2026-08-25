@@ -1,5 +1,5 @@
-import { X } from "lucide-react";
 import { TransactionForm } from "./TransactionForm";
+import { Dialog } from "./Dialog";
 import type {
   CartaoCredito,
   CartaoCreditoOpcao,
@@ -54,17 +54,13 @@ export function NewTransactionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
-      <div className="relative w-full max-w-lg">
-        <button
-          className="absolute right-4 top-4 z-10 rounded-full bg-white p-2 text-slate-400 shadow-sm transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-[var(--app-primary)] dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:text-white"
-          type="button"
-          onClick={onClose}
-          aria-label="Fechar modal"
-        >
-          <X size={20} />
-        </button>
-        <TransactionForm
+    <Dialog
+      title={initialTransaction ? "Editar transação" : "Adicionar nova transação"}
+      description="Adicione os detalhes da movimentação."
+      className="flex h-[calc(100dvh-1rem)] max-w-lg flex-col overflow-hidden sm:h-auto sm:max-h-[calc(100dvh-2rem)]"
+      onClose={onClose}
+    >
+      <TransactionForm
           variant="modal"
           categorias={categorias}
           cartoes={cartoes}
@@ -76,8 +72,7 @@ export function NewTransactionModal({
           onUpdateTransacao={onUpdateTransacao}
           onUpdateCompraParcelada={onUpdateCompraParcelada}
           onCreateCompraParcelada={onCreateCompraParcelada}
-        />
-      </div>
-    </div>
+      />
+    </Dialog>
   );
 }

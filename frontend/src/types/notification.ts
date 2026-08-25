@@ -29,6 +29,7 @@ export type Notificacao = {
   tipoNotificacao: TipoNotificacao;
   entidade?: string | null;
   entidadeId?: string | null;
+  participanteDivisaoId?: string | null;
   rota?: string | null;
   acaoPendente?: string | null;
   versao?: number | null;

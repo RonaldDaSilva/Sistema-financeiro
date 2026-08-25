@@ -910,6 +910,63 @@ public sealed class RelatorioServiceTests
     }
 
     [Fact]
+    public async Task GetResumoMensalAsync_CompraCartaoEmCompetenciaFuturaNaoPaga_EhSomentePrevista()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        var categoria = CriarCategoria(usuarioId, "Mercado");
+        var competencia = new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1).AddMonths(2);
+        var fatura = CriarFaturaConsolidada(Guid.NewGuid(), competencia.AddDays(9), categoria, 423.60m);
+        var transacaoService = new TransacaoServiceCompromissosFake(
+            new Dictionary<(int Ano, int Mes), ExtratoMensalResponse>(),
+            new Dictionary<(int Ano, int Mes), IReadOnlyList<FaturaConsolidadaResponse>>
+            {
+                [(competencia.Year, competencia.Month)] = [fatura]
+            });
+        var service = new RelatorioService(
+            database.Context,
+            new ContaBancariaServiceParaTeste(database.Context),
+            transacaoService);
+
+        var response = await service.GetResumoMensalAsync(competencia.Month, competencia.Year, usuarioId);
+
+        Assert.Equal(0m, response.DespesasRealizadas);
+        Assert.Equal(423.60m, response.DespesasPrevistas);
+        Assert.Equal(423.60m, Assert.Single(response.DespesasPorCategoria).Valor);
+        Assert.Equal(-423.60m, response.SobraPrevista);
+    }
+
+    [Fact]
+    public async Task GetResumoMensalAsync_ObrigacaoFuturaExplicitamentePaga_ContaComoRealizada()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        var categoria = CriarCategoria(usuarioId, "Casa");
+        var competencia = new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1).AddMonths(2);
+        var extrato = new ExtratoMensalResponse
+        {
+            Mes = competencia.Month,
+            Ano = competencia.Year,
+            Itens =
+            [
+                CriarItemExtrato(
+                    TipoTransacao.Despesa,
+                    180m,
+                    competencia.AddDays(4),
+                    categoria,
+                    isPaga: true,
+                    isProjetada: false)
+            ]
+        };
+        var service = CriarServiceComDados(database.Context, (competencia.Year, competencia.Month, extrato));
+
+        var response = await service.GetResumoMensalAsync(competencia.Month, competencia.Year, usuarioId);
+
+        Assert.Equal(180m, response.DespesasRealizadas);
+        Assert.Equal(180m, response.DespesasPrevistas);
+    }
+
+    [Fact]
     public async Task GetResumoMensalAsync_CompraCartao_NaoDuplicaPagamentoDaFatura()
     {
         var usuarioId = Guid.NewGuid();

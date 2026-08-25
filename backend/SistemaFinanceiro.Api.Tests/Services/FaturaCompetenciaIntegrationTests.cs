@@ -12,6 +12,52 @@ namespace SistemaFinanceiro.Api.Tests.Services;
 public sealed class FaturaCompetenciaIntegrationTests
 {
     [Fact]
+    public async Task FaturaCompraParceladaDividida_ExpoeVinculoParaAcoesDeDominio()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var compra = new CompraParcelada
+        {
+            UsuarioId = cenario.UsuarioId,
+            CartaoCredito = cenario.Cartao,
+            Categoria = cenario.Categoria,
+            Descricao = "Teste divisão",
+            ValorTotal = 600m,
+            QuantidadeParcelas = 3,
+            DataCompra = new DateOnly(2026, 8, 15),
+            FormaPagamento = FormaPagamentoCompraParcelada.CartaoCredito,
+            IsDividida = true,
+            ValorTotalOriginal = 1000m,
+            PercentualDivisao = 60m
+        };
+        var divisao = new DivisaoTransacao
+        {
+            UsuarioId = cenario.UsuarioId,
+            UsuarioCriadorId = cenario.UsuarioId,
+            CompraParcelada = compra,
+            ValorTotal = 1000m,
+            Status = DivisaoTransacaoStatus.Pendente
+        };
+        divisao.Participantes.Add(new DivisaoTransacaoParticipante
+        {
+            UsuarioId = cenario.UsuarioId,
+            ParticipanteUsuarioId = cenario.UsuarioId,
+            TipoParticipante = TipoParticipanteDivisao.Criador,
+            Percentual = 60m,
+            Valor = 600m,
+            Status = DivisaoTransacaoParticipanteStatus.Aceito
+        });
+        cenario.Database.Context.Add(divisao);
+        await cenario.Database.Context.SaveChangesAsync();
+
+        var service = new TransacaoService(cenario.Database.Context);
+        var fatura = Assert.Single(await service.GetFaturasDoMesAsync(9, 2026, cenario.UsuarioId));
+        var detalhe = Assert.Single(fatura.Detalhes);
+
+        Assert.Equal(divisao.Id, detalhe.DivisaoTransacaoId);
+        Assert.Equal(DivisaoTransacaoStatus.Pendente, detalhe.StatusDivisao);
+    }
+
+    [Fact]
     public async Task FaturaPaga_Dia31ComVencimento8_NaoContaminaCompetenciasSeguintes()
     {
         using var cenario = await CriarCenarioAsync();

@@ -545,6 +545,36 @@ public sealed class DivisaoTransacaoServiceTests
     }
 
     [Fact]
+    public async Task ManterParteCriadorAsync_PreservaPartePessoalETotalOriginal()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await service.CriarConviteAsync(criador.Id, new CriarConviteDivisaoRequest
+        {
+            TransacaoOrigemId = transacao.Id,
+            ParticipantesUsuarios = [new() { Email = convidado.Email, Percentual = 60m }]
+        });
+        var participante = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
+        await service.RecusarAsync(convidado.Id, participante.Id, new RecusarDivisaoRequest());
+
+        var mantida = await service.ManterParteCriadorAsync(criador.Id, participante.Id);
+
+        var parteCriador = mantida!.Participantes.Single(item =>
+            item.TipoParticipante == TipoParticipanteDivisao.Criador);
+        Assert.Equal(40m, parteCriador.Percentual);
+        Assert.Equal(400m, parteCriador.Valor);
+        Assert.Equal(1000m, mantida.ValorTotal);
+        Assert.Equal(400m, transacao.Valor);
+        Assert.Equal(1000m, transacao.ValorTotalOriginal);
+        Assert.Contains(mantida.Participantes, item =>
+            item.Id == participante.Id && !item.Ativo &&
+            item.Status == DivisaoTransacaoParticipanteStatus.Recusado);
+        Assert.DoesNotContain(database.Context.Notificacoes.IgnoreQueryFilters(), item =>
+            !item.Lida && item.ParticipanteDivisaoId == participante.Id &&
+            item.AcaoPendente == "DecidirRecusaDivisao");
+    }
+
+    [Fact]
     public async Task ReenviarAsync_PreservaHistoricoECriaNovaVersao()
     {
         var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
@@ -619,7 +649,9 @@ public sealed class DivisaoTransacaoServiceTests
         Assert.Equal(DivisaoTransacaoStatus.Aceita, aceita!.Status);
         Assert.Equal(2, aceita.VersaoAtual);
         Assert.Equal(1200m, aceita.ValorTotal);
-        Assert.Equal(900m, aceita.Participantes.Single(item => item.TipoParticipante == TipoParticipanteDivisao.Criador).Valor);
+        var aceitaCriador = await service.ObterAsync(criador.Id, divisao.Id);
+        Assert.Equal(900m, aceitaCriador!.Participantes.Single(item =>
+            item.TipoParticipante == TipoParticipanteDivisao.Criador).Valor);
         Assert.Equal(300m, aceita.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id).Valor);
         Assert.Equal(900m, transacao.Valor);
         Assert.Equal(novoVencimento, transacao.DataOcorrencia);
@@ -1082,7 +1114,12 @@ public sealed class DivisaoTransacaoServiceTests
             new ExcluirDivisaoRequest { Escopo = "EstaOcorrencia" });
 
         Assert.True(excluida);
-        Assert.Empty(database.Context.Transacoes.IgnoreQueryFilters().Where(item => item.Id == transacao.Id));
+        var restaurada = Assert.Single(
+            database.Context.Transacoes.IgnoreQueryFilters().Where(item => item.Id == transacao.Id));
+        Assert.False(restaurada.IsDividida);
+        Assert.Equal(1000m, restaurada.Valor);
+        Assert.Null(restaurada.ValorTotalOriginal);
+        Assert.Null(restaurada.PercentualDivisao);
         Assert.Equal(DivisaoTransacaoStatus.Cancelada, database.Context.DivisoesTransacoes.IgnoreQueryFilters().Single().Status);
     }
 
@@ -1184,6 +1221,69 @@ public sealed class DivisaoTransacaoServiceTests
 
         Assert.Equal(600m, totalCriador);
         Assert.Equal(600m, totalConvidado);
+    }
+
+    [Fact]
+    public async Task CompraParceladaVinculadaPendente_EdicaoLocalPreservaRegraEconomica()
+    {
+        var (database, criador, convidado, _, _) = await CriarCenarioAsync();
+        var categoria = await CriarCategoriaGlobalAsync(database.Context);
+        var cartao = await CriarCartaoAsync(database.Context, criador.Id);
+        var divisaoService = new DivisaoTransacaoService(database.Context);
+        var compraService = new CompraParceladaService(database.Context, divisaoService);
+        var compra = await compraService.CriarAsync(
+            new CriarCompraParceladaRequest
+            {
+                Descricao = "Teste divisão",
+                ValorTotal = 600m,
+                QuantidadeParcelas = 10,
+                CategoriaId = categoria.Id,
+                CartaoCreditoId = cartao.Id,
+                DataCompra = new DateOnly(2026, 8, 19),
+                FormaPagamento = FormaPagamentoCompraParcelada.CartaoCredito,
+                IsDividida = true,
+                ValorTotalOriginal = 1000m,
+                PercentualDivisao = 60m,
+                DivisaoVinculada = new CriarDivisaoCompraParceladaRequest
+                {
+                    ParticipantesUsuarios =
+                    [
+                        new CriarParticipanteUsuarioDivisaoRequest
+                        {
+                            Email = convidado.Email,
+                            Percentual = 40m
+                        }
+                    ]
+                }
+            },
+            criador.Id);
+
+        var atualizada = await compraService.AtualizarProjecaoAsync(
+            compra.Id,
+            1,
+            new DateOnly(2026, 8, 20),
+            new CriarCompraParceladaRequest
+            {
+                Descricao = "Teste divisão editado",
+                ValorTotal = 1m,
+                QuantidadeParcelas = 1,
+                CategoriaId = categoria.Id,
+                CartaoCreditoId = cartao.Id,
+                DataCompra = new DateOnly(2026, 8, 20),
+                FormaPagamento = FormaPagamentoCompraParcelada.CartaoCredito,
+                IsDividida = true,
+                ValorTotalOriginal = 2m,
+                PercentualDivisao = 50m
+            },
+            criador.Id);
+
+        Assert.NotNull(atualizada);
+        Assert.Equal("Teste divisão editado", atualizada.Descricao);
+        Assert.Equal(600m, atualizada.ValorTotal);
+        Assert.Equal(1000m, atualizada.ValorTotalOriginal);
+        Assert.Equal(60m, atualizada.PercentualDivisao);
+        Assert.Equal(10, atualizada.QuantidadeParcelas);
+        Assert.NotNull(atualizada.DivisaoTransacaoId);
     }
 
     [Fact]
@@ -1403,6 +1503,419 @@ public sealed class DivisaoTransacaoServiceTests
         Assert.Equal(6, gerada.QuantidadeParcelas);
         Assert.Equal(novaData, compra.DataPrimeiroVencimento);
         Assert.Equal(novaData, gerada.DataPrimeiroVencimento);
+    }
+
+    [Fact]
+    public async Task MultiplosUsuarios_CriaConvitesIndependentesEFechaDistribuicao()
+    {
+        var (database, criador, maria, transacao, pedro) = await CriarCenarioAsync();
+        var joao = new Usuario
+        {
+            Nome = "João",
+            Email = "joao@teste.local",
+            SenhaHash = "hash"
+        };
+        database.Context.Usuarios.Add(joao);
+        await database.Context.SaveChangesAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+
+        var divisao = await service.CriarConviteAsync(criador.Id, new CriarConviteDivisaoRequest
+        {
+            TransacaoOrigemId = transacao.Id,
+            ParticipantesUsuarios =
+            [
+                new() { Email = joao.Email, Percentual = 20m },
+                new() { Email = maria.Email, Percentual = 25m },
+                new() { Email = pedro.Email, Percentual = 10m }
+            ],
+            ParticipantesExternos = [new() { Percentual = 5m }]
+        });
+
+        Assert.Equal(5, divisao.Participantes.Count);
+        Assert.Equal(100m, divisao.Participantes.Sum(item => item.Percentual));
+        Assert.Equal(1000m, divisao.Participantes.Sum(item => item.Valor));
+        Assert.Equal(400m, divisao.Participantes.Single(item =>
+            item.TipoParticipante == TipoParticipanteDivisao.Criador).Valor);
+        Assert.Equal(3, database.Context.Notificacoes.IgnoreQueryFilters().Count(item =>
+            item.TipoNotificacao == TipoNotificacao.DivisaoRecebida));
+        var visaoMaria = await service.ObterAsync(maria.Id, divisao.Id);
+        var participanteVisivel = Assert.Single(visaoMaria!.Participantes);
+        Assert.Equal(maria.Id, participanteVisivel.ParticipanteUsuarioId);
+    }
+
+    [Fact]
+    public async Task RecusaEReenvio_MultiplosUsuarios_AlteraSomenteParticipanteAlvo()
+    {
+        var (database, criador, maria, transacao, pedro) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await service.CriarConviteAsync(criador.Id, new CriarConviteDivisaoRequest
+        {
+            TransacaoOrigemId = transacao.Id,
+            ParticipantesUsuarios =
+            [
+                new() { Email = maria.Email, Percentual = 30m },
+                new() { Email = pedro.Email, Percentual = 30m }
+            ]
+        });
+        var conviteMaria = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == maria.Id);
+        var convitePedro = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == pedro.Id);
+
+        var parcial = await service.AceitarAsync(pedro.Id, convitePedro.Id);
+        Assert.Equal(DivisaoTransacaoStatus.ParcialmenteAceita, parcial!.Status);
+        await service.RecusarAsync(maria.Id, conviteMaria.Id, new RecusarDivisaoRequest());
+
+        var notificacao = Assert.Single(database.Context.Notificacoes.IgnoreQueryFilters().Where(item =>
+            item.TipoNotificacao == TipoNotificacao.DivisaoRecusada));
+        Assert.Equal(conviteMaria.Id, notificacao.ParticipanteDivisaoId);
+        var reenviada = await service.ReenviarAsync(criador.Id, divisao.Id, new ReenviarDivisaoRequest
+        {
+            ParticipanteId = conviteMaria.Id
+        });
+
+        Assert.Single(reenviada!.Participantes, item =>
+            item.ParticipanteUsuarioId == pedro.Id && item.Ativo &&
+            item.Status == DivisaoTransacaoParticipanteStatus.Aceito);
+        Assert.Single(reenviada.Participantes, item =>
+            item.ParticipanteUsuarioId == maria.Id && item.Ativo &&
+            item.Status == DivisaoTransacaoParticipanteStatus.Pendente);
+    }
+
+    [Fact]
+    public async Task AssumirValorParticipante_MantemOutrosConvidadosIntactos()
+    {
+        var (database, criador, maria, transacao, pedro) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await service.CriarConviteAsync(criador.Id, new CriarConviteDivisaoRequest
+        {
+            TransacaoOrigemId = transacao.Id,
+            ParticipantesUsuarios =
+            [
+                new() { Email = maria.Email, Percentual = 30m },
+                new() { Email = pedro.Email, Percentual = 30m }
+            ]
+        });
+        var mariaParte = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == maria.Id);
+        var pedroParte = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == pedro.Id);
+        await service.RecusarAsync(maria.Id, mariaParte.Id, new RecusarDivisaoRequest());
+
+        var assumida = await service.AssumirValorParticipanteAsync(criador.Id, mariaParte.Id);
+
+        Assert.Equal(70m, assumida!.Participantes.Single(item =>
+            item.TipoParticipante == TipoParticipanteDivisao.Criador).Percentual);
+        Assert.Contains(assumida.Participantes, item => item.Id == pedroParte.Id && item.Ativo &&
+            item.Status == DivisaoTransacaoParticipanteStatus.Pendente && item.Percentual == 30m);
+    }
+
+    [Fact]
+    public async Task ManterParteCriador_MultiplosUsuarios_EncerraSomenteParticipanteAlvo()
+    {
+        var (database, criador, maria, transacao, pedro) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await service.CriarConviteAsync(criador.Id, new CriarConviteDivisaoRequest
+        {
+            TransacaoOrigemId = transacao.Id,
+            ParticipantesUsuarios =
+            [
+                new() { Email = maria.Email, Percentual = 30m },
+                new() { Email = pedro.Email, Percentual = 30m }
+            ]
+        });
+        var mariaParte = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == maria.Id);
+        var pedroParte = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == pedro.Id);
+        await service.RecusarAsync(maria.Id, mariaParte.Id, new RecusarDivisaoRequest());
+
+        var mantida = await service.ManterParteCriadorAsync(criador.Id, mariaParte.Id);
+
+        Assert.Equal(40m, mantida!.Participantes.Single(item =>
+            item.TipoParticipante == TipoParticipanteDivisao.Criador).Percentual);
+        Assert.Contains(mantida.Participantes, item => item.Id == mariaParte.Id && !item.Ativo);
+        Assert.Contains(mantida.Participantes, item => item.Id == pedroParte.Id && item.Ativo &&
+            item.Status == DivisaoTransacaoParticipanteStatus.Pendente && item.Percentual == 30m);
+        Assert.Equal(DivisaoTransacaoStatus.Pendente, mantida.Status);
+    }
+
+    [Fact]
+    public async Task ParteExternaEmReais_PreservaValorExato()
+    {
+        var (database, criador, _, transacao, _) = await CriarCenarioAsync();
+        transacao.Valor = 437.80m;
+        var service = new DivisaoTransacaoService(database.Context);
+
+        var divisao = await service.CriarConviteAsync(criador.Id, new CriarConviteDivisaoRequest
+        {
+            TransacaoOrigemId = transacao.Id,
+            ParticipantesExternos =
+            [
+                new()
+                {
+                    ModoDefinicao = ModoDefinicaoParticipacaoDivisao.Valor,
+                    Valor = 83.47m
+                }
+            ]
+        });
+
+        var externo = divisao.Participantes.Single(item =>
+            item.TipoParticipante == TipoParticipanteDivisao.Externo);
+        Assert.Equal(83.47m, externo.Valor);
+        Assert.Equal(ModoDefinicaoParticipacaoDivisao.Valor, externo.ModoDefinicao);
+        Assert.Equal(437.80m, divisao.Participantes.Sum(item => item.Valor));
+        Assert.Equal(100m, divisao.Participantes.Sum(item => item.Percentual));
+    }
+
+    [Fact]
+    public async Task AceitarTransacaoNoCartao_UsaVencimentoDaFaturaSemCopiarCartao()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var cartao = await CriarCartaoAsync(database.Context, criador.Id);
+        cartao.MelhorDiaCompra = 2;
+        cartao.DiaVencimento = 8;
+        transacao.DataOcorrencia = new DateOnly(2026, 8, 15);
+        transacao.CartaoCreditoId = cartao.Id;
+        transacao.CartaoCredito = cartao;
+        await database.Context.SaveChangesAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarConvitePadraoAsync(service, criador, convidado, transacao);
+        var convite = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
+
+        await service.AceitarAsync(convidado.Id, convite.Id);
+
+        var gerada = Assert.Single(database.Context.Transacoes.IgnoreQueryFilters().Where(item =>
+            item.UsuarioId == convidado.Id));
+        Assert.Equal(new DateOnly(2026, 9, 8), gerada.DataOcorrencia);
+        Assert.Null(gerada.CartaoCreditoId);
+    }
+
+    [Fact]
+    public async Task AlteracaoEconomicaMultiplosUsuarios_AplicaSomenteAposTodosAceitarem()
+    {
+        var (database, criador, maria, transacao, pedro) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await service.CriarConviteAsync(criador.Id, new CriarConviteDivisaoRequest
+        {
+            TransacaoOrigemId = transacao.Id,
+            ParticipantesUsuarios =
+            [
+                new() { Email = maria.Email, Percentual = 30m },
+                new() { Email = pedro.Email, Percentual = 30m }
+            ]
+        });
+        var mariaParte = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == maria.Id);
+        var pedroParte = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == pedro.Id);
+        await service.AceitarAsync(maria.Id, mariaParte.Id);
+        await service.AceitarAsync(pedro.Id, pedroParte.Id);
+
+        var proposta = await service.ProporAlteracaoAsync(criador.Id, divisao.Id,
+            new ProporAlteracaoDivisaoRequest { ValorTotal = 1200m });
+        var versao = Assert.Single(proposta!.Versoes);
+        Assert.Equal(2, versao.Participantes.Count(item =>
+            item.Status == DivisaoTransacaoVersaoParticipanteStatus.Pendente));
+
+        var parcial = await service.AceitarAlteracaoAsync(maria.Id, versao.Id);
+        Assert.Equal(DivisaoTransacaoStatus.AlteracaoPendente, parcial!.Status);
+        Assert.Equal(1000m, transacao.ValorTotalOriginal);
+
+        var aplicada = await service.AceitarAlteracaoAsync(pedro.Id, versao.Id);
+        Assert.Equal(DivisaoTransacaoStatus.Aceita, aplicada!.Status);
+        Assert.Equal(1200m, aplicada.ValorTotal);
+        Assert.Equal(480m, transacao.Valor);
+        Assert.Equal(360m, database.Context.Transacoes.IgnoreQueryFilters().Single(item =>
+            item.UsuarioId == maria.Id).Valor);
+        Assert.Equal(360m, database.Context.Transacoes.IgnoreQueryFilters().Single(item =>
+            item.UsuarioId == pedro.Id).Valor);
+    }
+
+    [Fact]
+    public async Task EdicaoLocalConvidado_PermiteDataEMantemValorEconomico()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var divisaoService = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(
+            divisaoService,
+            criador,
+            convidado,
+            transacao);
+        var participante = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
+        var gerada = database.Context.Transacoes.IgnoreQueryFilters().Single(item =>
+            item.Id == participante.TransacaoGeradaId);
+        var novaData = gerada.DataOcorrencia.AddDays(-3);
+        var transacaoService = new TransacaoService(database.Context, divisaoService);
+
+        await transacaoService.AtualizarAsync(gerada.Id, new CriarTransacaoRequest
+        {
+            Tipo = TipoTransacao.Despesa,
+            Descricao = "Descrição local",
+            Valor = participante.Valor,
+            DataOcorrencia = novaData,
+            FormaPagamento = "Divisão compartilhada",
+            IsFixa = false,
+            IsDividida = false
+        }, convidado.Id);
+
+        Assert.Equal(novaData, gerada.DataOcorrencia);
+        Assert.Equal("Descrição local", gerada.Descricao);
+        Assert.Equal(600m, transacao.Valor);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            transacaoService.AtualizarAsync(gerada.Id, new CriarTransacaoRequest
+            {
+                Tipo = TipoTransacao.Despesa,
+                Descricao = gerada.Descricao,
+                Valor = participante.Valor + 1m,
+                DataOcorrencia = gerada.DataOcorrencia,
+                FormaPagamento = gerada.FormaPagamento,
+                IsFixa = false,
+                IsDividida = false
+            }, convidado.Id));
+    }
+
+    [Fact]
+    public async Task ExcluirLancamentoConvidado_PreservaOrigemENotificaCriador()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var divisaoService = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(
+            divisaoService,
+            criador,
+            convidado,
+            transacao);
+        var participante = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
+        var transacaoService = new TransacaoService(database.Context, divisaoService);
+
+        var excluida = await transacaoService.ExcluirAsync(
+            participante.TransacaoGeradaId!.Value,
+            convidado.Id);
+
+        Assert.True(excluida);
+        Assert.DoesNotContain(database.Context.Transacoes.IgnoreQueryFilters(), item =>
+            item.Id == participante.TransacaoGeradaId);
+        Assert.Contains(database.Context.Transacoes.IgnoreQueryFilters(), item => item.Id == transacao.Id);
+        Assert.Contains(database.Context.Notificacoes.IgnoreQueryFilters(), item =>
+            item.UsuarioId == criador.Id &&
+            item.TipoNotificacao == TipoNotificacao.DivisaoRecusada &&
+            item.ParticipanteDivisaoId == participante.Id);
+    }
+
+    [Fact]
+    public async Task CompraParceladaCancelada_PermiteRevincularEExcluirPrimeiraParcela()
+    {
+        var (database, criador, convidado, _, _) = await CriarCenarioAsync();
+        var categoria = await CriarCategoriaGlobalAsync(database.Context);
+        var cartao = await CriarCartaoAsync(database.Context, criador.Id);
+        var divisaoService = new DivisaoTransacaoService(database.Context);
+        var compraService = new CompraParceladaService(database.Context, divisaoService);
+        var request = new CriarCompraParceladaRequest
+        {
+            Descricao = "Compra compartilhada",
+            ValorTotal = 600m,
+            QuantidadeParcelas = 2,
+            CategoriaId = categoria.Id,
+            CartaoCreditoId = cartao.Id,
+            DataCompra = new DateOnly(2026, 8, 20),
+            FormaPagamento = FormaPagamentoCompraParcelada.CartaoCredito,
+            IsDividida = true,
+            ValorTotalOriginal = 1000m,
+            PercentualDivisao = 60m,
+            DivisaoVinculada = new CriarDivisaoCompraParceladaRequest
+            {
+                ParticipantesUsuarios =
+                [
+                    new CriarParticipanteUsuarioDivisaoRequest
+                    {
+                        Email = convidado.Email,
+                        Percentual = 40m
+                    }
+                ]
+            }
+        };
+        var compra = await compraService.CriarAsync(request, criador.Id);
+        var primeiraDivisaoId = compra.DivisaoTransacaoId!.Value;
+
+        await divisaoService.ExcluirAsync(
+            criador.Id,
+            primeiraDivisaoId,
+            new ExcluirDivisaoRequest { Escopo = "EstaOcorrencia" });
+
+        var revinculada = await compraService.AtualizarProjecaoAsync(
+            compra.Id,
+            1,
+            request.DataCompra,
+            request,
+            criador.Id);
+
+        Assert.NotNull(revinculada);
+        Assert.Equal(compra.Id, revinculada.Id);
+        Assert.NotNull(revinculada.DivisaoTransacaoId);
+        Assert.NotEqual(primeiraDivisaoId, revinculada.DivisaoTransacaoId);
+
+        await divisaoService.ExcluirAsync(
+            criador.Id,
+            revinculada.DivisaoTransacaoId!.Value,
+            new ExcluirDivisaoRequest { Escopo = "EstaOcorrencia" });
+        var excluida = await compraService.ExcluirProjecaoAsync(compra.Id, 1, criador.Id);
+
+        Assert.True(excluida);
+        Assert.Empty(database.Context.ComprasParceladas.IgnoreQueryFilters());
+        Assert.All(
+            database.Context.DivisoesTransacoes.IgnoreQueryFilters(),
+            divisao => Assert.Null(divisao.CompraParceladaId));
+    }
+
+    [Fact]
+    public async Task TransacaoFixaCancelada_PermiteEditarRevincularEExcluir()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var categoria = await CriarCategoriaGlobalAsync(database.Context);
+        transacao.CategoriaId = categoria.Id;
+        transacao.IsFixa = true;
+        await database.Context.SaveChangesAsync();
+        var divisaoService = new DivisaoTransacaoService(database.Context);
+        var transacaoService = new TransacaoService(database.Context, divisaoService);
+        var primeiraDivisao = await CriarConvitePadraoAsync(
+            divisaoService,
+            criador,
+            convidado,
+            transacao);
+
+        await divisaoService.ExcluirAsync(
+            criador.Id,
+            primeiraDivisao.Id,
+            new ExcluirDivisaoRequest { Escopo = "EstaOcorrencia" });
+        await transacaoService.AtualizarAsync(
+            transacao.Id,
+            new CriarTransacaoRequest
+            {
+                Tipo = TipoTransacao.Despesa,
+                Descricao = "Fixa editada",
+                Valor = 1000m,
+                DataOcorrencia = transacao.DataOcorrencia,
+                CategoriaId = categoria.Id,
+                FormaPagamento = "Pix",
+                IsFixa = true,
+                IsDividida = false
+            },
+            criador.Id);
+
+        var segundaDivisao = await CriarConvitePadraoAsync(
+            divisaoService,
+            criador,
+            convidado,
+            transacao);
+        await divisaoService.ExcluirAsync(
+            criador.Id,
+            segundaDivisao.Id,
+            new ExcluirDivisaoRequest { Escopo = "EstaOcorrencia" });
+        var excluida = await transacaoService.ExcluirAsync(
+            transacao.Id,
+            criador.Id,
+            transacao.DataOcorrencia,
+            replicarFuturas: true);
+
+        Assert.True(excluida);
+        Assert.DoesNotContain(
+            database.Context.Transacoes.IgnoreQueryFilters(),
+            item => item.Id == transacao.Id);
+        Assert.All(
+            database.Context.DivisoesTransacoes.IgnoreQueryFilters(),
+            divisao => Assert.Null(divisao.TransacaoOrigemId));
     }
 
     private static async Task<DivisaoTransacaoResponse> CriarConvitePadraoAsync(

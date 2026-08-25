@@ -377,16 +377,21 @@ export async function recusarDivisao(
   return data;
 }
 
-export async function assumirValorDivisao(divisaoId: string) {
+export async function assumirValorDivisao(
+  divisaoId: string,
+  participanteId?: string | null,
+) {
   const { data } = await api.post<DivisaoTransacao>(
-    `/api/divisoes-transacoes/${divisaoId}/assumir-valor`,
+    participanteId
+      ? `/api/divisoes-transacoes/participantes/${participanteId}/assumir-valor`
+      : `/api/divisoes-transacoes/${divisaoId}/assumir-valor`,
   );
   return data;
 }
 
 export async function reenviarDivisao(
   divisaoId: string,
-  request: { percentualConvidado?: number | null } = {},
+  request: { participanteId?: string | null; percentualConvidado?: number | null } = {},
 ) {
   const { data } = await api.post<DivisaoTransacao>(
     `/api/divisoes-transacoes/${divisaoId}/reenviar`,
@@ -395,10 +400,38 @@ export async function reenviarDivisao(
   return data;
 }
 
+export async function manterParteCriadorDivisao(participanteId: string) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/participantes/${participanteId}/manter-parte-criador`,
+  );
+  return data;
+}
+
 export async function excluirDivisao(divisaoId: string, escopo = 'EstaOcorrencia') {
   await api.delete(`/api/divisoes-transacoes/${divisaoId}`, {
     params: { escopo },
   });
+}
+
+export async function cancelarParticipacaoDivisao(participanteId: string) {
+  await api.delete(`/api/divisoes-transacoes/participantes/${participanteId}`);
+}
+
+export async function proporAlteracaoDivisao(
+  divisaoId: string,
+  request: {
+    escopo: string;
+    valorTotal?: number | null;
+    participantes: Array<{ participanteId: string; percentual: number }>;
+    vencimento?: string | null;
+    quantidadeParcelas?: number | null;
+  },
+) {
+  const { data } = await api.post<DivisaoTransacao>(
+    `/api/divisoes-transacoes/${divisaoId}/alteracoes`,
+    request,
+  );
+  return data;
 }
 
 export async function aceitarAlteracaoDivisao(versaoId: string) {

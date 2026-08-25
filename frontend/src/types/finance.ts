@@ -344,6 +344,8 @@ export type FaturaDetalhe = {
   categoriaCorHexa: string;
   origem: string;
   status: string;
+  divisaoTransacaoId?: string | null;
+  statusDivisao?: string | number | null;
 };
 
 export type FaturaConsolidada = {
@@ -410,7 +412,9 @@ export type CriarConviteDivisaoRequest = {
     apelidoContato?: string | null;
   }>;
   participantesExternos?: Array<{
-    percentual: number;
+    modoDefinicao?: 1 | 2 | 'Percentual' | 'Valor';
+    percentual?: number | null;
+    valor?: number | null;
     nome?: string | null;
   }>;
 };
@@ -418,9 +422,12 @@ export type CriarConviteDivisaoRequest = {
 export type DivisaoParticipante = {
   id: string;
   participanteUsuarioId: string | null;
+  nomeExibicao?: string | null;
+  emailMascarado?: string | null;
   tipoParticipante: number | string;
   percentual: number;
   valor: number;
+  modoDefinicao?: 1 | 2 | 'Percentual' | 'Valor';
   status: number | string;
   versaoConvite: number;
   expiraEm: string | null;
@@ -457,6 +464,18 @@ export type DivisaoVersao = {
   criadoEm: string;
   respondidoEm: string | null;
   motivoResposta: string | null;
+  participantes?: Array<{
+    id: string;
+    participanteId: string;
+    participanteUsuarioId: string | null;
+    percentualAnterior: number;
+    percentualProposto: number;
+    valorAnterior: number;
+    valorProposto: number;
+    status: number | string;
+    respondidoEm: string | null;
+    motivoResposta: string | null;
+  }>;
 };
 
 export type DivisaoTransacao = {
@@ -468,6 +487,7 @@ export type DivisaoTransacao = {
   formaPagamentoCompraParcelada?: number | string | null;
   dataPrimeiraParcela?: string | null;
   descricaoOrigem?: string | null;
+  dataSugeridaConvidado?: string | null;
   valorTotal: number;
   status: number | string;
   versaoAtual: number;

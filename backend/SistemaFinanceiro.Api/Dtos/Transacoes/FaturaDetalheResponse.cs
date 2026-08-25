@@ -19,6 +19,8 @@ public sealed class FaturaDetalheResponse
     public string CategoriaCorHexa { get; set; } = string.Empty;
     public string Origem { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+    public Guid? DivisaoTransacaoId { get; set; }
+    public DivisaoTransacaoStatus? StatusDivisao { get; set; }
     public OrigemTransacao OrigemTransacao { get; set; } = OrigemTransacao.Lancamento;
     public Guid? EmprestimoId { get; set; }
 }

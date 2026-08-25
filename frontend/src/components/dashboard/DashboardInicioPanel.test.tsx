@@ -88,7 +88,7 @@ describe("DashboardInicioPanel", () => {
     await user.hover(screen.getByRole("button", { name: "Ajuda: Saldo previsto" }));
 
     expect(screen.getByRole("tooltip")).toHaveTextContent(
-      "Saldo atual menos despesas e investimentos em aberto do período. Não soma receitas futuras.",
+      "Saldo atual mais receitas pendentes, menos despesas e investimentos pendentes do período.",
     );
   });
 });

@@ -142,6 +142,31 @@ public sealed class DivisaoTransacaoController : ControllerBase
         }
     }
 
+    [HttpPost("participantes/{participanteId:guid}/assumir-valor")]
+    public async Task<ActionResult<DivisaoTransacaoResponse>> AssumirValorParticipante(
+        Guid participanteId,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var divisao = await _service.AssumirValorParticipanteAsync(
+                usuarioId.Value,
+                participanteId,
+                cancellationToken);
+            return divisao is null ? NotFound() : Ok(divisao);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
     [HttpPost("{divisaoId:guid}/reenviar")]
     public async Task<ActionResult<DivisaoTransacaoResponse>> Reenviar(
         Guid divisaoId,
@@ -157,6 +182,31 @@ public sealed class DivisaoTransacaoController : ControllerBase
         try
         {
             var divisao = await _service.ReenviarAsync(usuarioId.Value, divisaoId, request, cancellationToken);
+            return divisao is null ? NotFound() : Ok(divisao);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
+    [HttpPost("participantes/{participanteId:guid}/manter-parte-criador")]
+    public async Task<ActionResult<DivisaoTransacaoResponse>> ManterParteCriador(
+        Guid participanteId,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            var divisao = await _service.ManterParteCriadorAsync(
+                usuarioId.Value,
+                participanteId,
+                cancellationToken);
             return divisao is null ? NotFound() : Ok(divisao);
         }
         catch (InvalidOperationException exception)
@@ -186,6 +236,32 @@ public sealed class DivisaoTransacaoController : ControllerBase
                 cancellationToken)
                     ? NoContent()
                     : NotFound();
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
+    [HttpDelete("participantes/{participanteId:guid}")]
+    public async Task<IActionResult> CancelarParticipacao(
+        Guid participanteId,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            return await _service.CancelarParticipacaoAsync(
+                usuarioId.Value,
+                participanteId,
+                cancellationToken)
+                ? NoContent()
+                : NotFound();
         }
         catch (InvalidOperationException exception)
         {

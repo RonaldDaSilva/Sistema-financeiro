@@ -15,7 +15,7 @@ public sealed class DashboardServiceTests
     private static int _codigoExibicao;
 
     [Fact]
-    public async Task GetInicioAsync_SaldoAtualIgnoraReceitaFuturaEDespesaNaoPaga()
+    public async Task GetInicioAsync_SaldoPrevistoIncluiReceitaFuturaEDespesaNaoPaga()
     {
         var usuarioId = Guid.NewGuid();
         using var database = new SqliteTestDatabase(usuarioId);
@@ -47,7 +47,51 @@ public sealed class DashboardServiceTests
         Assert.Equal(900m, response.SaldoAtual);
         Assert.Equal(500m, response.ReceitasPendentesNoPeriodo);
         Assert.Equal(200m, response.DespesasEmAberto);
-        Assert.Equal(700m, response.SaldoPrevistoFimDoPeriodo);
+        Assert.Equal(1200m, response.SaldoPrevistoFimDoPeriodo);
+    }
+
+    [Theory]
+    [InlineData(0, 200, 0, 800)]
+    [InlineData(300, 0, 0, 1300)]
+    [InlineData(300, 200, 0, 1100)]
+    [InlineData(300, 200, 50, 1050)]
+    [InlineData(0, 0, 0, 1000)]
+    public async Task GetInicioAsync_SaldoPrevistoCombinaTodasAsPendencias(
+        decimal receitas,
+        decimal despesas,
+        decimal investimentos,
+        decimal esperado)
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+        var hoje = DateOnly.FromDateTime(DateTime.Today);
+        var conta = CriarConta(usuarioId, 1000m);
+        database.Context.ContasBancarias.Add(conta);
+        var transacoes = new List<Transacao>();
+        if (receitas > 0)
+        {
+            transacoes.Add(CriarTransacao(usuarioId, conta.Id, TipoTransacao.Receita, receitas, hoje.AddDays(1), false));
+        }
+        if (despesas > 0)
+        {
+            transacoes.Add(CriarTransacao(usuarioId, conta.Id, TipoTransacao.Despesa, despesas, hoje.AddDays(2), false));
+        }
+        if (investimentos > 0)
+        {
+            transacoes.Add(CriarTransacao(usuarioId, conta.Id, TipoTransacao.Investimento, investimentos, hoje.AddDays(3), false));
+        }
+        database.Context.Transacoes.AddRange(transacoes);
+        await database.Context.SaveChangesAsync();
+        var service = CriarService(database.Context, transacoes.Select(MapearItem).ToList());
+
+        var response = await service.GetInicioAsync(usuarioId, new DashboardInicioRequest
+        {
+            DataInicial = hoje,
+            DataFinal = hoje.AddDays(10)
+        });
+
+        Assert.Equal(esperado, response.SaldoPrevistoFimDoPeriodo);
     }
 
     [Fact]

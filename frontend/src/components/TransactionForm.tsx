@@ -1,10 +1,11 @@
-import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar, CreditCard, FileText, Landmark, Search, Tag, Users } from "lucide-react";
+import { Calendar, CreditCard, FileText, Landmark, Plus, Search, Tag, Trash2, Users } from "lucide-react";
 import { InfoTooltip } from "./InfoTooltip";
 import * as financeService from "../services/financeService";
 import { queryKeys } from "../hooks/queries/queryKeys";
+import { AuthContext } from "../contexts/authContextCore";
 import type {
   CartaoCredito,
   CartaoCreditoOpcao,
@@ -13,6 +14,7 @@ import type {
   ContaBancaria,
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
+  DivisaoParticipante,
   ExtratoMensalItem,
   ReembolsoDivisao,
   ResolverConvidadoDivisaoResponse,
@@ -60,6 +62,38 @@ export type TransactionFormSavedSummary = {
   isParcelada: boolean;
 };
 
+type ParticipanteUsuarioForm = {
+  key: string;
+  participanteId?: string;
+  contatoId: string | null;
+  usuarioId: string | null;
+  email: string | null;
+  nome: string;
+  emailMascarado: string | null;
+  percentual: string;
+  salvarContato: boolean;
+  apelidoContato: string;
+  status?: number | string;
+};
+
+type ParticipanteExternoForm = {
+  key: string;
+  participanteId?: string;
+  nome: string;
+  modo: "Percentual" | "Valor";
+  entrada: string;
+  status?: number | string;
+};
+
+type ParticipanteCalculado = {
+  key: string;
+  nome: string;
+  percentual: number;
+  valor: number;
+  externo: boolean;
+  status?: number | string;
+};
+
 export function TransactionForm({
   variant,
   categorias,
@@ -75,6 +109,7 @@ export function TransactionForm({
   onUpdateCompraParcelada,
   onCreateCompraParcelada,
 }: TransactionFormProps) {
+  const user = useContext(AuthContext)?.user ?? null;
   const [tipo, setTipo] = useState<"receita" | "despesa" | "investimento">(
     "despesa",
   );
@@ -88,14 +123,11 @@ export function TransactionForm({
   const [percentualDivisao, setPercentualDivisao] = useState(
     String(percentualPadraoDivisao),
   );
-  const [emailConvidado, setEmailConvidado] = useState("");
-  const [contatoConvidadoId, setContatoConvidadoId] = useState<string | null>(null);
-  const [convidadoResolvido, setConvidadoResolvido] =
+  const [termoParticipante, setTermoParticipante] = useState("");
+  const [resultadoParticipante, setResultadoParticipante] =
     useState<ResolverConvidadoDivisaoResponse | null>(null);
-  const [salvarContato, setSalvarContato] = useState(true);
-  const [apelidoContato, setApelidoContato] = useState("");
-  const [temParteExterna, setTemParteExterna] = useState(false);
-  const [percentualParteExterna, setPercentualParteExterna] = useState("0");
+  const [participantesUsuarios, setParticipantesUsuarios] = useState<ParticipanteUsuarioForm[]>([]);
+  const [participantesExternos, setParticipantesExternos] = useState<ParticipanteExternoForm[]>([]);
   const [vincularReembolso, setVincularReembolso] = useState(false);
   const [reembolsoDivisaoId, setReembolsoDivisaoId] = useState("");
   const [data, setData] = useState(toDateInputValue(new Date()));
@@ -128,9 +160,9 @@ export function TransactionForm({
   });
   const resolverConvidadoMutation = useMutation({
     mutationFn: financeService.resolverConvidadoDivisao,
-    onSuccess: (data) => setConvidadoResolvido(data),
+    onSuccess: (data) => setResultadoParticipante(data),
     onError: (error) => {
-      setConvidadoResolvido(null);
+      setResultadoParticipante(null);
       setErro(extractApiError(error, "Não foi possível buscar este e-mail."));
     },
   });
@@ -147,6 +179,22 @@ export function TransactionForm({
   const possuiDivisaoVinculadaExistente = Boolean(
     initialTransaction?.divisaoTransacaoId,
   );
+  const divisaoExistenteQuery = useQuery({
+    queryKey: queryKeys.divisaoTransacao(initialTransaction?.divisaoTransacaoId ?? ""),
+    queryFn: ({ signal }) => financeService.obterDivisaoTransacao(
+      initialTransaction!.divisaoTransacaoId!,
+      signal,
+    ),
+    enabled: possuiDivisaoVinculadaExistente,
+  });
+  const divisaoExistente = divisaoExistenteQuery.data;
+  const usuarioEhCriador = Boolean(
+    divisaoExistente && user?.id === divisaoExistente.usuarioCriadorId,
+  );
+  const podeProporAlteracao = Boolean(
+    usuarioEhCriador &&
+      (divisaoExistente?.status === "Aceita" || divisaoExistente?.status === 3),
+  );
   const isCarne = formaPagamento === "Carnê/Crediário";
   const parcelasRestantes =
     initialTransaction?.numeroParcela && initialTransaction?.quantidadeParcelas
@@ -155,31 +203,28 @@ export function TransactionForm({
         1
       : quantidadeParcelas;
   const percentualMinhaParte = parsePercentual(percentualDivisao);
-  const percentualExterno = temParteExterna
-    ? parsePercentual(percentualParteExterna)
-    : 0;
-  const percentualConvidado = Math.max(
-    0,
-    Math.round((100 - percentualMinhaParte - percentualExterno) * 100) / 100,
-  );
   const numericValorTotal = parseBrlCurrency(valor);
+  const participantesCalculados = useMemo(
+    () => calcularParticipantes(
+      numericValorTotal,
+      participantesUsuarios,
+      participantesExternos,
+    ),
+    [numericValorTotal, participantesExternos, participantesUsuarios],
+  );
   const valorMinhaParte = isDividida
     ? calcularParteNumerica(numericValorTotal, percentualMinhaParte)
     : numericValorTotal;
-  const valorConvidado = isDividida
-    ? calcularParteNumerica(numericValorTotal, percentualConvidado)
-    : 0;
-  const valorExterno = isDividida
-    ? Math.max(0, numericValorTotal - valorMinhaParte - valorConvidado)
-    : 0;
-  const somaPercentualDivisao =
-    Math.round((percentualMinhaParte + percentualConvidado + percentualExterno) * 100) / 100;
+  const somaPercentualDivisao = arredondarPercentual(
+    percentualMinhaParte + participantesCalculados.somaPercentual,
+  );
+  const somaMonetariaDivisao = arredondarDinheiro(
+    valorMinhaParte + participantesCalculados.somaValor,
+  );
   const divisaoVinculadaAtiva =
     tipo === "despesa" && isDividida && modoDivisao === "vinculada";
   const criandoPrimeiraDivisaoVinculada =
     divisaoVinculadaAtiva && !possuiDivisaoVinculadaExistente;
-  const descricaoConvidado =
-    convidadoResolvido?.nomeExibicao || convidadoResolvido?.emailMascarado || "Convidado";
 
   useEffect(() => {
     if (categoriasOrdenadas.length > 0 && !categoriaId) {
@@ -196,13 +241,10 @@ export function TransactionForm({
       setIsDividida(false);
       setModoDivisao("manual");
       setPercentualDivisao(String(percentualPadraoDivisao));
-      setEmailConvidado("");
-      setContatoConvidadoId(null);
-      setConvidadoResolvido(null);
-      setSalvarContato(true);
-      setApelidoContato("");
-      setTemParteExterna(false);
-      setPercentualParteExterna("0");
+      setTermoParticipante("");
+      setResultadoParticipante(null);
+      setParticipantesUsuarios([]);
+      setParticipantesExternos([]);
       setVincularReembolso(false);
       setReembolsoDivisaoId("");
       setData(toDateInputValue(new Date()));
@@ -231,13 +273,10 @@ export function TransactionForm({
     setDescricao(stripProjectedInstallmentSuffix(initialTransaction.descricao));
     setIsDividida(initialTransaction.isDividida);
     setModoDivisao(initialTransaction.divisaoTransacaoId ? "vinculada" : "manual");
-    setEmailConvidado("");
-    setContatoConvidadoId(null);
-    setConvidadoResolvido(null);
-    setSalvarContato(true);
-    setApelidoContato("");
-    setTemParteExterna(false);
-    setPercentualParteExterna("0");
+    setTermoParticipante("");
+    setResultadoParticipante(null);
+    setParticipantesUsuarios([]);
+    setParticipantesExternos([]);
     setVincularReembolso(false);
     setReembolsoDivisaoId(initialTransaction.reembolsoDivisaoId ?? "");
     setValor(
@@ -279,6 +318,50 @@ export function TransactionForm({
   ]);
 
   useEffect(() => {
+    if (!divisaoExistente || !usuarioEhCriador) {
+      return;
+    }
+
+    const criador = divisaoExistente.participantes.find(isParticipanteCriador);
+    if (criador) {
+      setPercentualDivisao(formatarPercentualInput(criador.percentual));
+      setMeuValor(formatCurrencyInput(criador.valor));
+    }
+
+    setParticipantesUsuarios(
+      divisaoExistente.participantes
+        .filter(isParticipanteUsuario)
+        .map((participante) => ({
+          key: participante.id,
+          participanteId: participante.id,
+          contatoId: null,
+          usuarioId: participante.participanteUsuarioId,
+          email: null,
+          nome: participante.nomeExibicao || participante.emailMascarado || "Participante",
+          emailMascarado: participante.emailMascarado ?? null,
+          percentual: formatarPercentualInput(participante.percentual),
+          salvarContato: false,
+          apelidoContato: "",
+          status: participante.status,
+        })),
+    );
+    setParticipantesExternos(
+      divisaoExistente.participantes
+        .filter(isParticipanteExterno)
+        .map((participante) => ({
+          key: participante.id,
+          participanteId: participante.id,
+          nome: participante.nomeExibicao || "Participante externo",
+          modo: isModoValor(participante.modoDefinicao) ? "Valor" : "Percentual",
+          entrada: isModoValor(participante.modoDefinicao)
+            ? formatCurrencyInput(participante.valor)
+            : formatarPercentualInput(participante.percentual),
+          status: participante.status,
+        })),
+    );
+  }, [divisaoExistente, usuarioEhCriador]);
+
+  useEffect(() => {
     if (tipo !== "despesa") {
       setIsParcelada(false);
       setCartaoCreditoId("");
@@ -313,7 +396,7 @@ export function TransactionForm({
 
   async function handleResolverConvidado() {
     setErro(null);
-    const termo = emailConvidado.trim();
+    const termo = termoParticipante.trim();
     if (!termo) {
       setErro("Informe um contato ou o e-mail completo do convidado.");
       return;
@@ -324,7 +407,7 @@ export function TransactionForm({
         contatoCorrespondeAoTermo(contato, termo),
       );
       if (contatosEncontrados.length === 1) {
-        selecionarContatoConvidado(contatosEncontrados[0]);
+        adicionarContato(contatosEncontrados[0]);
         return;
       }
 
@@ -336,47 +419,111 @@ export function TransactionForm({
       return;
     }
 
-    setContatoConvidadoId(null);
-    await resolverConvidadoMutation.mutateAsync(termo);
+    const resultado = await resolverConvidadoMutation.mutateAsync(termo);
+    if (resultado.encontrado) {
+      adicionarUsuarioResolvido(resultado, termo);
+    }
   }
 
-  function selecionarContatoConvidado(contato: ContatoDivisao) {
+  function adicionarContato(contato: ContatoDivisao) {
     setErro(null);
-    setContatoConvidadoId(contato.id);
-    setEmailConvidado(contato.apelido || contato.nomeExibicao);
-    setConvidadoResolvido({
-      encontrado: true,
-      nomeExibicao: contato.apelido || contato.nomeExibicao,
-      emailMascarado: contato.emailMascarado,
-      identificador: contato.usuarioContatoId,
-    });
-    setSalvarContato(true);
-    setApelidoContato(contato.apelido ?? "");
+    if (!podeAdicionarUsuario(contato.usuarioContatoId, contato.id)) {
+      return;
+    }
+    setParticipantesUsuarios((atuais) => [
+      ...atuais,
+      {
+        key: criarChaveTemporaria(),
+        contatoId: contato.id,
+        usuarioId: contato.usuarioContatoId,
+        email: null,
+        nome: contato.apelido || contato.nomeExibicao,
+        emailMascarado: contato.emailMascarado,
+        percentual: percentualRestanteInput(),
+        salvarContato: false,
+        apelidoContato: contato.apelido ?? "",
+      },
+    ]);
+    limparBuscaParticipante();
   }
 
-  async function criarConviteParaTransacao(
-    transacaoOrigemId: string,
-    numericPercentualExterno: number,
+  function adicionarUsuarioResolvido(
+    resultado: ResolverConvidadoDivisaoResponse,
+    email: string,
   ) {
+    if (!resultado.identificador || !podeAdicionarUsuario(resultado.identificador, null)) {
+      return;
+    }
+    setParticipantesUsuarios((atuais) => [
+      ...atuais,
+      {
+        key: criarChaveTemporaria(),
+        contatoId: null,
+        usuarioId: resultado.identificador,
+        email,
+        nome: resultado.nomeExibicao || resultado.emailMascarado || "Participante",
+        emailMascarado: resultado.emailMascarado,
+        percentual: percentualRestanteInput(),
+        salvarContato: true,
+        apelidoContato: "",
+      },
+    ]);
+    limparBuscaParticipante();
+  }
+
+  function podeAdicionarUsuario(usuarioId: string, contatoId: string | null) {
+    if (usuarioId === user?.id) {
+      setErro("Você não pode adicionar a si mesmo à divisão.");
+      return false;
+    }
+    if (participantesUsuarios.some((item) =>
+      item.usuarioId === usuarioId || (contatoId && item.contatoId === contatoId),
+    )) {
+      setErro("Esta pessoa já foi adicionada à divisão.");
+      return false;
+    }
+    return true;
+  }
+
+  function percentualRestanteInput() {
+    const restante = Math.max(0, arredondarPercentual(100 - percentualMinhaParte - participantesCalculados.somaPercentual));
+    return formatarPercentualInput(restante);
+  }
+
+  function limparBuscaParticipante() {
+    setTermoParticipante("");
+    setResultadoParticipante(null);
+  }
+
+  function atualizarParticipanteUsuario(key: string, patch: Partial<ParticipanteUsuarioForm>) {
+    setParticipantesUsuarios((atuais) =>
+      atuais.map((item) => item.key === key ? { ...item, ...patch } : item),
+    );
+  }
+
+  function atualizarParticipanteExterno(key: string, patch: Partial<ParticipanteExternoForm>) {
+    setParticipantesExternos((atuais) =>
+      atuais.map((item) => item.key === key ? { ...item, ...patch } : item),
+    );
+  }
+
+  function adicionarParticipanteExterno() {
+    setParticipantesExternos((atuais) => [
+      ...atuais,
+      {
+        key: criarChaveTemporaria(),
+        nome: "",
+        modo: "Percentual",
+        entrada: percentualRestanteInput(),
+      },
+    ]);
+  }
+
+  async function criarConviteParaTransacao(transacaoOrigemId: string) {
     await financeService.criarConviteDivisao({
       transacaoOrigemId,
-      participantesUsuarios: [
-        {
-          email: contatoConvidadoId ? null : emailConvidado.trim(),
-          contatoId: contatoConvidadoId,
-          percentual: percentualConvidado,
-          salvarContato,
-          apelidoContato: apelidoContato.trim() || null,
-        },
-      ],
-      participantesExternos: temParteExterna
-        ? [
-            {
-              percentual: numericPercentualExterno,
-              nome: null,
-            },
-          ]
-        : [],
+      participantesUsuarios: mapearParticipantesUsuariosRequest(participantesUsuarios),
+      participantesExternos: mapearParticipantesExternosRequest(participantesExternos),
     });
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.contatosDivisao }),
@@ -395,9 +542,6 @@ export function TransactionForm({
     try {
       const numericValue = parseBrlCurrency(valor);
       const numericPercentual = parsePercentual(percentualDivisao);
-      const numericPercentualExterno = temParteExterna
-        ? parsePercentual(percentualParteExterna)
-        : 0;
       const numericMeuValor = isDividida
         ? calcularParteNumerica(numericValue, numericPercentual)
         : numericValue;
@@ -415,27 +559,18 @@ export function TransactionForm({
         );
       }
 
-      if (divisaoVinculadaAtiva) {
-        if (possuiDivisaoVinculadaExistente) {
-          throw new Error(
-            "Para alterar uma divisão vinculada existente, use o fluxo de alteração da divisão.",
-          );
-        }
-
-        if (
-          !convidadoResolvido?.encontrado ||
-          (!contatoConvidadoId && !emailConvidado.trim())
-        ) {
-          throw new Error("Busque e selecione uma pessoa antes de salvar a divisão vinculada.");
+      if (divisaoVinculadaAtiva && (!possuiDivisaoVinculadaExistente || podeProporAlteracao)) {
+        if (!possuiDivisaoVinculadaExistente && participantesUsuarios.length === 0) {
+          throw new Error("Adicione ao menos um usuário antes de salvar a divisão vinculada.");
         }
 
         if (
           numericPercentual <= 0 ||
-          percentualConvidado <= 0 ||
-          (temParteExterna && numericPercentualExterno <= 0) ||
-          somaPercentualDivisao !== 100
+          participantesCalculados.temParteInvalida ||
+          Math.abs(somaPercentualDivisao - 100) > 0.01 ||
+          Math.abs(somaMonetariaDivisao - numericValue) > 0.01
         ) {
-          throw new Error("A soma entre você, convidado e parte externa deve fechar em 100%.");
+          throw new Error(mensagemDistribuicao(numericValue, somaMonetariaDivisao));
         }
       }
 
@@ -443,22 +578,42 @@ export function TransactionForm({
         throw new Error("Selecione uma categoria.");
       }
 
-      const divisaoVinculadaParcelada = divisaoVinculadaAtiva
+      const divisaoVinculadaParcelada = criandoPrimeiraDivisaoVinculada
         ? {
-            participantesUsuarios: [
-              {
-                email: contatoConvidadoId ? null : emailConvidado.trim(),
-                contatoId: contatoConvidadoId,
-                percentual: percentualConvidado,
-                salvarContato,
-                apelidoContato: apelidoContato.trim() || null,
-              },
-            ],
-            participantesExternos: temParteExterna
-              ? [{ percentual: numericPercentualExterno, nome: null }]
-              : [],
+            participantesUsuarios: mapearParticipantesUsuariosRequest(participantesUsuarios),
+            participantesExternos: mapearParticipantesExternosRequest(participantesExternos),
           }
         : null;
+
+      if (possuiDivisaoVinculadaExistente && podeProporAlteracao && divisaoExistente) {
+        await financeService.proporAlteracaoDivisao(divisaoExistente.id, {
+          escopo: isEditingCompraParcelada || isFixa ? "EstaEProximas" : "EstaOcorrencia",
+          valorTotal: Math.abs(numericValue - divisaoExistente.valorTotal) > 0.01
+            ? numericValue
+            : null,
+          vencimento: data !== initialTransaction?.dataOcorrencia ? data : null,
+          quantidadeParcelas: isEditingCompraParcelada &&
+            parcelasRestantes !== divisaoExistente.quantidadeParcelas
+              ? parcelasRestantes
+              : null,
+          participantes: [
+            ...participantesUsuarios,
+            ...participantesExternos,
+          ].flatMap((participante) => participante.participanteId
+            ? [{
+                participanteId: participante.participanteId,
+                percentual: "modo" in participante
+                  ? participante.modo === "Valor"
+                    ? percentualPorValor(numericValue, parseBrlCurrency(participante.entrada))
+                    : parsePercentual(participante.entrada)
+                  : parsePercentual(participante.percentual),
+              }]
+            : []),
+        });
+        await invalidarDivisaoEFinanceiro(divisaoExistente.id);
+        onCancel();
+        return;
+      }
 
       if (isEditingCompraParcelada) {
         if (
@@ -555,12 +710,12 @@ export function TransactionForm({
         if (isEditing && initialTransaction?.id && onUpdateTransacao) {
           await onUpdateTransacao(initialTransaction.id, request);
           if (criandoPrimeiraDivisaoVinculada) {
-            await criarConviteParaTransacao(initialTransaction.id, numericPercentualExterno);
+            await criarConviteParaTransacao(initialTransaction.id);
           }
         } else {
           const transacaoCriada = await onCreateTransacao(request);
           if (divisaoVinculadaAtiva && transacaoCriada?.id) {
-            await criarConviteParaTransacao(transacaoCriada.id, numericPercentualExterno);
+            await criarConviteParaTransacao(transacaoCriada.id);
           }
           if (request.reembolsoDivisaoId) {
             await queryClient.invalidateQueries({
@@ -592,13 +747,23 @@ export function TransactionForm({
     }
   }
 
+  async function invalidarDivisaoEFinanceiro(divisaoId: string) {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.divisaoTransacao(divisaoId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.notificacoesNaoLidas }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboardScope }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.relatoriosScope }),
+    ]);
+  }
+
   return (
     <div className={variant === "page" ? "contents" : "relative contents"}>
       <form
         className={
           variant === "page"
             ? "flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-xl dark:border-slate-800 dark:bg-slate-900"
-            : "flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl bg-[var(--app-card)] shadow-2xl dark:bg-slate-900"
+            : "flex h-full min-h-0 w-full max-w-lg flex-col overflow-hidden bg-[var(--app-card)] dark:bg-slate-900 sm:max-h-[calc(100dvh-2rem)]"
         }
         onSubmit={handleSubmit}
       >
@@ -673,6 +838,7 @@ export function TransactionForm({
                         : "text-red-600 focus:ring-red-500"
                   }`}
                   inputMode="numeric"
+                  disabled={possuiDivisaoVinculadaExistente && !podeProporAlteracao}
                   placeholder="0,00"
                   value={valor}
                   onChange={(event) => {
@@ -780,7 +946,9 @@ export function TransactionForm({
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
                   <p className="font-bold">Divisão vinculada existente</p>
                   <p className="mt-1">
-                    Esta transação já possui convite, participantes e versionamento. Use o fluxo de alteração da divisão para mudar valor, percentual, vencimento ou participante.
+                    {podeProporAlteracao
+                      ? "Mudanças de valor, percentual ou vencimento serão enviadas como proposta aos participantes afetados."
+                      : "Você pode ajustar os dados locais permitidos. Valor e percentual compartilhados permanecem protegidos."}
                   </p>
                   {initialTransaction?.divisaoTransacaoId && (
                     <p className="mt-2 text-xs font-semibold">
@@ -821,7 +989,7 @@ export function TransactionForm({
                       className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                       type="text"
                       inputMode="decimal"
-                      disabled={possuiDivisaoVinculadaExistente}
+                      disabled={possuiDivisaoVinculadaExistente && !podeProporAlteracao}
                       value={percentualDivisao}
                       onChange={(event) => {
                         const nextPercentual = limitarPercentual(
@@ -849,7 +1017,7 @@ export function TransactionForm({
                     aria-label="Valor da minha parte"
                     className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                       inputMode="numeric"
-                      disabled={possuiDivisaoVinculadaExistente}
+                      disabled={possuiDivisaoVinculadaExistente && !podeProporAlteracao}
                       value={meuValor}
                       onChange={(event) => {
                         const nextMeuValor = limitarMeuValor(
@@ -867,42 +1035,34 @@ export function TransactionForm({
                 </label>
               </div>
 
-              {modoDivisao === "vinculada" && !possuiDivisaoVinculadaExistente && (
+              {modoDivisao === "vinculada" && (!possuiDivisaoVinculadaExistente || usuarioEhCriador) && (
                 <LinkedDivisionPanel
-                  apelidoContato={apelidoContato}
+                  canAddParticipants={!possuiDivisaoVinculadaExistente}
+                  canEditEconomic={!possuiDivisaoVinculadaExistente || podeProporAlteracao}
                   contatos={contatosDivisaoQuery.data ?? []}
-                  contatoSelecionadoId={contatoConvidadoId}
-                  emailConvidado={emailConvidado}
                   isBuscando={resolverConvidadoMutation.isPending}
                   isCarregandoContatos={contatosDivisaoQuery.isLoading}
                   isParcelada={isParcelada || isFixa}
-                  percentualConvidado={percentualConvidado}
-                  percentualExterno={percentualExterno}
                   percentualMinhaParte={percentualMinhaParte}
-                  resultadoBusca={convidadoResolvido}
-                  salvarContato={salvarContato}
+                  participantesExternos={participantesExternos}
+                  participantesUsuarios={participantesUsuarios}
+                  resultadoBusca={resultadoParticipante}
                   somaPercentual={somaPercentualDivisao}
-                  temParteExterna={temParteExterna}
-                  valorConvidado={valorConvidado}
-                  valorExterno={valorExterno}
+                  somaValor={somaMonetariaDivisao}
+                  termoBusca={termoParticipante}
                   valorMinhaParte={valorMinhaParte}
                   valorTotal={numericValorTotal}
-                  onApelidoContatoChange={setApelidoContato}
+                  onAdicionarExterno={adicionarParticipanteExterno}
                   onBuscar={handleResolverConvidado}
-                  onEmailChange={(value) => {
-                    setEmailConvidado(value);
-                    setContatoConvidadoId(null);
-                    setConvidadoResolvido(null);
+                  onBuscaChange={(value) => {
+                    setTermoParticipante(value);
+                    setResultadoParticipante(null);
                   }}
-                  onSelecionarContato={selecionarContatoConvidado}
-                  onPercentualExternoChange={(value) =>
-                    setPercentualParteExterna(limitarPercentual(value))
-                  }
-                  onSalvarContatoChange={setSalvarContato}
-                  onTemParteExternaChange={(checked) => {
-                    setTemParteExterna(checked);
-                    if (!checked) setPercentualParteExterna("0");
-                  }}
+                  onRemoverExterno={(key) => setParticipantesExternos((atuais) => atuais.filter((item) => item.key !== key))}
+                  onRemoverUsuario={(key) => setParticipantesUsuarios((atuais) => atuais.filter((item) => item.key !== key))}
+                  onSelecionarContato={adicionarContato}
+                  onAtualizarExterno={atualizarParticipanteExterno}
+                  onAtualizarUsuario={atualizarParticipanteUsuario}
                 />
               )}
 
@@ -910,12 +1070,8 @@ export function TransactionForm({
                 isCartao={formaPagamento === "Cartão de crédito" || (isParcelada && !isCarne)}
                 isParcelada={isParcelada}
                 modo={modoDivisao}
-                nomeConvidado={descricaoConvidado}
-                percentualConvidado={percentualConvidado}
+                participantes={participantesCalculados.itens}
                 quantidadeParcelas={quantidadeParcelas || parcelasRestantes}
-                temParteExterna={temParteExterna}
-                valorConvidado={valorConvidado}
-                valorExterno={valorExterno}
                 valorMinhaParte={valorMinhaParte}
                 valorTotal={numericValorTotal}
               />
@@ -1157,12 +1313,12 @@ export function TransactionForm({
           <button
             className="min-h-11 rounded-xl bg-[var(--app-accent)] px-6 py-2.5 text-sm font-bold text-[var(--app-accent-contrast)] shadow-sm transition-colors hover:opacity-90 disabled:opacity-60 dark:bg-white dark:text-slate-950"
             type="submit"
-            disabled={isSubmitting || possuiDivisaoVinculadaExistente}
+            disabled={isSubmitting || (possuiDivisaoVinculadaExistente && divisaoExistenteQuery.isLoading)}
           >
-            {possuiDivisaoVinculadaExistente
-              ? "Use alteração da divisão"
-              : isSubmitting
+            {isSubmitting
               ? "Salvando..."
+              : possuiDivisaoVinculadaExistente && podeProporAlteracao
+                ? "Enviar proposta"
               : isEditing
                 ? "Atualizar"
                 : "Salvar transação"}
@@ -1218,13 +1374,10 @@ export function TransactionForm({
     setIsDividida(false);
     setModoDivisao("manual");
     setPercentualDivisao(String(percentualPadraoDivisao));
-    setEmailConvidado("");
-    setContatoConvidadoId(null);
-    setConvidadoResolvido(null);
-    setSalvarContato(true);
-    setApelidoContato("");
-    setTemParteExterna(false);
-    setPercentualParteExterna("0");
+    setTermoParticipante("");
+    setResultadoParticipante(null);
+    setParticipantesUsuarios([]);
+    setParticipantesExternos([]);
     setVincularReembolso(false);
     setReembolsoDivisaoId("");
     setData(toDateInputValue(new Date()));
@@ -1267,57 +1420,52 @@ function contatoCorrespondeAoTermo(contato: ContatoDivisao, termo: string) {
 }
 
 function LinkedDivisionPanel({
-  apelidoContato,
+  canAddParticipants,
+  canEditEconomic,
   contatos,
-  contatoSelecionadoId,
-  emailConvidado,
   isBuscando,
   isCarregandoContatos,
   isParcelada,
-  percentualConvidado,
-  percentualExterno,
+  participantesExternos,
+  participantesUsuarios,
   percentualMinhaParte,
-  resultadoBusca,
-  salvarContato,
   somaPercentual,
-  temParteExterna,
-  valorConvidado,
-  valorExterno,
+  somaValor,
+  termoBusca,
   valorMinhaParte,
   valorTotal,
-  onApelidoContatoChange,
+  onAdicionarExterno,
+  onAtualizarExterno,
+  onAtualizarUsuario,
   onBuscar,
-  onEmailChange,
-  onPercentualExternoChange,
+  onBuscaChange,
+  onRemoverExterno,
+  onRemoverUsuario,
   onSelecionarContato,
-  onSalvarContatoChange,
-  onTemParteExternaChange,
 }: {
-  apelidoContato: string;
+  canAddParticipants: boolean;
+  canEditEconomic: boolean;
   contatos: ContatoDivisao[];
-  contatoSelecionadoId: string | null;
-  emailConvidado: string;
   isBuscando: boolean;
   isCarregandoContatos: boolean;
   isParcelada: boolean;
-  percentualConvidado: number;
-  percentualExterno: number;
+  participantesExternos: ParticipanteExternoForm[];
+  participantesUsuarios: ParticipanteUsuarioForm[];
   percentualMinhaParte: number;
   resultadoBusca: ResolverConvidadoDivisaoResponse | null;
-  salvarContato: boolean;
   somaPercentual: number;
-  temParteExterna: boolean;
-  valorConvidado: number;
-  valorExterno: number;
+  somaValor: number;
+  termoBusca: string;
   valorMinhaParte: number;
   valorTotal: number;
-  onApelidoContatoChange: (value: string) => void;
+  onAdicionarExterno: () => void;
+  onAtualizarExterno: (key: string, patch: Partial<ParticipanteExternoForm>) => void;
+  onAtualizarUsuario: (key: string, patch: Partial<ParticipanteUsuarioForm>) => void;
   onBuscar: () => void;
-  onEmailChange: (value: string) => void;
-  onPercentualExternoChange: (value: string) => void;
+  onBuscaChange: (value: string) => void;
+  onRemoverExterno: (key: string) => void;
+  onRemoverUsuario: (key: string) => void;
   onSelecionarContato: (contato: ContatoDivisao) => void;
-  onSalvarContatoChange: (checked: boolean) => void;
-  onTemParteExternaChange: (checked: boolean) => void;
 }) {
   const recentes = [...contatos]
     .filter((contato) => contato.emailMascarado)
@@ -1327,16 +1475,17 @@ function LinkedDivisionPanel({
       return right - left;
     })
     .slice(0, 4);
-  const termoBusca = normalizarTermoContato(emailConvidado);
-  const contatosExibidos = termoBusca && !emailConvidado.includes("@")
+  const buscaNormalizada = normalizarTermoContato(termoBusca);
+  const contatosExibidos = buscaNormalizada && !termoBusca.includes("@")
     ? contatos
-        .filter((contato) => contatoCorrespondeAoTermo(contato, termoBusca))
+        .filter((contato) => contatoCorrespondeAoTermo(contato, buscaNormalizada))
         .slice(0, 8)
     : recentes;
+  const diferenca = arredondarDinheiro(valorTotal - somaValor);
 
   return (
     <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-      <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+      {canAddParticipants && <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
         <label className="block space-y-1.5">
           <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
             Dividir restante com
@@ -1346,8 +1495,8 @@ function LinkedDivisionPanel({
             inputMode="search"
             placeholder="Buscar contato ou informar e-mail"
             type="text"
-            value={emailConvidado}
-            onChange={(event) => onEmailChange(event.target.value)}
+            value={termoBusca}
+            onChange={(event) => onBuscaChange(event.target.value)}
           />
         </label>
         <button
@@ -1359,23 +1508,19 @@ function LinkedDivisionPanel({
           <Search size={16} />
           {isBuscando ? "Buscando..." : "Buscar"}
         </button>
-      </div>
+      </div>}
 
-      {contatosExibidos.length > 0 && (
+      {canAddParticipants && contatosExibidos.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
-            {termoBusca ? "Contatos encontrados" : "Contatos recentes"}
+            {buscaNormalizada ? "Contatos encontrados" : "Contatos recentes"}
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             {contatosExibidos.map((contato) => (
               <button
                 aria-label={`Selecionar contato ${contato.apelido || contato.nomeExibicao}`}
-                aria-pressed={contatoSelecionadoId === contato.id}
-                className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
-                  contatoSelecionadoId === contato.id
-                    ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/20 dark:bg-emerald-500/10"
-                    : "border-slate-200 bg-slate-50 hover:border-slate-400 hover:bg-white dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-600 dark:hover:bg-slate-900"
-                }`}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm transition hover:border-slate-400 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-600 dark:hover:bg-slate-900"
+                disabled={participantesUsuarios.some((item) => item.usuarioId === contato.usuarioContatoId)}
                 key={contato.id}
                 type="button"
                 onClick={() => onSelecionarContato(contato)}
@@ -1392,97 +1537,49 @@ function LinkedDivisionPanel({
         </div>
       )}
 
-      {isCarregandoContatos && (
+      {canAddParticipants && isCarregandoContatos && (
         <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
           Carregando contatos salvos...
         </p>
       )}
 
-      {!isCarregandoContatos && contatosExibidos.length === 0 && !resultadoBusca && (
-        <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-          Adicionar pelo e-mail
-        </p>
-      )}
-
-      {resultadoBusca && (
-        <div
-          className={`rounded-xl border px-3 py-2 text-sm ${
-            resultadoBusca.encontrado
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100"
-              : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
-          }`}
-        >
-          {resultadoBusca.encontrado ? (
-            <>
-              <p className="font-black">{resultadoBusca.nomeExibicao}</p>
-              <p>{resultadoBusca.emailMascarado}</p>
-            </>
-          ) : (
-            <p className="font-semibold">Nenhum usuário encontrado para este e-mail.</p>
-          )}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Participantes</p>
+          {canAddParticipants && <button className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-bold dark:border-slate-700" type="button" onClick={onAdicionarExterno}><Plus size={14} /> Pessoa externa</button>}
         </div>
-      )}
-
-      {resultadoBusca?.encontrado && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ToggleField
-            checked={salvarContato}
-            label="Salvar nos meus contatos"
-            onChange={onSalvarContatoChange}
-          />
-          {salvarContato && (
-            <input
-              className="min-h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-base text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-              maxLength={120}
-              placeholder="Apelido opcional"
-              value={apelidoContato}
-              onChange={(event) => onApelidoContatoChange(event.target.value)}
-            />
-          )}
-        </div>
-      )}
-
-      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
-        <ToggleField
-          checked={temParteExterna}
-          label="Existe também uma parte de pessoa externa"
-          onChange={onTemParteExternaChange}
-        />
-        {temParteExterna && (
-          <label className="block space-y-1.5">
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-              Parte externa
-            </span>
-            <div className="relative max-w-40">
-              <input
-                aria-label="Percentual da parte externa"
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-9 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                inputMode="decimal"
-                value={String(percentualExterno).replace(".", ",")}
-                onChange={(event) => onPercentualExternoChange(event.target.value)}
-              />
-              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-500">
-                %
-              </span>
-            </div>
-          </label>
+        {participantesUsuarios.length === 0 && participantesExternos.length === 0 && (
+          <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-400">Adicione uma pessoa para distribuir o restante.</p>
         )}
-        <div className="grid gap-2 text-sm text-slate-700 dark:text-slate-200">
-          <PercentRow label="Você" percent={percentualMinhaParte} value={valorMinhaParte} />
-          <PercentRow label={resultadoBusca?.nomeExibicao ?? "Convidado"} percent={percentualConvidado} value={valorConvidado} />
-          {temParteExterna && (
-            <PercentRow label="Parte externa" percent={percentualExterno} value={valorExterno} />
-          )}
-        </div>
-        <p
-          className={`text-xs font-bold ${
-            somaPercentual === 100
-              ? "text-emerald-700 dark:text-emerald-300"
-              : "text-red-600 dark:text-red-300"
-          }`}
-        >
-          Soma: {somaPercentual.toLocaleString("pt-BR")}% de 100%
-        </p>
+        {participantesUsuarios.map((participante) => (
+          <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-800" key={participante.key}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0"><p className="truncate font-bold text-slate-900 dark:text-white">{participante.nome}</p><p className="truncate text-xs text-slate-500">{participante.emailMascarado}</p></div>
+              {canAddParticipants && <button aria-label={`Remover ${participante.nome}`} className="rounded-lg p-2 text-slate-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30" type="button" onClick={() => onRemoverUsuario(participante.key)}><Trash2 size={16} /></button>}
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="relative block"><span className="sr-only">Percentual de {participante.nome}</span><input aria-label={`Percentual de ${participante.nome}`} className={inputClass} disabled={!canEditEconomic} inputMode="decimal" value={participante.percentual} onChange={(event) => onAtualizarUsuario(participante.key, { percentual: limitarPercentual(event.target.value) })} /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-500">%</span></label>
+              <p className="flex min-h-11 items-center font-bold text-slate-800 dark:text-slate-100">{formatCurrency(calcularParteNumerica(valorTotal, parsePercentual(participante.percentual)))}</p>
+            </div>
+            {!participante.contatoId && canAddParticipants && <div className="mt-3 grid gap-3 sm:grid-cols-2"><ToggleField checked={participante.salvarContato} label="Salvar nos meus contatos" onChange={(checked) => onAtualizarUsuario(participante.key, { salvarContato: checked })} />{participante.salvarContato && <input aria-label={`Apelido de ${participante.nome}`} className={inputClass} maxLength={120} placeholder="Apelido opcional" value={participante.apelidoContato} onChange={(event) => onAtualizarUsuario(participante.key, { apelidoContato: event.target.value })} />}</div>}
+          </div>
+        ))}
+        {participantesExternos.map((participante, index) => (
+          <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-800" key={participante.key}>
+            <div className="flex items-center justify-between gap-3"><p className="font-bold text-slate-900 dark:text-white">Pessoa externa {index + 1}</p>{canAddParticipants && <button aria-label={`Remover pessoa externa ${index + 1}`} className="rounded-lg p-2 text-slate-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30" type="button" onClick={() => onRemoverExterno(participante.key)}><Trash2 size={16} /></button>}</div>
+            <input aria-label={`Nome da pessoa externa ${index + 1}`} className={`${inputClass} mt-3`} disabled={!canEditEconomic} maxLength={160} placeholder="Nome (opcional)" value={participante.nome} onChange={(event) => onAtualizarExterno(participante.key, { nome: event.target.value })} />
+            <div className="mt-3 grid gap-3 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+              <div className="flex rounded-lg bg-slate-100 p-1 dark:bg-slate-800"><button className={`rounded-md px-3 py-2 text-xs font-bold ${participante.modo === "Percentual" ? "bg-white shadow dark:bg-slate-950" : ""}`} disabled={!canEditEconomic} type="button" onClick={() => onAtualizarExterno(participante.key, { modo: "Percentual", entrada: formatarPercentualInput(percentualPorValor(valorTotal, parseBrlCurrency(participante.entrada))) })}>%</button><button className={`rounded-md px-3 py-2 text-xs font-bold ${participante.modo === "Valor" ? "bg-white shadow dark:bg-slate-950" : ""}`} disabled={!canEditEconomic} type="button" onClick={() => onAtualizarExterno(participante.key, { modo: "Valor", entrada: formatCurrencyInput(calcularParteNumerica(valorTotal, parsePercentual(participante.entrada))) })}>R$</button></div>
+              <input aria-label={`${participante.modo === "Valor" ? "Valor" : "Percentual"} da pessoa externa ${index + 1}`} className={inputClass} disabled={!canEditEconomic} inputMode={participante.modo === "Valor" ? "numeric" : "decimal"} value={participante.entrada} onChange={(event) => onAtualizarExterno(participante.key, { entrada: participante.modo === "Valor" ? maskBrlCurrencyInput(event.target.value) : limitarPercentual(event.target.value) })} />
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{participante.modo === "Valor" ? `${formatarPercentualInput(percentualPorValor(valorTotal, parseBrlCurrency(participante.entrada)))}%` : formatCurrency(calcularParteNumerica(valorTotal, parsePercentual(participante.entrada)))}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+        <PercentRow label="Você" percent={percentualMinhaParte} value={valorMinhaParte} />
+        <p className={`text-xs font-bold ${Math.abs(diferenca) <= 0.01 && Math.abs(somaPercentual - 100) <= 0.01 ? "text-emerald-700 dark:text-emerald-300" : "text-red-600 dark:text-red-300"}`}>{Math.abs(diferenca) <= 0.01 ? `Soma: ${somaPercentual.toLocaleString("pt-BR")}% · ${formatCurrency(somaValor)}` : diferenca > 0 ? `Falta distribuir ${formatCurrency(diferenca)}` : `Distribuição excede o total em ${formatCurrency(Math.abs(diferenca))}`}</p>
       </div>
 
       {isParcelada && (
@@ -1505,33 +1602,23 @@ function DivisionSummary({
   isCartao,
   isParcelada,
   modo,
-  nomeConvidado,
-  percentualConvidado,
+  participantes,
   quantidadeParcelas,
-  temParteExterna,
-  valorConvidado,
-  valorExterno,
   valorMinhaParte,
   valorTotal,
 }: {
   isCartao: boolean;
   isParcelada: boolean;
   modo: "manual" | "vinculada";
-  nomeConvidado: string;
-  percentualConvidado: number;
+  participantes: ParticipanteCalculado[];
   quantidadeParcelas: number;
-  temParteExterna: boolean;
-  valorConvidado: number;
-  valorExterno: number;
   valorMinhaParte: number;
   valorTotal: number;
 }) {
-  const aReceber = modo === "vinculada" ? valorConvidado + valorExterno : 0;
+  const aReceber = modo === "vinculada" ? participantes.reduce((total, item) => total + item.valor, 0) : 0;
   const quantidadeParcelasSegura = Math.max(1, quantidadeParcelas || 1);
   const valorParcela = isParcelada ? valorTotal / quantidadeParcelasSegura : valorTotal;
   const valorMinhaParteParcela = isParcelada ? valorMinhaParte / quantidadeParcelasSegura : valorMinhaParte;
-  const valorConvidadoParcela = isParcelada ? valorConvidado / quantidadeParcelasSegura : valorConvidado;
-  const valorExternoParcela = isParcelada ? valorExterno / quantidadeParcelasSegura : valorExterno;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -1549,8 +1636,7 @@ function DivisionSummary({
         <SummaryRow label={isCartao ? "Seu gasto pessoal" : "Sua parte"} value={valorMinhaParte} />
         {modo === "vinculada" && (
           <>
-            <SummaryRow label={nomeConvidado} detail={`${percentualConvidado.toLocaleString("pt-BR")}%`} value={valorConvidado} />
-            {temParteExterna && <SummaryRow label="Parte externa" value={valorExterno} />}
+            {participantes.map((participante) => <SummaryRow key={participante.key} label={participante.nome} detail={`${participante.percentual.toLocaleString("pt-BR")}%${participante.externo ? " · externo" : ""}`} value={participante.valor} />)}
             <SummaryRow label={isCartao ? "Parte de terceiros" : "A receber"} strong value={aReceber} />
           </>
         )}
@@ -1566,12 +1652,7 @@ function DivisionSummary({
             {quantidadeParcelasSegura} parcelas de {formatCurrency(valorParcela)}.
           </p>
           <p>Sua parte mensal: {formatCurrency(valorMinhaParteParcela)}.</p>
-          {modo === "vinculada" && (
-            <p>
-              {nomeConvidado}: {formatCurrency(valorConvidadoParcela)}
-              {temParteExterna ? ` · Parte externa: ${formatCurrency(valorExternoParcela)}` : ""}
-            </p>
-          )}
+          {modo === "vinculada" && participantes.map((participante) => <p key={participante.key}>{participante.nome}: {formatCurrency(isParcelada ? participante.valor / quantidadeParcelasSegura : participante.valor)}</p>)}
           <p>Os percentuais serão aplicados separadamente em cada parcela.</p>
         </div>
       )}
@@ -1741,7 +1822,112 @@ function parsePercentual(value: string) {
 }
 
 function formatarPercentualInput(value: number) {
-  return String(value).replace(".", ",");
+  return Number.isFinite(value)
+    ? new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value)
+    : "0";
+}
+
+function arredondarDinheiro(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function arredondarPercentual(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function percentualPorValor(valorTotal: number, valorParte: number) {
+  if (valorTotal <= 0 || valorParte <= 0) return 0;
+  return arredondarPercentual((valorParte / valorTotal) * 100);
+}
+
+function calcularParticipantes(
+  valorTotal: number,
+  usuarios: ParticipanteUsuarioForm[],
+  externos: ParticipanteExternoForm[],
+) {
+  const itens: ParticipanteCalculado[] = [
+    ...usuarios.map((participante) => {
+      const percentual = parsePercentual(participante.percentual);
+      return {
+        key: participante.key,
+        nome: participante.nome,
+        percentual,
+        valor: calcularParteNumerica(valorTotal, percentual),
+        externo: false,
+        status: participante.status,
+      };
+    }),
+    ...externos.map((participante, index) => {
+      const valorInformado = participante.modo === "Valor"
+        ? parseBrlCurrency(participante.entrada)
+        : calcularParteNumerica(valorTotal, parsePercentual(participante.entrada));
+      const percentual = participante.modo === "Valor"
+        ? percentualPorValor(valorTotal, valorInformado)
+        : parsePercentual(participante.entrada);
+      return {
+        key: participante.key,
+        nome: participante.nome.trim() || `Pessoa externa ${index + 1}`,
+        percentual,
+        valor: arredondarDinheiro(valorInformado),
+        externo: true,
+        status: participante.status,
+      };
+    }),
+  ];
+  return {
+    itens,
+    somaPercentual: arredondarPercentual(itens.reduce((total, item) => total + item.percentual, 0)),
+    somaValor: arredondarDinheiro(itens.reduce((total, item) => total + item.valor, 0)),
+    temParteInvalida: itens.some((item) => item.percentual <= 0 || item.valor <= 0),
+  };
+}
+
+function mapearParticipantesUsuariosRequest(participantes: ParticipanteUsuarioForm[]) {
+  return participantes.map((participante) => ({
+    email: participante.contatoId ? null : participante.email,
+    contatoId: participante.contatoId,
+    percentual: parsePercentual(participante.percentual),
+    salvarContato: participante.salvarContato,
+    apelidoContato: participante.apelidoContato.trim() || null,
+  }));
+}
+
+function mapearParticipantesExternosRequest(participantes: ParticipanteExternoForm[]) {
+  return participantes.map((participante) => ({
+    modoDefinicao: participante.modo,
+    percentual: participante.modo === "Percentual" ? parsePercentual(participante.entrada) : null,
+    valor: participante.modo === "Valor" ? parseBrlCurrency(participante.entrada) : null,
+    nome: participante.nome.trim() || null,
+  }));
+}
+
+function criarChaveTemporaria() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `participante-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function mensagemDistribuicao(valorTotal: number, soma: number) {
+  const diferenca = arredondarDinheiro(valorTotal - soma);
+  if (diferenca > 0) return `Falta distribuir ${formatCurrency(diferenca)}.`;
+  if (diferenca < 0) return `A distribuição excede o total em ${formatCurrency(Math.abs(diferenca))}.`;
+  return "A distribuição deve fechar em 100% e todas as partes precisam ser maiores que zero.";
+}
+
+function isParticipanteCriador(participante: DivisaoParticipante) {
+  return participante.tipoParticipante === 1 || participante.tipoParticipante === "Criador";
+}
+
+function isParticipanteUsuario(participante: DivisaoParticipante) {
+  return participante.tipoParticipante === 2 || participante.tipoParticipante === "UsuarioSistema";
+}
+
+function isParticipanteExterno(participante: DivisaoParticipante) {
+  return participante.tipoParticipante === 3 || participante.tipoParticipante === "Externo";
+}
+
+function isModoValor(modo: DivisaoParticipante["modoDefinicao"]) {
+  return modo === 2 || modo === "Valor";
 }
 
 function formatCurrency(value: number) {

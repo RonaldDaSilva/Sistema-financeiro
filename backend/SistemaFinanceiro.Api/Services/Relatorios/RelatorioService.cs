@@ -944,11 +944,15 @@ public sealed class RelatorioService : IRelatorioService
     private static bool EhDespesaRealizada(TransacaoRelatorio item)
     {
         var hoje = TransacaoService.ObterDataLocalFinanceira(DateTimeOffset.UtcNow);
+        var competenciaAtual = new DateOnly(hoje.Year, hoje.Month, 1);
+        var competenciaItem = new DateOnly(item.DataCompetencia.Year, item.DataCompetencia.Month, 1);
         return item.Tipo == TipoTransacao.Despesa &&
             item.ImpactaConsumo &&
             (item.Realizada ||
                 item.DataCompetencia <= hoje ||
-                (item.IsCartao && item.Origem == "Transacao"));
+                (item.IsCartao &&
+                    item.Origem == "Transacao" &&
+                    competenciaItem <= competenciaAtual));
     }
 
     private static IReadOnlyList<RelatorioMensalResponse> CalcularTotaisMensais(

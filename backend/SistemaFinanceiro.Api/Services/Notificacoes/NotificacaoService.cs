@@ -33,6 +33,7 @@ public sealed class NotificacaoService : INotificacaoService
                 TipoNotificacao = notificacao.TipoNotificacao,
                 Entidade = notificacao.Entidade,
                 EntidadeId = notificacao.EntidadeId,
+                ParticipanteDivisaoId = notificacao.ParticipanteDivisaoId,
                 Rota = notificacao.Rota,
                 AcaoPendente = notificacao.AcaoPendente,
                 Versao = notificacao.Versao

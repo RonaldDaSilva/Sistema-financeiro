@@ -13,6 +13,7 @@ public sealed class Notificacao : IHasGuidId, IMustHaveTenant
     public TipoNotificacao TipoNotificacao { get; set; }
     public string? Entidade { get; set; }
     public Guid? EntidadeId { get; set; }
+    public Guid? ParticipanteDivisaoId { get; set; }
     public string? Rota { get; set; }
     public string? AcaoPendente { get; set; }
     public int? Versao { get; set; }

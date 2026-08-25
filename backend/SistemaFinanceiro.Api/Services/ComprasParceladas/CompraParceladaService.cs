@@ -108,11 +108,82 @@ public sealed class CompraParceladaService : ICompraParceladaService
         CancellationToken cancellationToken = default)
     {
         var compraOriginal = await _dbContext.ComprasParceladas
+            .IgnoreQueryFilters()
             .SingleOrDefaultAsync(compra => compra.Id == id && compra.UsuarioId == usuarioId, cancellationToken);
 
         if (compraOriginal is null)
         {
             return null;
+        }
+
+        var participacaoCompartilhada = await _dbContext.DivisoesTransacoesParticipantes
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.CompraParceladaGeradaId == compraOriginal.Id &&
+                item.ParticipanteUsuarioId == usuarioId &&
+                item.Ativo,
+                cancellationToken);
+        if (participacaoCompartilhada is not null)
+        {
+            if (request.ValorTotal != participacaoCompartilhada.Valor ||
+                request.QuantidadeParcelas != compraOriginal.QuantidadeParcelas ||
+                request.IsDividida || request.ValorTotalOriginal.HasValue ||
+                request.PercentualDivisao.HasValue || request.DivisaoVinculada is not null)
+            {
+                throw new InvalidOperationException(
+                    "Valor, parcelas e responsabilidade compartilhada exigem o fluxo de alteração da divisão.");
+            }
+
+            await ValidarRelacionamentosAsync(request, usuarioId, cancellationToken);
+            compraOriginal.CategoriaId = request.CategoriaId;
+            compraOriginal.CartaoCreditoId = request.CartaoCreditoId;
+            compraOriginal.Descricao = request.Descricao.Trim();
+            compraOriginal.FormaPagamento = request.FormaPagamento;
+            compraOriginal.DataCompra = request.FormaPagamento == FormaPagamentoCompraParcelada.Carne
+                ? request.DataCompra
+                : dataOcorrencia;
+            compraOriginal.DataPrimeiroVencimento = request.FormaPagamento == FormaPagamentoCompraParcelada.Carne
+                ? request.DataPrimeiroVencimento ?? dataOcorrencia
+                : null;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return Mapear(compraOriginal);
+        }
+
+        var divisaoComoCriador = await _dbContext.DivisoesTransacoes
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.CompraParceladaId == compraOriginal.Id &&
+                item.UsuarioCriadorId == usuarioId &&
+                item.EncerradoEm == null,
+                cancellationToken);
+        if (divisaoComoCriador is not null)
+        {
+            ValidarNumeroParcela(compraOriginal, numeroParcela);
+            if (!request.IsDividida || request.DivisaoVinculada is not null ||
+                request.FormaPagamento != compraOriginal.FormaPagamento)
+            {
+                throw new InvalidOperationException(
+                    "Valor, parcelas, origem e responsabilidade compartilhada exigem o fluxo de alteração da divisão.");
+            }
+
+            await ValidarRelacionamentosAsync(request, usuarioId, cancellationToken);
+            compraOriginal.CategoriaId = request.CategoriaId;
+            compraOriginal.CartaoCreditoId = request.CartaoCreditoId;
+            compraOriginal.Descricao = request.Descricao.Trim();
+            if (numeroParcela == 1)
+            {
+                compraOriginal.DataCompra = request.FormaPagamento == FormaPagamentoCompraParcelada.Carne
+                    ? request.DataCompra
+                    : dataOcorrencia;
+                compraOriginal.DataPrimeiroVencimento = request.FormaPagamento == FormaPagamentoCompraParcelada.Carne
+                    ? request.DataPrimeiroVencimento ?? dataOcorrencia
+                    : null;
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return Mapear(compraOriginal, divisaoComoCriador.Id);
         }
 
         await GarantirSemDivisaoVinculadaAsync(compraOriginal.Id, usuarioId, cancellationToken);
@@ -130,32 +201,27 @@ public sealed class CompraParceladaService : ICompraParceladaService
             : null;
 
         var parcelasRestantes = compraOriginal.QuantidadeParcelas - numeroParcela + 1;
-        var novaCompra = new CompraParcelada
-        {
-            UsuarioId = usuarioId,
-            CartaoCreditoId = request.CartaoCreditoId,
-            CategoriaId = request.CategoriaId,
-            Descricao = request.Descricao.Trim(),
-            QuantidadeParcelas = parcelasRestantes,
-            ValorTotal = request.ValorTotal,
-            DataCompra = request.FormaPagamento == FormaPagamentoCompraParcelada.Carne
-                ? request.DataCompra
-                : dataOcorrencia,
-            DataPrimeiroVencimento = request.FormaPagamento == FormaPagamentoCompraParcelada.Carne
-                ? request.DataPrimeiroVencimento ?? dataOcorrencia
-                : null,
-            FormaPagamento = request.FormaPagamento,
-            IsDividida = request.IsDividida,
-            ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null,
-            PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null
-        };
-
+        CompraParcelada novaCompra;
         if (numeroParcela == 1)
         {
-            _dbContext.ComprasParceladas.Remove(compraOriginal);
+            novaCompra = compraOriginal;
+            AplicarRequestNaCompra(
+                novaCompra,
+                request,
+                usuarioId,
+                dataOcorrencia,
+                parcelasRestantes);
         }
         else
         {
+            novaCompra = new CompraParcelada();
+            AplicarRequestNaCompra(
+                novaCompra,
+                request,
+                usuarioId,
+                dataOcorrencia,
+                parcelasRestantes);
+
             if (compraOriginal.IsDividida && compraOriginal.ValorTotalOriginal.HasValue)
             {
                 compraOriginal.ValorTotalOriginal = SomarParcelas(
@@ -166,9 +232,9 @@ public sealed class CompraParceladaService : ICompraParceladaService
 
             compraOriginal.ValorTotal = SomarParcelas(compraOriginal, numeroParcela - 1);
             compraOriginal.QuantidadeParcelas = numeroParcela - 1;
+            _dbContext.ComprasParceladas.Add(novaCompra);
         }
 
-        _dbContext.ComprasParceladas.Add(novaCompra);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         Guid? divisaoTransacaoId = null;
@@ -202,11 +268,34 @@ public sealed class CompraParceladaService : ICompraParceladaService
         CancellationToken cancellationToken = default)
     {
         var compra = await _dbContext.ComprasParceladas
+            .IgnoreQueryFilters()
             .SingleOrDefaultAsync(compra => compra.Id == id && compra.UsuarioId == usuarioId, cancellationToken);
 
         if (compra is null)
         {
             return false;
+        }
+
+        var participacaoCompartilhada = await _dbContext.DivisoesTransacoesParticipantes
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item =>
+                item.CompraParceladaGeradaId == compra.Id &&
+                item.ParticipanteUsuarioId == usuarioId &&
+                item.Ativo,
+                cancellationToken);
+        if (participacaoCompartilhada is not null)
+        {
+            if (_divisaoTransacaoService is null)
+            {
+                throw new InvalidOperationException(
+                    "Use o fluxo de cancelamento da participação para excluir uma compra compartilhada.");
+            }
+
+            return await _divisaoTransacaoService.CancelarParticipacaoAsync(
+                usuarioId,
+                participacaoCompartilhada.Id,
+                cancellationToken);
         }
 
         await GarantirSemDivisaoVinculadaAsync(compra.Id, usuarioId, cancellationToken);
@@ -215,6 +304,7 @@ public sealed class CompraParceladaService : ICompraParceladaService
 
         if (numeroParcela == 1)
         {
+            await DesvincularDivisoesEncerradasAsync(compra.Id, cancellationToken);
             _dbContext.ComprasParceladas.Remove(compra);
         }
         else
@@ -233,6 +323,48 @@ public sealed class CompraParceladaService : ICompraParceladaService
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    private static void AplicarRequestNaCompra(
+        CompraParcelada compra,
+        CriarCompraParceladaRequest request,
+        Guid usuarioId,
+        DateOnly dataOcorrencia,
+        int quantidadeParcelas)
+    {
+        compra.UsuarioId = usuarioId;
+        compra.CartaoCreditoId = request.CartaoCreditoId;
+        compra.CategoriaId = request.CategoriaId;
+        compra.Descricao = request.Descricao.Trim();
+        compra.QuantidadeParcelas = quantidadeParcelas;
+        compra.ValorTotal = request.ValorTotal;
+        compra.DataCompra = request.FormaPagamento == FormaPagamentoCompraParcelada.Carne
+            ? request.DataCompra
+            : dataOcorrencia;
+        compra.DataPrimeiroVencimento = request.FormaPagamento == FormaPagamentoCompraParcelada.Carne
+            ? request.DataPrimeiroVencimento ?? dataOcorrencia
+            : null;
+        compra.FormaPagamento = request.FormaPagamento;
+        compra.IsDividida = request.IsDividida;
+        compra.ValorTotalOriginal = request.IsDividida ? request.ValorTotalOriginal : null;
+        compra.PercentualDivisao = request.IsDividida ? request.PercentualDivisao : null;
+    }
+
+    private async Task DesvincularDivisoesEncerradasAsync(
+        Guid compraParceladaId,
+        CancellationToken cancellationToken)
+    {
+        var divisoesEncerradas = await _dbContext.DivisoesTransacoes
+            .IgnoreQueryFilters()
+            .Where(divisao =>
+                divisao.CompraParceladaId == compraParceladaId &&
+                divisao.EncerradoEm != null)
+            .ToListAsync(cancellationToken);
+        foreach (var divisao in divisoesEncerradas)
+        {
+            divisao.CompraParceladaId = null;
+            divisao.CompraParcelada = null;
+        }
     }
 
     private async Task ValidarRelacionamentosAsync(

@@ -11,6 +11,8 @@ public sealed class DivisaoTransacaoParticipante : IHasGuidId, IMustHaveTenant
     public TipoParticipanteDivisao TipoParticipante { get; set; }
     public decimal Percentual { get; set; }
     public decimal Valor { get; set; }
+    public ModoDefinicaoParticipacaoDivisao ModoDefinicao { get; set; } =
+        ModoDefinicaoParticipacaoDivisao.Percentual;
     public DivisaoTransacaoParticipanteStatus Status { get; set; } = DivisaoTransacaoParticipanteStatus.Pendente;
     public DateTimeOffset? ExpiraEm { get; set; }
     public Guid? TransacaoGeradaId { get; set; }
@@ -25,4 +27,6 @@ public sealed class DivisaoTransacaoParticipante : IHasGuidId, IMustHaveTenant
     public Usuario? ParticipanteUsuario { get; set; }
     public Transacao? TransacaoGerada { get; set; }
     public CompraParcelada? CompraParceladaGerada { get; set; }
+    public ICollection<DivisaoTransacaoVersaoParticipante> Alteracoes { get; set; } =
+        new List<DivisaoTransacaoVersaoParticipante>();
 }

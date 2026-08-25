@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   recusarDivisao: vi.fn(),
   assumirValorDivisao: vi.fn(),
   reenviarDivisao: vi.fn(),
+  manterParteCriadorDivisao: vi.fn(),
   excluirDivisao: vi.fn(),
   aceitarAlteracaoDivisao: vi.fn(),
   recusarAlteracaoDivisao: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock("../services/financeService", () => ({
   recusarDivisao: mocks.recusarDivisao,
   assumirValorDivisao: mocks.assumirValorDivisao,
   reenviarDivisao: mocks.reenviarDivisao,
+  manterParteCriadorDivisao: mocks.manterParteCriadorDivisao,
   excluirDivisao: mocks.excluirDivisao,
   aceitarAlteracaoDivisao: mocks.aceitarAlteracaoDivisao,
   recusarAlteracaoDivisao: mocks.recusarAlteracaoDivisao,
@@ -100,6 +102,7 @@ describe("NotificationBell", () => {
     mocks.recusarDivisao.mockResolvedValue(undefined);
     mocks.assumirValorDivisao.mockResolvedValue(undefined);
     mocks.reenviarDivisao.mockResolvedValue(undefined);
+    mocks.manterParteCriadorDivisao.mockResolvedValue(undefined);
     mocks.excluirDivisao.mockResolvedValue(undefined);
     mocks.aceitarAlteracaoDivisao.mockResolvedValue(undefined);
     mocks.recusarAlteracaoDivisao.mockResolvedValue(undefined);
@@ -117,6 +120,7 @@ describe("NotificationBell", () => {
     renderBell();
 
     await abrirAcoes(user);
+    expect(screen.getByText("08/09/2026")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Aceitar" }));
 
     await waitFor(() => expect(mocks.aceitarDivisao).toHaveBeenCalledWith("participante-1"));
@@ -182,12 +186,58 @@ describe("NotificationBell", () => {
     renderBell();
 
     await abrirAcoes(user);
-    await user.click(screen.getByRole("button", { name: "Assumir valor" }));
+    await user.click(screen.getByRole("button", { name: "Assumir despesa integralmente" }));
 
-    await waitFor(() => expect(mocks.assumirValorDivisao).toHaveBeenCalledWith("divisao-1"));
+    await waitFor(() => expect(mocks.assumirValorDivisao).toHaveBeenCalledWith(
+      "divisao-1",
+      "participante-1",
+    ));
     expect(confirmSpy).toHaveBeenCalledWith(
       expect.stringMatching(/Você passará a assumir R\$\s?80,00 desta despesa\./),
     );
+  });
+
+  it("reenvia somente para o participante indicado pela notificação", async () => {
+    const user = userEvent.setup();
+    mocks.notificacoes = [{
+      ...criarNotificacaoCriador(),
+      participanteDivisaoId: "participante-2",
+      titulo: "Pedro recusou a divisão",
+    }];
+    mocks.obterDivisaoTransacao.mockResolvedValue(criarDivisao({
+      participantes: [
+        criarParticipanteCriador(),
+        { ...criarParticipanteConvidado(), nomeExibicao: "Maria", status: "Recusado" },
+        { ...criarParticipanteConvidado(), id: "participante-2", participanteUsuarioId: "usuario-3", nomeExibicao: "Pedro", status: "Recusado" },
+      ],
+    }));
+    renderBell();
+    await abrirAcoes(user);
+    expect(screen.getByText("Pedro")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reenviar convite" }));
+    await waitFor(() => expect(mocks.reenviarDivisao).toHaveBeenCalledWith(
+      "divisao-1",
+      { participanteId: "participante-2" },
+    ));
+  });
+
+  it("mantém somente a parte do criador para o participante indicado", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mocks.notificacoes = [criarNotificacaoCriador()];
+    mocks.obterDivisaoTransacao.mockResolvedValue(criarDivisao({
+      participantes: [
+        criarParticipanteCriador(),
+        { ...criarParticipanteConvidado(), status: "Recusado" },
+      ],
+    }));
+    renderBell();
+
+    await abrirAcoes(user);
+    await user.click(screen.getByRole("button", { name: "Manter somente minha parte" }));
+
+    await waitFor(() => expect(mocks.manterParteCriadorDivisao).toHaveBeenCalledWith("participante-1"));
+    expect(mocks.excluirDivisao).not.toHaveBeenCalled();
   });
 });
 
@@ -235,6 +285,7 @@ function criarNotificacaoCriador(): Notificacao {
     titulo: "Maria recusou a divisão",
     tipoNotificacao: "DivisaoRecusada",
     acaoPendente: "DecidirRecusaDivisao",
+    participanteDivisaoId: "participante-1",
   };
 }
 
@@ -243,6 +294,7 @@ function criarDivisao(overrides: Partial<DivisaoTransacao> = {}): DivisaoTransac
     id: "divisao-1",
     usuarioCriadorId: "criador-1",
     transacaoOrigemId: "transacao-1",
+    dataSugeridaConvidado: "2026-09-08",
     valorTotal: 200,
     status: "Pendente",
     versaoAtual: 1,

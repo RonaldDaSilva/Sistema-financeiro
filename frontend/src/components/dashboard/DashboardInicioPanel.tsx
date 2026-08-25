@@ -119,7 +119,7 @@ export function DashboardInicioPanel({
           />
           <MetricCard
             label="Saldo previsto"
-            description="Saldo atual menos despesas e investimentos em aberto do período. Não soma receitas futuras."
+            description="Saldo atual mais receitas pendentes, menos despesas e investimentos pendentes do período."
             value={dashboard.saldoPrevistoFimDoPeriodo}
             hiddenValues={hiddenValues}
             tone={
