@@ -24,6 +24,20 @@ describe("queryKeys.relatorios", () => {
     ]);
   });
 
+  it("separa o resumo de empréstimos por competência, pessoa e página", () => {
+    expect(queryKeys.resumoEmprestimosMensal(8, 2026, null)).toEqual([
+      "emprestimos",
+      "resumo-mensal",
+      2026,
+      8,
+      "todos",
+      "ativos",
+      1,
+    ]);
+    expect(queryKeys.resumoEmprestimosMensal(8, 2026, "contato-1", false, 2))
+      .not.toEqual(queryKeys.resumoEmprestimosMensal(8, 2026, null));
+  });
+
   it("inclui secoes normalizadas para preservar cache por aba", () => {
     const keyA = queryKeys.relatorios(
       "2026-01-01",

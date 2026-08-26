@@ -1,11 +1,11 @@
 import axios from "axios";
 import { Archive, ArchiveRestore, Calendar, Check, CreditCard, Landmark, Pencil, ReceiptText, RotateCcw, Trash2 } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
-import { useAtualizarEmprestimo, useCancelarEmprestimo, useDefinirArquivamentoEmprestimo, useDesfazerPagamentoEmprestimo, useRegistrarPagamentoEmprestimo } from "../../hooks/mutations/useLoanMutations";
+import { useAlterarRecorrenciaEmprestimo, useAtualizarEmprestimo, useCancelarEmprestimo, useDefinirArquivamentoEmprestimo, useDesfazerPagamentoEmprestimo, useEncerrarRecorrenciaEmprestimo, useRegistrarPagamentoEmprestimo } from "../../hooks/mutations/useLoanMutations";
 import type { CartaoCreditoOpcao, ContaBancaria } from "../../types/finance";
-import type { ContatoEmprestimo, EmprestimoDetalhe } from "../../types/loan";
-import { OrigemFinanceiraEmprestimo, StatusEmprestimo, StatusParcelaEmprestimo } from "../../types/loan";
-import { formatCurrency, formatDate, toDateInputValue } from "../../utils/date";
+import type { ContatoEmprestimo, EmprestimoDetalhe, ParcelaEmprestimo } from "../../types/loan";
+import { EscopoAlteracaoRecorrenciaEmprestimo, OrigemFinanceiraEmprestimo, StatusEmprestimo, StatusParcelaEmprestimo, TipoEmprestimo } from "../../types/loan";
+import { formatCurrency, formatCurrencyInput, formatDate, maskBrlCurrencyInput, parseBrlCurrency, toDateInputValue } from "../../utils/date";
 import { Dialog } from "../Dialog";
 
 type LoanDetailDialogProps = {
@@ -94,6 +94,7 @@ export function LoanDetailDialog({ emprestimo, contatos, cartoes, contas, onClos
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                   {emprestimo.origemFinanceira === 1 ? <CreditCard size={17} /> : <Landmark size={17} />}
                   <span>{origemNome}</span><span>·</span><span>{formatDate(emprestimo.data)}</span>
+                  {emprestimo.tipo === TipoEmprestimo.Fixo && <><span>·</span><strong>Fixo mensal</strong></>}
                 </div>
               </div>
               <StatusBadge status={emprestimo.status} />
@@ -107,12 +108,16 @@ export function LoanDetailDialog({ emprestimo, contatos, cartoes, contas, onClos
 
             {emprestimo.observacao && <p className="mt-5 rounded-lg bg-[var(--app-card-muted)] p-4 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300"><strong className="mb-1 block text-slate-900 dark:text-white">Observação</strong>{emprestimo.observacao}</p>}
 
+            {emprestimo.tipo === TipoEmprestimo.Fixo && (
+              <RecurrenceControls emprestimo={emprestimo} onChanged={onChanged} />
+            )}
+
             <section className="mt-7">
               <h3 className="flex items-center gap-2 text-base font-black text-slate-950 dark:text-white"><Calendar size={19} /> Cronograma</h3>
               <div className="mt-3 divide-y divide-[color:var(--app-card-border)] overflow-hidden rounded-lg border border-[color:var(--app-card-border)] dark:divide-slate-800 dark:border-slate-800">
                 {emprestimo.parcelas.map((parcela) => (
                   <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 bg-[var(--app-card)] px-4 py-3 dark:bg-slate-900" key={parcela.id}>
-                    <strong className="text-sm text-slate-900 dark:text-white">{parcela.numeroParcela}/{parcela.quantidadeTotal}</strong>
+                    <strong className="text-sm text-slate-900 dark:text-white">{emprestimo.tipo === TipoEmprestimo.Fixo ? "Mensal" : `${parcela.numeroParcela}/${parcela.quantidadeTotal}`}</strong>
                     <span className="min-w-0 text-sm text-slate-500 dark:text-slate-400">{formatMonth(parcela.dataVencimento)} · {formatCurrency(parcela.valor)}</span>
                     <ParcelaBadge status={parcela.status} />
                   </div>
@@ -148,22 +153,77 @@ export function LoanDetailDialog({ emprestimo, contatos, cartoes, contas, onClos
   );
 }
 
+function RecurrenceControls({ emprestimo, onChanged }: { emprestimo: EmprestimoDetalhe; onChanged: (message: string) => void }) {
+  const [competencia, setCompetencia] = useState(toDateInputValue(new Date()));
+  const [valor, setValor] = useState(emprestimo.valorTotal);
+  const [escopo, setEscopo] = useState<1 | 2>(EscopoAlteracaoRecorrenciaEmprestimo.SomenteCompetencia);
+  const [ultimaCompetencia, setUltimaCompetencia] = useState(emprestimo.dataFimRecorrencia ?? toDateInputValue(new Date()));
+  const [erro, setErro] = useState<string | null>(null);
+  const alterar = useAlterarRecorrenciaEmprestimo();
+  const encerrar = useEncerrarRecorrenciaEmprestimo();
+
+  async function handleChange() {
+    setErro(null);
+    try {
+      await alterar.mutateAsync({ id: emprestimo.id, request: { competencia, valor, escopo } });
+      onChanged(escopo === 1 ? "Valor desta competência atualizado." : "Valor das próximas competências atualizado.");
+    } catch (error) {
+      setErro(getErrorMessage(error, "Não foi possível alterar a recorrência."));
+    }
+  }
+
+  async function handleEnd() {
+    setErro(null);
+    try {
+      await encerrar.mutateAsync({ id: emprestimo.id, ultimaCompetencia });
+      onChanged("Recorrência encerrada.");
+    } catch (error) {
+      setErro(getErrorMessage(error, "Não foi possível encerrar a recorrência."));
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-lg border border-[color:var(--app-card-border)] p-4 dark:border-slate-800">
+      <h3 className="font-black text-slate-950 dark:text-white">Regra mensal</h3>
+      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Início em {formatDate(emprestimo.data)} · {emprestimo.dataFimRecorrencia ? `até ${formatDate(emprestimo.dataFimRecorrencia)}` : "sem data final"}</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <Field label="Competência"><input className={inputClass} type="date" value={competencia} onChange={(event) => setCompetencia(event.target.value)} /></Field>
+        <Field label="Novo valor"><input className={inputClass} inputMode="numeric" value={formatCurrencyInput(valor)} onChange={(event) => setValor(parseBrlCurrency(maskBrlCurrencyInput(event.target.value)))} /></Field>
+        <Field label="Aplicar"><select className={inputClass} value={escopo} onChange={(event) => setEscopo(Number(event.target.value) as 1 | 2)}><option value={1}>Somente este mês</option><option value={2}>Deste mês em diante</option></select></Field>
+      </div>
+      <div className="mt-3 flex justify-end"><button className={secondaryButtonClass} type="button" onClick={() => void handleChange()} disabled={alterar.isPending || valor <= 0}>{alterar.isPending ? "Salvando..." : "Alterar valor"}</button></div>
+      <div className="mt-4 flex flex-col gap-3 border-t border-[color:var(--app-card-border)] pt-4 dark:border-slate-800 sm:flex-row sm:items-end">
+        <Field label="Última competência" className="flex-1"><input className={inputClass} type="date" min={emprestimo.data} value={ultimaCompetencia} onChange={(event) => setUltimaCompetencia(event.target.value)} /></Field>
+        <button className={dangerButtonClass} type="button" onClick={() => void handleEnd()} disabled={encerrar.isPending}>{encerrar.isPending ? "Encerrando..." : "Encerrar recorrência"}</button>
+      </div>
+      {erro && <ErrorMessage>{erro}</ErrorMessage>}
+    </section>
+  );
+}
+
 function PaymentForm({ emprestimo, contas, onCancel, onSuccess }: { emprestimo: EmprestimoDetalhe; contas: ContaBancaria[]; onCancel: () => void; onSuccess: () => void }) {
   const pendentes = emprestimo.parcelas.filter((parcela) => parcela.status === StatusParcelaEmprestimo.Pendente);
-  const [selecionadas, setSelecionadas] = useState<string[]>(() => emprestimo.quantidadeParcelas === 1 ? pendentes.map((parcela) => parcela.id) : []);
+  const chaveParcela = (parcela: ParcelaEmprestimo) => parcela.isVirtual ? `c:${parcela.competencia ?? parcela.dataVencimento}` : `p:${parcela.id}`;
+  const [selecionadas, setSelecionadas] = useState<string[]>(() => emprestimo.tipo === TipoEmprestimo.Avista ? pendentes.map(chaveParcela) : []);
   const [data, setData] = useState(toDateInputValue(new Date()));
   const [contaId, setContaId] = useState("");
   const [observacao, setObservacao] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const registrar = useRegistrarPagamentoEmprestimo();
-  const total = useMemo(() => pendentes.filter((parcela) => selecionadas.includes(parcela.id)).reduce((sum, parcela) => sum + parcela.valor, 0), [pendentes, selecionadas]);
+  const total = useMemo(() => pendentes.filter((parcela) => selecionadas.includes(chaveParcela(parcela))).reduce((sum, parcela) => sum + parcela.valor, 0), [pendentes, selecionadas]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (registrar.isPending || selecionadas.length === 0) return;
     setErro(null);
     try {
-      await registrar.mutateAsync({ id: emprestimo.id, request: { data, contaBancariaId: contaId || null, parcelaIds: selecionadas, observacao: observacao.trim() || null } });
+      await registrar.mutateAsync({ id: emprestimo.id, request: {
+        data,
+        contaBancariaId: contaId || null,
+        parcelaIds: selecionadas.filter((item) => item.startsWith("p:")).map((item) => item.slice(2)),
+        competencias: selecionadas.filter((item) => item.startsWith("c:")).map((item) => item.slice(2)),
+        observacao: observacao.trim() || null,
+      } });
       onSuccess();
     } catch (error) {
       setErro(getErrorMessage(error, "Não foi possível registrar o pagamento."));
@@ -172,7 +232,7 @@ function PaymentForm({ emprestimo, contas, onCancel, onSuccess }: { emprestimo: 
 
   return <form onSubmit={handleSubmit}>
     <header className="pr-10"><p className="text-sm font-bold text-[var(--app-accent)]">{emprestimo.contatoNome}</p><h2 className="mt-1 text-2xl font-black text-slate-950 dark:text-white">Registrar pagamento</h2><p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Selecione as parcelas recebidas. Parcelas futuras podem ser antecipadas.</p></header>
-    <fieldset className="mt-6"><legend className="font-bold text-slate-900 dark:text-white">Parcelas pendentes</legend><div className="mt-3 max-h-72 divide-y divide-[color:var(--app-card-border)] overflow-y-auto rounded-lg border border-[color:var(--app-card-border)] dark:divide-slate-800 dark:border-slate-800">{pendentes.map((parcela) => <label className="flex cursor-pointer items-center gap-3 bg-[var(--app-card)] px-4 py-3 dark:bg-slate-900" key={parcela.id}><input className="h-5 w-5" type="checkbox" checked={selecionadas.includes(parcela.id)} disabled={emprestimo.quantidadeParcelas === 1} onChange={(event) => setSelecionadas(event.target.checked ? [...selecionadas, parcela.id] : selecionadas.filter((id) => id !== parcela.id))} /><span className="flex-1 text-sm font-semibold text-slate-800 dark:text-slate-200">{parcela.numeroParcela}/{parcela.quantidadeTotal} · {formatMonth(parcela.dataVencimento)}</span><strong className="text-slate-950 dark:text-white">{formatCurrency(parcela.valor)}</strong></label>)}</div></fieldset>
+    <fieldset className="mt-6"><legend className="font-bold text-slate-900 dark:text-white">{emprestimo.tipo === TipoEmprestimo.Fixo ? "Competências pendentes" : "Parcelas pendentes"}</legend><div className="mt-3 max-h-72 divide-y divide-[color:var(--app-card-border)] overflow-y-auto rounded-lg border border-[color:var(--app-card-border)] dark:divide-slate-800 dark:border-slate-800">{pendentes.map((parcela) => { const chave = chaveParcela(parcela); return <label className="flex cursor-pointer items-center gap-3 bg-[var(--app-card)] px-4 py-3 dark:bg-slate-900" key={chave}><input className="h-5 w-5" type="checkbox" checked={selecionadas.includes(chave)} disabled={emprestimo.tipo === TipoEmprestimo.Avista} onChange={(event) => setSelecionadas(event.target.checked ? [...selecionadas, chave] : selecionadas.filter((id) => id !== chave))} /><span className="flex-1 text-sm font-semibold text-slate-800 dark:text-slate-200">{emprestimo.tipo === TipoEmprestimo.Fixo ? formatMonth(parcela.dataVencimento) : `${parcela.numeroParcela}/${parcela.quantidadeTotal} · ${formatMonth(parcela.dataVencimento)}`}</span><strong className="text-slate-950 dark:text-white">{formatCurrency(parcela.valor)}</strong></label>; })}</div></fieldset>
     <div className="mt-5 rounded-lg bg-[var(--app-card-muted)] p-4 dark:bg-slate-900"><span className="text-sm text-slate-500 dark:text-slate-400">Total calculado</span><output className="mt-1 block text-2xl font-black text-slate-950 dark:text-white" aria-label="Total calculado">{formatCurrency(total)}</output></div>
     <div className="mt-5 grid gap-4 sm:grid-cols-2"><Field label="Data do recebimento"><input className={inputClass} type="date" value={data} onChange={(event) => setData(event.target.value)} required /></Field><Field label="Receber em conta (opcional)"><select className={inputClass} value={contaId} onChange={(event) => setContaId(event.target.value)}><option value="">Não informar</option>{contas.filter((conta) => !conta.isArquivada).map((conta) => <option key={conta.id} value={conta.id}>{conta.nomeCustomizado}</option>)}</select></Field><Field label="Observação" className="sm:col-span-2"><textarea className={`${inputClass} min-h-20`} value={observacao} onChange={(event) => setObservacao(event.target.value)} maxLength={500} /></Field></div>
     {erro && <ErrorMessage>{erro}</ErrorMessage>}

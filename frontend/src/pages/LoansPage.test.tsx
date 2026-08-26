@@ -16,7 +16,10 @@ const mocks = vi.hoisted(() => ({
   cancelarEmprestimo: vi.fn(),
   desfazerPagamento: vi.fn(),
   definirArquivamento: vi.fn(),
+  alterarRecorrencia: vi.fn(),
+  encerrarRecorrencia: vi.fn(),
   refetch: vi.fn(),
+  resumoArgs: vi.fn(),
 }));
 
 const contatos = [
@@ -28,12 +31,37 @@ vi.mock("../components/AppLayout", () => ({ AppLayout: ({ children }: { children
 
 vi.mock("../hooks/queries/useLoanQueries", () => ({
   useContatosEmprestimo: () => ({ data: contatos, isLoading: false, isError: false }),
-  useEmprestimos: (contatoId: string | null, incluirArquivados: boolean) => ({
-    data: mocks.loans.filter((item) => (!contatoId || item.contatoId === contatoId) && (incluirArquivados || !item.isArquivado)),
-    isLoading: false,
-    isError: mocks.queryError,
-    refetch: mocks.refetch,
-  }),
+  useResumoEmprestimosMensal: (mes: number, ano: number, contatoId: string | null, incluirArquivados: boolean, pagina: number) => {
+    mocks.resumoArgs(mes, ano, contatoId, incluirArquivados, pagina);
+    const items = mocks.loans
+      .filter((item) => (!contatoId || item.contatoId === contatoId) && (incluirArquivados || !item.isArquivado))
+      .map((item) => ({
+        ...item,
+        origemNome: item.origemFinanceira === 1 ? "Santander" : "Conta principal",
+        valorCompetencia: item.valorTotal / item.quantidadeParcelas,
+        dataCompetencia: item.data,
+        numeroParcelaCompetencia: 1,
+        statusCompetencia: item.valorPago > 0 ? 2 : 1,
+        proximoVencimento: item.data,
+      }));
+    return {
+      data: {
+        mes,
+        ano,
+        aReceberTotal: items.reduce((total, item) => total + item.saldoReceber, 0),
+        previstoNoMes: items.reduce((total, item) => total + item.valorCompetencia, 0),
+        recebidoNoMes: items.reduce((total, item) => total + item.valorPago, 0),
+        pagina,
+        tamanhoPagina: 50,
+        totalItens: items.length,
+        totalPaginas: items.length ? 1 : 0,
+        itens: items,
+      },
+      isLoading: false,
+      isError: mocks.queryError,
+      refetch: mocks.refetch,
+    };
+  },
   useEmprestimoDetalhe: (id: string | null) => ({
     data: id ? mocks.detail : null,
     isLoading: false,
@@ -55,6 +83,8 @@ vi.mock("../hooks/mutations/useLoanMutations", () => ({
   useCancelarEmprestimo: () => ({ mutateAsync: mocks.cancelarEmprestimo, isPending: false }),
   useDesfazerPagamentoEmprestimo: () => ({ mutateAsync: mocks.desfazerPagamento, isPending: false }),
   useDefinirArquivamentoEmprestimo: () => ({ mutateAsync: mocks.definirArquivamento, isPending: false }),
+  useAlterarRecorrenciaEmprestimo: () => ({ mutateAsync: mocks.alterarRecorrencia, isPending: false }),
+  useEncerrarRecorrenciaEmprestimo: () => ({ mutateAsync: mocks.encerrarRecorrencia, isPending: false }),
 }));
 
 describe("LoansPage", () => {
@@ -69,17 +99,20 @@ describe("LoansPage", () => {
     mocks.cancelarEmprestimo.mockReset().mockResolvedValue(undefined);
     mocks.desfazerPagamento.mockReset().mockResolvedValue(mocks.detail);
     mocks.definirArquivamento.mockReset().mockResolvedValue(mocks.detail);
+    mocks.alterarRecorrencia.mockReset().mockResolvedValue(mocks.detail);
+    mocks.encerrarRecorrencia.mockReset().mockResolvedValue(mocks.detail);
     mocks.refetch.mockReset();
+    mocks.resumoArgs.mockReset();
   });
 
   it("renderiza listagem e indicadores consolidados", () => {
     render(<LoansPage />);
     const summary = screen.getByRole("region", { name: "Resumo de empréstimos" });
-    const receber = within(summary).getByText("A receber").closest("article");
-    const recebido = within(summary).getByText("Recebido").closest("article");
+    const receber = within(summary).getByText("A receber total").closest("article");
+    const recebido = within(summary).getByText("Recebido neste mês").closest("article");
     expect(receber).toHaveTextContent("R$ 1.500,00");
     expect(recebido).toHaveTextContent("R$ 200,00");
-    expect(within(summary).getByText("Em aberto").closest("article")).toHaveTextContent("2 empréstimos");
+    expect(within(summary).getByText("Previsto neste mês").closest("article")).toHaveTextContent("R$ 566,67");
   });
 
   it("envia filtro por pessoa e recalcula toda a tela", async () => {
@@ -87,8 +120,18 @@ describe("LoansPage", () => {
     render(<LoansPage />);
     await user.selectOptions(screen.getByLabelText("Filtrar por pessoa"), "contato-joao");
     const summary = screen.getByRole("region", { name: "Resumo de empréstimos" });
-    expect(within(summary).getByText("A receber").closest("article")).toHaveTextContent("R$ 1.200,00");
+    expect(within(summary).getByText("A receber total").closest("article")).toHaveTextContent("R$ 1.200,00");
     expect(screen.queryByRole("row", { name: /Maria Celular/i })).not.toBeInTheDocument();
+  });
+
+  it("navega entre competências e envia o período ao backend", async () => {
+    const user = userEvent.setup();
+    render(<LoansPage />);
+    const primeiraChamada = mocks.resumoArgs.mock.calls.at(-1);
+    await user.click(screen.getByRole("button", { name: "Próximo mês" }));
+    const proximaChamada = mocks.resumoArgs.mock.calls.at(-1);
+    expect(proximaChamada?.[0]).toBe(primeiraChamada?.[0] === 12 ? 1 : primeiraChamada?.[0] + 1);
+    expect(proximaChamada?.[1]).toBe(primeiraChamada?.[0] === 12 ? primeiraChamada?.[1] + 1 : primeiraChamada?.[1]);
   });
 
   it("organiza os registros por pessoa", async () => {
@@ -120,6 +163,35 @@ describe("LoansPage", () => {
     expect(mocks.criarEmprestimo).toHaveBeenCalledWith(expect.objectContaining({ contatoId: "contato-joao", descricao: "Celular", valorTotal: 1200, cartaoCreditoId: "cartao-1" }));
   });
 
+  it("cria empréstimo fixo mensal sem data final", async () => {
+    const user = userEvent.setup();
+    render(<LoansPage />);
+    await user.click(screen.getByRole("button", { name: /novo empréstimo/i }));
+    await user.selectOptions(screen.getByLabelText("Pessoa"), "contato-joao");
+    await user.type(screen.getByLabelText("Descrição"), "Linha telefônica");
+    await user.click(screen.getByRole("button", { name: "Fixo" }));
+    await user.selectOptions(screen.getByLabelText("Cartão"), "cartao-1");
+    fireEvent.change(screen.getByLabelText("Valor mensal"), { target: { value: "11990" } });
+    await user.click(screen.getByRole("button", { name: /salvar empréstimo/i }));
+
+    expect(mocks.criarEmprestimo).toHaveBeenCalledWith(expect.objectContaining({
+      tipo: 3,
+      valorTotal: 119.9,
+      quantidadeParcelas: 1,
+      dataFimRecorrencia: null,
+    }));
+  });
+
+  it("abre o cadastro em modal ampla e responsiva", async () => {
+    const user = userEvent.setup();
+    render(<LoansPage />);
+    await user.click(screen.getByRole("button", { name: /novo empréstimo/i }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("max-w-3xl", "h-[calc(100dvh-1rem)]", "overflow-hidden");
+    expect(dialog.querySelector("form")).toHaveClass("h-full", "min-h-0");
+  });
+
   it("cria contato durante o cadastro e o reutiliza no empréstimo", async () => {
     const user = userEvent.setup();
     const novoContato = { ...contatos[0], id: "contato-novo", nome: "Carlos" };
@@ -139,7 +211,7 @@ describe("LoansPage", () => {
   it("seleciona uma parcela futura e mantém o valor calculado não editável", async () => {
     const user = userEvent.setup();
     render(<LoansPage />);
-    await user.click(screen.getByRole("row", { name: /João Celular Cartão/i }));
+    await user.click(screen.getByRole("row", { name: /João Celular Santander/i }));
     await user.click(screen.getByRole("button", { name: /registrar pagamento/i }));
     const checkboxes = within(screen.getByRole("dialog")).getAllByRole("checkbox");
     await user.click(checkboxes[0]);
@@ -150,7 +222,7 @@ describe("LoansPage", () => {
   it("seleciona várias parcelas, inclusive futura, e envia somente seus ids", async () => {
     const user = userEvent.setup();
     render(<LoansPage />);
-    await user.click(screen.getByRole("row", { name: /João Celular Cartão/i }));
+    await user.click(screen.getByRole("row", { name: /João Celular Santander/i }));
     await user.click(screen.getByRole("button", { name: /registrar pagamento/i }));
     const checkboxes = within(screen.getByRole("dialog")).getAllByRole("checkbox");
     await user.click(checkboxes[0]);
@@ -163,7 +235,7 @@ describe("LoansPage", () => {
   it("permite desfazer um recebimento após confirmação", async () => {
     const user = userEvent.setup();
     render(<LoansPage />);
-    await user.click(screen.getByRole("row", { name: /João Celular Cartão/i }));
+    await user.click(screen.getByRole("row", { name: /João Celular Santander/i }));
     await user.click(screen.getByRole("button", { name: "Desfazer" }));
     await user.click(screen.getByRole("button", { name: "Desfazer recebimento" }));
     expect(mocks.desfazerPagamento).toHaveBeenCalledWith({ id: "loan-joao", pagamentoId: "pagamento-0" });
@@ -173,7 +245,7 @@ describe("LoansPage", () => {
     const user = userEvent.setup();
     mocks.detail = detail({ status: 3, valorPago: 1200, saldoReceber: 0, parcelasPagas: 3 });
     render(<LoansPage />);
-    await user.click(screen.getByRole("row", { name: /João Celular Cartão/i }));
+    await user.click(screen.getByRole("row", { name: /João Celular Santander/i }));
     await user.click(screen.getByRole("button", { name: "Arquivar" }));
     expect(mocks.definirArquivamento).toHaveBeenCalledWith({ id: "loan-joao", arquivar: true });
   });

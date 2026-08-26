@@ -32,6 +32,38 @@ public sealed class EmprestimoController : ControllerBase
             : Ok(await _service.ListarAsync(usuarioId.Value, contatoId, status, incluirArquivados, cancellationToken));
     }
 
+    [HttpGet("resumo-mensal")]
+    public async Task<ActionResult<ResumoMensalEmprestimosResponse>> ObterResumoMensal(
+        [FromQuery] int mes,
+        [FromQuery] int ano,
+        [FromQuery] Guid? contatoId,
+        [FromQuery] bool incluirArquivados,
+        [FromQuery] int pagina = 1,
+        [FromQuery] int tamanhoPagina = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null)
+        {
+            return Unauthorized();
+        }
+
+        if (mes is < 1 or > 12 || ano is < 1 or > 9999 || pagina < 1 || tamanhoPagina is < 1 or > 100)
+        {
+            return BadRequest(new { message = "Período ou paginação inválidos." });
+        }
+
+        return Ok(await _service.ObterResumoMensalAsync(
+            usuarioId.Value,
+            mes,
+            ano,
+            contatoId,
+            incluirArquivados,
+            pagina,
+            tamanhoPagina,
+            cancellationToken));
+    }
+
     [HttpDelete("{id:guid}/pagamentos/{pagamentoId:guid}")]
     public async Task<ActionResult<EmprestimoDetalheResponse>> DesfazerPagamento(
         Guid id,
@@ -145,6 +177,44 @@ public sealed class EmprestimoController : ControllerBase
         {
             var pagamento = await _service.RegistrarPagamentoAsync(usuarioId.Value, id, request, cancellationToken);
             return pagamento is null ? NotFound() : Ok(pagamento);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
+    [HttpPost("{id:guid}/recorrencia/alteracoes")]
+    public async Task<ActionResult<EmprestimoDetalheResponse>> AlterarRecorrencia(
+        Guid id,
+        AlteracaoRecorrenciaEmprestimoRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null) return Unauthorized();
+        try
+        {
+            var response = await _service.AlterarRecorrenciaAsync(usuarioId.Value, id, request, cancellationToken);
+            return response is null ? NotFound() : Ok(response);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
+    [HttpPost("{id:guid}/recorrencia/encerrar")]
+    public async Task<ActionResult<EmprestimoDetalheResponse>> EncerrarRecorrencia(
+        Guid id,
+        EncerrarRecorrenciaEmprestimoRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (usuarioId is null) return Unauthorized();
+        try
+        {
+            var response = await _service.EncerrarRecorrenciaAsync(usuarioId.Value, id, request, cancellationToken);
+            return response is null ? NotFound() : Ok(response);
         }
         catch (InvalidOperationException exception)
         {

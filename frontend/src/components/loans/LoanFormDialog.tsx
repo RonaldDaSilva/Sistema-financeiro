@@ -6,8 +6,8 @@ import {
   useCriarEmprestimo,
 } from "../../hooks/mutations/useLoanMutations";
 import type { CartaoCreditoOpcao, ContaBancaria } from "../../types/finance";
-import type { ContatoEmprestimo } from "../../types/loan";
-import { OrigemFinanceiraEmprestimo } from "../../types/loan";
+import type { ContatoEmprestimo, TipoEmprestimo as TipoEmprestimoType } from "../../types/loan";
+import { OrigemFinanceiraEmprestimo, TipoEmprestimo } from "../../types/loan";
 import {
   formatCurrencyInput,
   maskBrlCurrencyInput,
@@ -34,9 +34,11 @@ type FormState = {
   origemFinanceira: 1 | 2;
   origemId: string;
   valorTotal: number;
-  parcelado: boolean;
+  tipo: TipoEmprestimoType;
   quantidadeParcelas: number;
   data: string;
+  semDataFinal: boolean;
+  dataFimRecorrencia: string;
   observacao: string;
 };
 
@@ -48,9 +50,11 @@ const initialForm: FormState = {
   origemFinanceira: OrigemFinanceiraEmprestimo.CartaoCredito,
   origemId: "",
   valorTotal: 0,
-  parcelado: false,
+  tipo: TipoEmprestimo.Avista,
   quantidadeParcelas: 1,
   data: toDateInputValue(new Date()),
+  semDataFinal: true,
+  dataFimRecorrencia: "",
   observacao: "",
 };
 
@@ -126,7 +130,13 @@ export function LoanFormDialog({
           form.origemFinanceira === OrigemFinanceiraEmprestimo.ContaBancaria
             ? form.origemId
             : null,
-        quantidadeParcelas: form.parcelado ? form.quantidadeParcelas : 1,
+        tipo: form.tipo,
+        dataFimRecorrencia:
+          form.tipo === TipoEmprestimo.Fixo && !form.semDataFinal
+            ? form.dataFimRecorrencia
+            : null,
+        quantidadeParcelas:
+          form.tipo === TipoEmprestimo.Parcelado ? form.quantidadeParcelas : 1,
         observacao: form.observacao.trim() || null,
       });
       onCreated(criado.id);
@@ -140,13 +150,13 @@ export function LoanFormDialog({
       title="Novo empréstimo"
       description="Registre um valor pago em benefício de outra pessoa."
       onClose={onClose}
-      className="max-w-lg"
+      className="flex h-[calc(100dvh-1rem)] max-w-3xl flex-col overflow-hidden sm:h-auto sm:max-h-[calc(100dvh-2rem)]"
     >
       <form
-        className="flex max-h-[min(88vh,760px)] flex-col"
+        className="flex h-full min-h-0 flex-col sm:max-h-[calc(100dvh-2rem)]"
         onSubmit={handleSubmit}
       >
-        <div className="min-h-0 overflow-y-auto px-5 pb-6 pt-5 sm:px-7 sm:pt-7">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-6 pt-5 sm:px-7 sm:pt-7">
           <header className="pr-12">
             <p className="text-sm font-semibold text-[var(--app-accent)]">
               Novo empréstimo
@@ -161,7 +171,7 @@ export function LoanFormDialog({
               className="block text-xs font-black uppercase text-slate-500 dark:text-slate-400"
               htmlFor="loan-value"
             >
-              Valor total
+              {form.tipo === TipoEmprestimo.Fixo ? "Valor mensal" : "Valor total"}
             </label>
             <input
               id="loan-value"
@@ -183,7 +193,7 @@ export function LoanFormDialog({
             />
           </div>
 
-          <div className="mt-5 grid gap-5">
+          <div className="mt-5 grid gap-5 sm:grid-cols-2">
             <fieldset className="sm:col-span-2">
               <legend className="text-sm font-bold text-slate-700 dark:text-slate-200">
                 Pessoa
@@ -270,6 +280,28 @@ export function LoanFormDialog({
 
             <fieldset>
               <legend className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                Tipo
+              </legend>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {([
+                  [TipoEmprestimo.Avista, "À vista"],
+                  [TipoEmprestimo.Parcelado, "Parcelado"],
+                  [TipoEmprestimo.Fixo, "Fixo"],
+                ] as const).map(([tipo, label]) => (
+                  <button
+                    key={tipo}
+                    className={`min-h-11 rounded-lg border px-2 text-sm font-bold ${form.tipo === tipo ? "border-[var(--app-accent)] text-[var(--app-accent)]" : "border-[color:var(--app-card-border)] text-slate-600 dark:border-slate-700 dark:text-slate-300"}`}
+                    type="button"
+                    onClick={() => setForm({ ...form, tipo, quantidadeParcelas: tipo === TipoEmprestimo.Parcelado ? Math.max(2, form.quantidadeParcelas) : 1 })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend className="text-sm font-bold text-slate-700 dark:text-slate-200">
                 Origem
               </legend>
               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -315,7 +347,7 @@ export function LoanFormDialog({
               </select>
             </Field>
 
-            <Field label={form.parcelado ? "Primeira parcela" : "Data"}>
+            <Field label={form.tipo === TipoEmprestimo.Parcelado ? "Primeira parcela" : form.tipo === TipoEmprestimo.Fixo ? "Início da recorrência" : "Data"}>
               <input
                 className={inputClass}
                 type="date"
@@ -327,34 +359,7 @@ export function LoanFormDialog({
               />
             </Field>
 
-            <label className="flex items-center justify-between rounded-lg border border-[color:var(--app-card-border)] p-4 dark:border-slate-700">
-              <span>
-                <strong className="block text-sm text-slate-900 dark:text-white">
-                  Parcelado
-                </strong>
-                {form.parcelado && (
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    O cronograma mensal será gerado automaticamente.
-                  </span>
-                )}
-              </span>
-              <input
-                type="checkbox"
-                className="h-5 w-5"
-                checked={form.parcelado}
-                onChange={(event) =>
-                  setForm({
-                    ...form,
-                    parcelado: event.target.checked,
-                    quantidadeParcelas: event.target.checked
-                      ? Math.max(2, form.quantidadeParcelas)
-                      : 1,
-                  })
-                }
-              />
-            </label>
-
-            {form.parcelado && (
+            {form.tipo === TipoEmprestimo.Parcelado && (
               <Field label="Quantidade de parcelas">
                 <input
                   className={inputClass}
@@ -372,7 +377,7 @@ export function LoanFormDialog({
                 />
                 <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
                   Estimativa: {formatCurrencyInput(parcelaEstimada)}
-                  {form.parcelado && (
+                  {form.tipo === TipoEmprestimo.Parcelado && (
                     <span>
                       {" "}
                       por parcela. O fechamento exato é calculado
@@ -383,7 +388,23 @@ export function LoanFormDialog({
               </Field>
             )}
 
-            <Field label="Observação">
+            {form.tipo === TipoEmprestimo.Fixo && (
+              <div className="rounded-lg border border-[color:var(--app-card-border)] p-4 dark:border-slate-700 sm:col-span-2">
+                <label className="flex items-center justify-between gap-3 text-sm font-bold text-slate-800 dark:text-slate-200">
+                  Sem data final
+                  <input type="checkbox" className="h-5 w-5" checked={form.semDataFinal} onChange={(event) => setForm({ ...form, semDataFinal: event.target.checked })} />
+                </label>
+                {!form.semDataFinal && (
+                  <label className="mt-4 block text-sm font-bold text-slate-700 dark:text-slate-200">
+                    Última competência
+                    <input className={`${inputClass} mt-2`} type="date" min={form.data} value={form.dataFimRecorrencia} onChange={(event) => setForm({ ...form, dataFimRecorrencia: event.target.value })} required />
+                  </label>
+                )}
+                <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Periodicidade mensal. As competências futuras serão projetadas sem criar registros infinitos.</p>
+              </div>
+            )}
+
+            <Field label="Observação" className="sm:col-span-2">
               <textarea
                 className={`${inputClass} min-h-24 resize-y`}
                 value={form.observacao}
@@ -402,7 +423,7 @@ export function LoanFormDialog({
           )}
         </div>
 
-        <footer className="flex shrink-0 flex-col-reverse gap-3 border-t border-[color:var(--app-card-border)] bg-[var(--app-card)] px-5 py-4 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:justify-end sm:px-7">
+        <footer className="flex shrink-0 flex-col-reverse gap-3 border-t border-[color:var(--app-card-border)] bg-[var(--app-card)] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 dark:border-slate-800 dark:bg-slate-950 sm:flex-row sm:justify-end sm:px-7 sm:py-4">
           <button
             className={secondaryButtonClass}
             type="button"

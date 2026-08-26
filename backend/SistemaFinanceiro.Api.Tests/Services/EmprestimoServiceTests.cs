@@ -83,6 +83,109 @@ public sealed class EmprestimoServiceTests
     }
 
     [Fact]
+    public async Task ObterResumoMensalAsync_ParceladoConsideraSomenteParcelaDaCompetencia()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        await service.CriarAsync(cenario.UsuarioId, CriarRequest(cenario, 1200m, 12));
+
+        var agosto = await service.ObterResumoMensalAsync(cenario.UsuarioId, 8, 2026);
+        var setembro = await service.ObterResumoMensalAsync(cenario.UsuarioId, 9, 2026);
+
+        Assert.Equal(1200m, agosto.AReceberTotal);
+        Assert.Equal(100m, agosto.PrevistoNoMes);
+        Assert.Equal(100m, setembro.PrevistoNoMes);
+        Assert.Equal(100m, Assert.Single(setembro.Itens).ValorCompetencia);
+    }
+
+    [Fact]
+    public async Task ObterResumoMensalAsync_AvistaApareceSomenteNaCompetenciaCorreta()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        await service.CriarAsync(cenario.UsuarioId, CriarRequest(cenario, 250m, 1));
+
+        var agosto = await service.ObterResumoMensalAsync(cenario.UsuarioId, 8, 2026);
+        var setembro = await service.ObterResumoMensalAsync(cenario.UsuarioId, 9, 2026);
+
+        Assert.Equal(250m, agosto.PrevistoNoMes);
+        Assert.Equal(250m, Assert.Single(agosto.Itens).ValorCompetencia);
+        Assert.Equal(0m, setembro.PrevistoNoMes);
+        Assert.Empty(setembro.Itens);
+        Assert.Equal(0, setembro.TotalItens);
+        Assert.Equal(250m, setembro.AReceberTotal);
+    }
+
+    [Fact]
+    public async Task ObterResumoMensalAsync_CartaoUsaVencimentoCalculadoPeloCicloDaFatura()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        var request = CriarRequest(cenario, 1000m, 1, OrigemFinanceiraEmprestimo.CartaoCredito);
+        request.Data = new DateOnly(2026, 8, 20);
+        await service.CriarAsync(cenario.UsuarioId, request);
+
+        var agosto = await service.ObterResumoMensalAsync(cenario.UsuarioId, 8, 2026);
+        var setembro = await service.ObterResumoMensalAsync(cenario.UsuarioId, 9, 2026);
+
+        Assert.Equal(0m, agosto.PrevistoNoMes);
+        Assert.Equal(1000m, setembro.PrevistoNoMes);
+        var item = Assert.Single(setembro.Itens);
+        Assert.Equal(new DateOnly(2026, 9, 10), item.DataCompetencia);
+        Assert.Equal("Cartao principal", item.OrigemNome);
+    }
+
+    [Fact]
+    public async Task ObterResumoMensalAsync_AntecipacaoSeparaCompetenciaDeDataDoRecebimento()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        var emprestimo = await service.CriarAsync(cenario.UsuarioId, CriarRequest(cenario, 300m, 3));
+        await service.RegistrarPagamentoAsync(
+            cenario.UsuarioId,
+            emprestimo.Id,
+            new RegistrarPagamentoEmprestimoRequest
+            {
+                Data = new DateOnly(2026, 9, 1),
+                ParcelaIds = new[] { emprestimo.Parcelas[2].Id }
+            });
+
+        var setembro = await service.ObterResumoMensalAsync(cenario.UsuarioId, 9, 2026);
+        var outubro = await service.ObterResumoMensalAsync(cenario.UsuarioId, 10, 2026);
+
+        Assert.Equal(100m, setembro.RecebidoNoMes);
+        Assert.Equal(100m, setembro.PrevistoNoMes);
+        Assert.Equal(0m, outubro.RecebidoNoMes);
+        Assert.Equal(100m, outubro.PrevistoNoMes);
+        Assert.Equal(StatusParcelaEmprestimo.Paga, Assert.Single(outubro.Itens).StatusCompetencia);
+        Assert.Equal(200m, outubro.AReceberTotal);
+    }
+
+    [Fact]
+    public async Task ObterResumoMensalAsync_FiltroPorContatoAfetaIndicadoresEItens()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var outroContato = new ContatoEmprestimo { UsuarioId = cenario.UsuarioId, Nome = "Joao" };
+        cenario.Database.Context.ContatosEmprestimos.Add(outroContato);
+        await cenario.Database.Context.SaveChangesAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        await service.CriarAsync(cenario.UsuarioId, CriarRequest(cenario, 100m, 1));
+        var outroRequest = CriarRequest(cenario, 250m, 1);
+        outroRequest.ContatoId = outroContato.Id;
+        await service.CriarAsync(cenario.UsuarioId, outroRequest);
+
+        var resultado = await service.ObterResumoMensalAsync(
+            cenario.UsuarioId,
+            8,
+            2026,
+            outroContato.Id);
+
+        Assert.Equal(250m, resultado.AReceberTotal);
+        Assert.Equal(250m, resultado.PrevistoNoMes);
+        Assert.Equal(outroContato.Id, Assert.Single(resultado.Itens).ContatoId);
+    }
+
+    [Fact]
     public async Task CriarEConsultarAsync_RecusaIdsDeOutroUsuario()
     {
         using var cenario = await CriarCenarioAsync();
@@ -392,6 +495,107 @@ public sealed class EmprestimoServiceTests
         Assert.True(await service.RemoverAsync(cenario.UsuarioId, criado.Id));
         Assert.Single(await service.ListarAsync(cenario.UsuarioId));
         Assert.False(await service.RemoverAsync(outroUsuarioId, cenario.Contato.Id));
+    }
+
+    [Fact]
+    public async Task Fixo_ProjetaMesesSemMaterializarCronogramaInfinito()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        var request = CriarRequest(cenario, 119.90m, 1);
+        request.Tipo = TipoEmprestimo.Fixo;
+
+        var criado = await service.CriarAsync(cenario.UsuarioId, request);
+        var setembro = await service.ObterResumoMensalAsync(cenario.UsuarioId, 9, 2026);
+        var outubro = await service.ObterResumoMensalAsync(cenario.UsuarioId, 10, 2026);
+
+        Assert.Single(cenario.Database.Context.ParcelasEmprestimos.Where(item => item.EmprestimoId == criado.Id));
+        Assert.Equal(119.90m, setembro.PrevistoNoMes);
+        Assert.Equal(119.90m, outubro.PrevistoNoMes);
+        Assert.Equal(TipoEmprestimo.Fixo, setembro.Itens.Single().Tipo);
+    }
+
+    [Fact]
+    public async Task Fixo_AlteracaoPontualNaoAlteraMesSeguinte()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        var request = CriarRequest(cenario, 119.90m, 1);
+        request.Tipo = TipoEmprestimo.Fixo;
+        var criado = await service.CriarAsync(cenario.UsuarioId, request);
+
+        await service.AlterarRecorrenciaAsync(cenario.UsuarioId, criado.Id, new AlteracaoRecorrenciaEmprestimoRequest
+        {
+            Competencia = new DateOnly(2026, 12, 1),
+            Valor = 139.90m,
+            Escopo = EscopoAlteracaoRecorrenciaEmprestimo.SomenteCompetencia
+        });
+
+        Assert.Equal(139.90m, (await service.ObterResumoMensalAsync(cenario.UsuarioId, 12, 2026)).PrevistoNoMes);
+        Assert.Equal(119.90m, (await service.ObterResumoMensalAsync(cenario.UsuarioId, 1, 2027)).PrevistoNoMes);
+    }
+
+    [Fact]
+    public async Task Fixo_AlteracaoFuturaEEncerramentoPreservamHistorico()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        var request = CriarRequest(cenario, 119.90m, 1);
+        request.Tipo = TipoEmprestimo.Fixo;
+        var criado = await service.CriarAsync(cenario.UsuarioId, request);
+
+        await service.AlterarRecorrenciaAsync(cenario.UsuarioId, criado.Id, new AlteracaoRecorrenciaEmprestimoRequest
+        {
+            Competencia = new DateOnly(2026, 10, 1),
+            Valor = 129.90m,
+            Escopo = EscopoAlteracaoRecorrenciaEmprestimo.DestaCompetenciaEmDiante
+        });
+        await service.EncerrarRecorrenciaAsync(cenario.UsuarioId, criado.Id, new EncerrarRecorrenciaEmprestimoRequest
+        {
+            UltimaCompetencia = new DateOnly(2026, 12, 1)
+        });
+
+        Assert.Equal(119.90m, (await service.ObterResumoMensalAsync(cenario.UsuarioId, 9, 2026)).PrevistoNoMes);
+        Assert.Equal(129.90m, (await service.ObterResumoMensalAsync(cenario.UsuarioId, 11, 2026)).PrevistoNoMes);
+        Assert.Equal(0m, (await service.ObterResumoMensalAsync(cenario.UsuarioId, 1, 2027)).PrevistoNoMes);
+    }
+
+    [Fact]
+    public async Task Fixo_PagamentoDeCompetenciaVirtualCalculaValorSemEntradaLivre()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        var request = CriarRequest(cenario, 119.90m, 1);
+        request.Tipo = TipoEmprestimo.Fixo;
+        var criado = await service.CriarAsync(cenario.UsuarioId, request);
+
+        var pagamento = await service.RegistrarPagamentoAsync(cenario.UsuarioId, criado.Id, new RegistrarPagamentoEmprestimoRequest
+        {
+            Data = new DateOnly(2026, 9, 1),
+            Competencias = new[] { new DateOnly(2026, 9, 1), new DateOnly(2026, 10, 1) }
+        });
+
+        Assert.NotNull(pagamento);
+        Assert.Equal(239.80m, pagamento!.ValorTotal);
+        Assert.Equal(2, pagamento.ParcelaIds.Count);
+        Assert.Equal(
+            StatusParcelaEmprestimo.Paga,
+            (await service.ObterResumoMensalAsync(cenario.UsuarioId, 9, 2026)).Itens.Single().StatusCompetencia);
+    }
+
+    [Fact]
+    public async Task FixoNoCartao_UsaVencimentoCentralDaFatura()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        var request = CriarRequest(cenario, 100m, 1, OrigemFinanceiraEmprestimo.CartaoCredito);
+        request.Tipo = TipoEmprestimo.Fixo;
+        request.Data = new DateOnly(2026, 8, 20);
+
+        await service.CriarAsync(cenario.UsuarioId, request);
+
+        Assert.Equal(0m, (await service.ObterResumoMensalAsync(cenario.UsuarioId, 8, 2026)).PrevistoNoMes);
+        Assert.Equal(100m, (await service.ObterResumoMensalAsync(cenario.UsuarioId, 9, 2026)).PrevistoNoMes);
     }
 
     private static async Task<Cenario> CriarCenarioAsync()

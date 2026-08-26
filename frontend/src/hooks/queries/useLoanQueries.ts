@@ -13,6 +13,36 @@ export function useEmprestimos(contatoId: string | null, incluirArquivados = fal
   });
 }
 
+export function useResumoEmprestimosMensal(
+  mes: number,
+  ano: number,
+  contatoId: string | null,
+  incluirArquivados = false,
+  pagina = 1,
+) {
+  const canFetch = hasUsableStoredAuth();
+  return useQuery({
+    queryKey: queryKeys.resumoEmprestimosMensal(
+      mes,
+      ano,
+      contatoId,
+      incluirArquivados,
+      pagina,
+    ),
+    queryFn: ({ signal }) => loanService.obterResumoMensalEmprestimos(
+      mes,
+      ano,
+      contatoId,
+      incluirArquivados,
+      pagina,
+      50,
+      signal,
+    ),
+    enabled: canFetch,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 export function useEmprestimoDetalhe(id: string | null) {
   const canFetch = hasUsableStoredAuth();
   return useQuery({

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using SistemaFinanceiro.Api.Data;
 using SistemaFinanceiro.Api.Dtos.Emprestimos;
 using SistemaFinanceiro.Api.Models;
+using SistemaFinanceiro.Api.Services.CartoesCredito;
 
 namespace SistemaFinanceiro.Api.Services.Emprestimos;
 
@@ -51,6 +52,274 @@ public sealed class EmprestimoService : IEmprestimoService
         return emprestimos.Select(MapearResumo).ToList();
     }
 
+    public async Task<ResumoMensalEmprestimosResponse> ObterResumoMensalAsync(
+        Guid usuarioId,
+        int mes,
+        int ano,
+        Guid? contatoId = null,
+        bool incluirArquivados = false,
+        int pagina = 1,
+        int tamanhoPagina = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var inicioMes = new DateOnly(ano, mes, 1);
+        var hoje = DateOnly.FromDateTime(DateTime.Now);
+        var competenciaAtual = new DateOnly(hoje.Year, hoje.Month, 1);
+        var query = _dbContext.Emprestimos
+            .AsNoTracking()
+            .AsSplitQuery()
+            .Include(emprestimo => emprestimo.Contato)
+            .Include(emprestimo => emprestimo.CartaoCredito)
+            .Include(emprestimo => emprestimo.ContaBancaria)
+            .Include(emprestimo => emprestimo.Parcelas)
+            .Include(emprestimo => emprestimo.AlteracoesRecorrencia)
+            .Where(emprestimo => emprestimo.UsuarioId == usuarioId);
+
+        if (!incluirArquivados)
+        {
+            query = query.Where(emprestimo => !emprestimo.IsArquivado);
+        }
+
+        if (contatoId.HasValue)
+        {
+            query = query.Where(emprestimo => emprestimo.ContatoId == contatoId.Value);
+        }
+
+        var emprestimos = await query.ToListAsync(cancellationToken);
+        var pagamentosNoMes = await _dbContext.PagamentosEmprestimos
+            .AsNoTracking()
+            .Where(pagamento =>
+                pagamento.UsuarioId == usuarioId &&
+                pagamento.Data >= inicioMes &&
+                pagamento.Data < inicioMes.AddMonths(1) &&
+                (incluirArquivados || !pagamento.Emprestimo.IsArquivado) &&
+                (!contatoId.HasValue || pagamento.Emprestimo.ContatoId == contatoId.Value))
+            .Select(pagamento => pagamento.ValorTotal)
+            .ToListAsync(cancellationToken);
+        var recebidoNoMes = pagamentosNoMes.Sum();
+
+        var ocorrenciasMes = emprestimos
+            .Where(item => item.Status != StatusEmprestimo.Cancelado)
+            .Select(item => (Emprestimo: item, Ocorrencia: ObterOcorrenciaNoMes(item, inicioMes)))
+            .Where(item => item.Ocorrencia is not null)
+            .OrderByDescending(item => item.Ocorrencia!.Vencimento)
+            .ThenBy(item => item.Emprestimo.Descricao)
+            .ToList();
+        var totalItens = ocorrenciasMes.Count;
+        var itens = ocorrenciasMes
+            .Skip((pagina - 1) * tamanhoPagina)
+            .Take(tamanhoPagina)
+            .Select(item => MapearItemMensal(item.Emprestimo, item.Ocorrencia!, competenciaAtual))
+            .ToList();
+
+        return new ResumoMensalEmprestimosResponse
+        {
+            Mes = mes,
+            Ano = ano,
+            AReceberTotal = emprestimos.Sum(item => CalcularSaldoConstituido(item, competenciaAtual)),
+            PrevistoNoMes = ocorrenciasMes.Sum(item => item.Ocorrencia!.Valor),
+            RecebidoNoMes = recebidoNoMes,
+            Pagina = pagina,
+            TamanhoPagina = tamanhoPagina,
+            TotalItens = totalItens,
+            TotalPaginas = totalItens == 0 ? 0 : (int)Math.Ceiling(totalItens / (decimal)tamanhoPagina),
+            Itens = itens
+        };
+    }
+
+    private static DateOnly? ObterCompetencia(
+        OrigemFinanceiraEmprestimo origem,
+        DateOnly dataReferencia,
+        int? melhorDiaCompra,
+        int? diaVencimento)
+    {
+        if (origem != OrigemFinanceiraEmprestimo.CartaoCredito)
+        {
+            return dataReferencia;
+        }
+
+        if (!melhorDiaCompra.HasValue || !diaVencimento.HasValue)
+        {
+            return null;
+        }
+
+        var cartao = new CartaoCredito
+        {
+            MelhorDiaCompra = melhorDiaCompra.Value,
+            DiaVencimento = diaVencimento.Value
+        };
+        return CicloFaturaCartaoCalculator.CalcularParaCompra(cartao, dataReferencia).DataVencimento;
+    }
+
+    private static OcorrenciaEmprestimo? ObterOcorrenciaNoMes(Emprestimo emprestimo, DateOnly mes)
+    {
+        if (emprestimo.Tipo != TipoEmprestimo.Fixo)
+        {
+            var parcela = emprestimo.Parcelas.FirstOrDefault(item =>
+            {
+                var vencimento = ObterVencimento(emprestimo, item.Competencia == default ? item.DataVencimento : item.Competencia);
+                return vencimento.Year == mes.Year && vencimento.Month == mes.Month;
+            });
+            return parcela is null
+                ? null
+                : new OcorrenciaEmprestimo(
+                    parcela.Competencia == default ? parcela.DataVencimento : parcela.Competencia,
+                    ObterVencimento(emprestimo, parcela.Competencia == default ? parcela.DataVencimento : parcela.Competencia),
+                    parcela.Valor,
+                    parcela.Status,
+                    parcela.NumeroParcela,
+                    parcela);
+        }
+
+        var referencia = EncontrarReferenciaPorMesDeVencimento(emprestimo, mes);
+        if (!referencia.HasValue || !RecorrenciaContem(emprestimo, referencia.Value))
+        {
+            return null;
+        }
+
+        var persistida = emprestimo.Parcelas.SingleOrDefault(item => item.Competencia == referencia.Value);
+        return new OcorrenciaEmprestimo(
+            referencia.Value,
+            ObterVencimento(emprestimo, referencia.Value),
+            persistida?.Valor ?? ObterValorRecorrencia(emprestimo, referencia.Value),
+            persistida?.Status ?? StatusParcelaEmprestimo.Pendente,
+            ObterNumeroCompetencia(emprestimo, referencia.Value),
+            persistida);
+    }
+
+    private static DateOnly? EncontrarReferenciaPorMesDeVencimento(Emprestimo emprestimo, DateOnly mes)
+    {
+        for (var deslocamento = -2; deslocamento <= 1; deslocamento++)
+        {
+            var referencia = new DateOnly(mes.Year, mes.Month, 1).AddMonths(deslocamento);
+            referencia = new DateOnly(
+                referencia.Year,
+                referencia.Month,
+                Math.Min(emprestimo.Data.Day, DateTime.DaysInMonth(referencia.Year, referencia.Month)));
+            var vencimento = ObterVencimento(emprestimo, referencia);
+            if (vencimento.Year == mes.Year && vencimento.Month == mes.Month)
+            {
+                return referencia;
+            }
+        }
+        return null;
+    }
+
+    private static bool RecorrenciaContem(Emprestimo emprestimo, DateOnly referencia) =>
+        emprestimo.Tipo == TipoEmprestimo.Fixo &&
+        emprestimo.Status != StatusEmprestimo.Cancelado &&
+        referencia >= emprestimo.Data &&
+        (!emprestimo.DataFimRecorrencia.HasValue || referencia <= emprestimo.DataFimRecorrencia.Value);
+
+    private static decimal ObterValorRecorrencia(Emprestimo emprestimo, DateOnly competencia)
+    {
+        var exata = emprestimo.AlteracoesRecorrencia
+            .Where(item => item.Escopo == EscopoAlteracaoRecorrenciaEmprestimo.SomenteCompetencia &&
+                MesmoMes(item.Competencia, competencia))
+            .OrderByDescending(item => item.CriadoEm)
+            .FirstOrDefault();
+        if (exata is not null) return exata.Valor;
+
+        return emprestimo.AlteracoesRecorrencia
+            .Where(item => item.Escopo == EscopoAlteracaoRecorrenciaEmprestimo.DestaCompetenciaEmDiante &&
+                item.Competencia <= competencia)
+            .OrderByDescending(item => item.Competencia)
+            .ThenByDescending(item => item.CriadoEm)
+            .Select(item => (decimal?)item.Valor)
+            .FirstOrDefault() ?? emprestimo.ValorTotal;
+    }
+
+    private static decimal CalcularSaldoConstituido(Emprestimo emprestimo, DateOnly competenciaAtual)
+    {
+        if (emprestimo.Status == StatusEmprestimo.Cancelado) return 0m;
+        if (emprestimo.Tipo != TipoEmprestimo.Fixo)
+        {
+            return emprestimo.Parcelas
+                .Where(item => item.Status == StatusParcelaEmprestimo.Pendente)
+                .Sum(item => item.Valor);
+        }
+
+        decimal total = 0m;
+        var referencia = emprestimo.Data;
+        while (referencia <= competenciaAtual.AddMonths(1) && RecorrenciaContem(emprestimo, referencia))
+        {
+            var vencimento = ObterVencimento(emprestimo, referencia);
+            if (vencimento.Year > competenciaAtual.Year ||
+                (vencimento.Year == competenciaAtual.Year && vencimento.Month > competenciaAtual.Month)) break;
+            var persistida = emprestimo.Parcelas.SingleOrDefault(item => item.Competencia == referencia);
+            if (persistida is null || persistida.Status == StatusParcelaEmprestimo.Pendente)
+            {
+                total += persistida?.Valor ?? ObterValorRecorrencia(emprestimo, referencia);
+            }
+            referencia = emprestimo.Data.AddMonths(ObterNumeroCompetencia(emprestimo, referencia));
+        }
+        return total;
+    }
+
+    private static EmprestimoMensalItemResponse MapearItemMensal(
+        Emprestimo emprestimo,
+        OcorrenciaEmprestimo ocorrencia,
+        DateOnly competenciaAtual)
+    {
+        var valorPago = emprestimo.Parcelas.Where(item => item.Status == StatusParcelaEmprestimo.Paga).Sum(item => item.Valor);
+        return new EmprestimoMensalItemResponse
+        {
+            Id = emprestimo.Id,
+            ContatoId = emprestimo.ContatoId,
+            ContatoNome = emprestimo.Contato.Nome,
+            Descricao = emprestimo.Descricao,
+            ValorTotal = emprestimo.ValorTotal,
+            ValorPago = valorPago,
+            SaldoReceber = CalcularSaldoConstituido(emprestimo, competenciaAtual),
+            Data = emprestimo.Data,
+            Tipo = emprestimo.Tipo,
+            DataFimRecorrencia = emprestimo.DataFimRecorrencia,
+            RecorrenciaAtiva = RecorrenciaEstaAtivaAgora(emprestimo),
+            OrigemFinanceira = emprestimo.OrigemFinanceira,
+            OrigemNome = emprestimo.OrigemFinanceira == OrigemFinanceiraEmprestimo.CartaoCredito
+                ? emprestimo.CartaoCredito?.ApelidoCartao ?? "Cartão"
+                : emprestimo.ContaBancaria?.NomeCustomizado ?? "Conta bancária",
+            QuantidadeParcelas = emprestimo.QuantidadeParcelas,
+            ParcelasPagas = emprestimo.Parcelas.Count(item => item.Status == StatusParcelaEmprestimo.Paga),
+            Status = emprestimo.Status,
+            IsArquivado = emprestimo.IsArquivado,
+            ValorCompetencia = ocorrencia.Valor,
+            DataCompetencia = ocorrencia.Vencimento,
+            NumeroParcelaCompetencia = emprestimo.Tipo == TipoEmprestimo.Fixo ? null : ocorrencia.Numero,
+            StatusCompetencia = ocorrencia.Status,
+            ProximoVencimento = ocorrencia.Vencimento
+        };
+    }
+
+    private static DateOnly ObterVencimento(Emprestimo emprestimo, DateOnly referencia) =>
+        ObterCompetencia(
+            emprestimo.OrigemFinanceira,
+            referencia,
+            emprestimo.CartaoCredito?.MelhorDiaCompra,
+            emprestimo.CartaoCredito?.DiaVencimento) ?? referencia;
+
+    private static int ObterNumeroCompetencia(Emprestimo emprestimo, DateOnly competencia) =>
+        ((competencia.Year - emprestimo.Data.Year) * 12) + competencia.Month - emprestimo.Data.Month + 1;
+
+    private static bool MesmoMes(DateOnly esquerda, DateOnly direita) =>
+        esquerda.Year == direita.Year && esquerda.Month == direita.Month;
+
+    private static bool RecorrenciaEstaAtivaAgora(Emprestimo emprestimo)
+    {
+        var hoje = DateOnly.FromDateTime(DateTime.Now);
+        return emprestimo.Tipo == TipoEmprestimo.Fixo &&
+            emprestimo.Status != StatusEmprestimo.Cancelado &&
+            (!emprestimo.DataFimRecorrencia.HasValue || emprestimo.DataFimRecorrencia.Value >= hoje);
+    }
+
+    private sealed record OcorrenciaEmprestimo(
+        DateOnly Competencia,
+        DateOnly Vencimento,
+        decimal Valor,
+        StatusParcelaEmprestimo Status,
+        int Numero,
+        ParcelaEmprestimo? Parcela);
+
     public async Task<EmprestimoDetalheResponse?> ObterAsync(
         Guid usuarioId,
         Guid id,
@@ -87,6 +356,12 @@ public sealed class EmprestimoService : IEmprestimoService
             Descricao = request.Descricao.Trim(),
             ValorTotal = request.ValorTotal,
             Data = request.Data,
+            Tipo = request.Tipo == TipoEmprestimo.Avista && request.QuantidadeParcelas > 1
+                ? TipoEmprestimo.Parcelado
+                : request.Tipo,
+            DataFimRecorrencia = request.Tipo == TipoEmprestimo.Fixo ? request.DataFimRecorrencia : null,
+            RecorrenciaAtiva = request.Tipo == TipoEmprestimo.Fixo &&
+                (!request.DataFimRecorrencia.HasValue || request.DataFimRecorrencia.Value >= DateOnly.FromDateTime(DateTime.Now)),
             OrigemFinanceira = request.OrigemFinanceira,
             CartaoCreditoId = request.CartaoCreditoId,
             ContaBancariaId = request.ContaBancariaId,
@@ -94,14 +369,18 @@ public sealed class EmprestimoService : IEmprestimoService
             Observacao = NormalizarTexto(request.Observacao)
         };
 
-        for (var numero = 1; numero <= request.QuantidadeParcelas; numero++)
+        var quantidadeMaterializada = emprestimo.Tipo == TipoEmprestimo.Fixo ? 1 : request.QuantidadeParcelas;
+        for (var numero = 1; numero <= quantidadeMaterializada; numero++)
         {
             emprestimo.Parcelas.Add(new ParcelaEmprestimo
             {
                 UsuarioId = usuarioId,
                 NumeroParcela = numero,
+                Competencia = request.Data.AddMonths(numero - 1),
                 DataVencimento = request.Data.AddMonths(numero - 1),
-                Valor = CalcularValorParcela(request.ValorTotal, request.QuantidadeParcelas, numero)
+                Valor = emprestimo.Tipo == TipoEmprestimo.Fixo
+                    ? request.ValorTotal
+                    : CalcularValorParcela(request.ValorTotal, request.QuantidadeParcelas, numero)
             });
         }
 
@@ -168,6 +447,8 @@ public sealed class EmprestimoService : IEmprestimoService
 
         var emprestimo = await _dbContext.Emprestimos
             .Include(item => item.Parcelas)
+            .Include(item => item.AlteracoesRecorrencia)
+            .Include(item => item.CartaoCredito)
             .SingleOrDefaultAsync(
                 item => item.Id == id && item.UsuarioId == usuarioId,
                 cancellationToken);
@@ -176,7 +457,8 @@ public sealed class EmprestimoService : IEmprestimoService
             return null;
         }
 
-        if (emprestimo.Status is StatusEmprestimo.Cancelado or StatusEmprestimo.Pago)
+        if (emprestimo.Status == StatusEmprestimo.Cancelado ||
+            (emprestimo.Tipo != TipoEmprestimo.Fixo && emprestimo.Status == StatusEmprestimo.Pago))
         {
             throw new InvalidOperationException("Este empréstimo não possui parcelas disponíveis para pagamento.");
         }
@@ -189,7 +471,39 @@ public sealed class EmprestimoService : IEmprestimoService
             throw new InvalidOperationException("Uma parcela não pode ser selecionada mais de uma vez.");
         }
 
-        if (emprestimo.QuantidadeParcelas == 1 && parcelaIds.Count == 0)
+        var competencias = request.Competencias
+            .Select(item => new DateOnly(item.Year, item.Month, Math.Min(emprestimo.Data.Day, DateTime.DaysInMonth(item.Year, item.Month))))
+            .Distinct()
+            .ToList();
+        if (emprestimo.Tipo == TipoEmprestimo.Fixo)
+        {
+            foreach (var competencia in competencias)
+            {
+                if (!RecorrenciaContem(emprestimo, competencia))
+                {
+                    throw new InvalidOperationException("Uma ou mais competências não pertencem à recorrência ativa.");
+                }
+                var existente = emprestimo.Parcelas.SingleOrDefault(item => MesmoMes(item.Competencia, competencia));
+                if (existente is null)
+                {
+                    existente = new ParcelaEmprestimo
+                    {
+                        UsuarioId = usuarioId,
+                        Emprestimo = emprestimo,
+                        NumeroParcela = ObterNumeroCompetencia(emprestimo, competencia),
+                        Competencia = competencia,
+                        DataVencimento = competencia,
+                        Valor = ObterValorRecorrencia(emprestimo, competencia)
+                    };
+                    emprestimo.Parcelas.Add(existente);
+                    await CriarLancamentoConcessaoOcorrenciaAsync(emprestimo, existente, cancellationToken);
+                }
+                parcelaIds.Add(existente.Id);
+            }
+            parcelaIds = parcelaIds.Distinct().ToList();
+        }
+
+        if (emprestimo.Tipo != TipoEmprestimo.Fixo && emprestimo.QuantidadeParcelas == 1 && parcelaIds.Count == 0)
         {
             parcelaIds.Add(emprestimo.Parcelas.Single().Id);
         }
@@ -246,7 +560,7 @@ public sealed class EmprestimoService : IEmprestimoService
             PagamentoEmprestimo = pagamento
         };
 
-        emprestimo.Status = emprestimo.Parcelas.All(
+        emprestimo.Status = emprestimo.Tipo != TipoEmprestimo.Fixo && emprestimo.Parcelas.All(
             parcela => parcela.Status == StatusParcelaEmprestimo.Paga)
                 ? StatusEmprestimo.Pago
                 : StatusEmprestimo.ParcialmentePago;
@@ -256,6 +570,93 @@ public sealed class EmprestimoService : IEmprestimoService
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return MapearPagamento(pagamento);
+    }
+
+    public async Task<EmprestimoDetalheResponse?> AlterarRecorrenciaAsync(
+        Guid usuarioId,
+        Guid id,
+        AlteracaoRecorrenciaEmprestimoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.Valor <= 0 || request.Competencia == default ||
+            !Enum.IsDefined(request.Escopo))
+        {
+            throw new InvalidOperationException("Informe competência, valor e escopo válidos.");
+        }
+
+        var emprestimo = await _dbContext.Emprestimos
+            .Include(item => item.Parcelas)
+            .Include(item => item.AlteracoesRecorrencia)
+            .SingleOrDefaultAsync(item => item.Id == id && item.UsuarioId == usuarioId, cancellationToken);
+        if (emprestimo is null) return null;
+        if (emprestimo.Tipo != TipoEmprestimo.Fixo)
+            throw new InvalidOperationException("Somente empréstimos fixos possuem alterações por competência.");
+
+        var competencia = new DateOnly(
+            request.Competencia.Year,
+            request.Competencia.Month,
+            Math.Min(emprestimo.Data.Day, DateTime.DaysInMonth(request.Competencia.Year, request.Competencia.Month)));
+        if (!RecorrenciaContem(emprestimo, competencia))
+            throw new InvalidOperationException("A competência não pertence a esta recorrência.");
+        if (emprestimo.Parcelas.Any(item => MesmoMes(item.Competencia, competencia) && item.Status == StatusParcelaEmprestimo.Paga))
+            throw new InvalidOperationException("Uma competência já paga não pode ter seu valor alterado.");
+
+        var existente = emprestimo.AlteracoesRecorrencia.SingleOrDefault(item =>
+            MesmoMes(item.Competencia, competencia) && item.Escopo == request.Escopo);
+        if (existente is null)
+        {
+            emprestimo.AlteracoesRecorrencia.Add(new AlteracaoRecorrenciaEmprestimo
+            {
+                UsuarioId = usuarioId,
+                Competencia = competencia,
+                Valor = request.Valor,
+                Escopo = request.Escopo
+            });
+        }
+        else
+        {
+            existente.Valor = request.Valor;
+            existente.CriadoEm = DateTimeOffset.UtcNow;
+        }
+
+        var parcelaConstituida = emprestimo.Parcelas.SingleOrDefault(item =>
+            MesmoMes(item.Competencia, competencia) && item.Status == StatusParcelaEmprestimo.Pendente);
+        if (parcelaConstituida is not null)
+        {
+            parcelaConstituida.Valor = request.Valor;
+            var lancamento = await _dbContext.Transacoes.SingleOrDefaultAsync(
+                item => item.UsuarioId == usuarioId && item.ParcelaEmprestimoId == parcelaConstituida.Id,
+                cancellationToken);
+            if (lancamento is not null) lancamento.Valor = request.Valor;
+        }
+        emprestimo.AtualizadoEm = DateTimeOffset.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return await ObterAsync(usuarioId, id, cancellationToken);
+    }
+
+    public async Task<EmprestimoDetalheResponse?> EncerrarRecorrenciaAsync(
+        Guid usuarioId,
+        Guid id,
+        EncerrarRecorrenciaEmprestimoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var emprestimo = await _dbContext.Emprestimos.SingleOrDefaultAsync(
+            item => item.Id == id && item.UsuarioId == usuarioId,
+            cancellationToken);
+        if (emprestimo is null) return null;
+        if (emprestimo.Tipo != TipoEmprestimo.Fixo)
+            throw new InvalidOperationException("Somente empréstimos fixos podem ter a recorrência encerrada.");
+        if (request.UltimaCompetencia < emprestimo.Data)
+            throw new InvalidOperationException("A última competência não pode ser anterior ao início.");
+
+        emprestimo.DataFimRecorrencia = new DateOnly(
+            request.UltimaCompetencia.Year,
+            request.UltimaCompetencia.Month,
+            Math.Min(emprestimo.Data.Day, DateTime.DaysInMonth(request.UltimaCompetencia.Year, request.UltimaCompetencia.Month)));
+        emprestimo.RecorrenciaAtiva = false;
+        emprestimo.AtualizadoEm = DateTimeOffset.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return await ObterAsync(usuarioId, id, cancellationToken);
     }
 
     public async Task<EmprestimoDetalheResponse?> DesfazerPagamentoAsync(
@@ -434,6 +835,32 @@ public sealed class EmprestimoService : IEmprestimoService
         }
     }
 
+    private async Task CriarLancamentoConcessaoOcorrenciaAsync(
+        Emprestimo emprestimo,
+        ParcelaEmprestimo parcela,
+        CancellationToken cancellationToken)
+    {
+        var codigo = await ObterProximoCodigoExibicaoAsync(emprestimo.UsuarioId, cancellationToken);
+        emprestimo.LancamentosFinanceiros.Add(new Transacao
+        {
+            CodigoExibicao = codigo,
+            UsuarioId = emprestimo.UsuarioId,
+            Tipo = TipoTransacao.Despesa,
+            Descricao = emprestimo.Descricao,
+            Valor = parcela.Valor,
+            DataOcorrencia = parcela.Competencia,
+            FormaPagamento = emprestimo.OrigemFinanceira == OrigemFinanceiraEmprestimo.CartaoCredito
+                ? "Cartão de crédito"
+                : "Empréstimo via conta",
+            CartaoCreditoId = emprestimo.CartaoCreditoId,
+            ContaBancariaId = emprestimo.ContaBancariaId,
+            IsPaga = emprestimo.OrigemFinanceira == OrigemFinanceiraEmprestimo.ContaBancaria,
+            OrigemTransacao = OrigemTransacao.EmprestimoConcedido,
+            Emprestimo = emprestimo,
+            ParcelaEmprestimo = parcela
+        });
+    }
+
     private async Task<int> ObterProximoCodigoExibicaoAsync(
         Guid usuarioId,
         CancellationToken cancellationToken)
@@ -441,7 +868,12 @@ public sealed class EmprestimoService : IEmprestimoService
         var ultimoCodigo = await _dbContext.Transacoes
             .Where(transacao => transacao.UsuarioId == usuarioId)
             .MaxAsync(transacao => (int?)transacao.CodigoExibicao, cancellationToken);
-        return (ultimoCodigo ?? 0) + 1;
+        var ultimoRastreado = _dbContext.ChangeTracker
+            .Entries<Transacao>()
+            .Where(item => item.State == EntityState.Added && item.Entity.UsuarioId == usuarioId)
+            .Select(item => (int?)item.Entity.CodigoExibicao)
+            .Max();
+        return Math.Max(ultimoCodigo ?? 0, ultimoRastreado ?? 0) + 1;
     }
 
     private IQueryable<Emprestimo> ObterDetalheQuery(Guid usuarioId, Guid id) =>
@@ -449,6 +881,8 @@ public sealed class EmprestimoService : IEmprestimoService
             .AsSplitQuery()
             .Include(emprestimo => emprestimo.Contato)
             .Include(emprestimo => emprestimo.Parcelas)
+            .Include(emprestimo => emprestimo.AlteracoesRecorrencia)
+            .Include(emprestimo => emprestimo.CartaoCredito)
             .Include(emprestimo => emprestimo.Pagamentos)
                 .ThenInclude(pagamento => pagamento.Parcelas)
             .Include(emprestimo => emprestimo.LancamentosFinanceiros)
@@ -545,7 +979,18 @@ public sealed class EmprestimoService : IEmprestimoService
             throw new InvalidOperationException("A data do empréstimo é obrigatória.");
         }
 
-        if (request.QuantidadeParcelas is < 1 or > 360)
+        if (!Enum.IsDefined(request.Tipo))
+        {
+            throw new InvalidOperationException("Tipo de empréstimo inválido.");
+        }
+
+        if (request.Tipo == TipoEmprestimo.Fixo &&
+            request.DataFimRecorrencia.HasValue && request.DataFimRecorrencia.Value < request.Data)
+        {
+            throw new InvalidOperationException("A data final não pode ser anterior à data inicial.");
+        }
+
+        if (request.Tipo != TipoEmprestimo.Fixo && request.QuantidadeParcelas is < 1 or > 360)
         {
             throw new InvalidOperationException("A quantidade de parcelas deve estar entre 1 e 360.");
         }
@@ -566,8 +1011,15 @@ public sealed class EmprestimoService : IEmprestimoService
             ValorPago = valorPago,
             SaldoReceber = emprestimo.Status == StatusEmprestimo.Cancelado
                 ? 0m
-                : emprestimo.ValorTotal - valorPago,
+                : emprestimo.Tipo == TipoEmprestimo.Fixo
+                    ? CalcularSaldoConstituido(
+                        emprestimo,
+                        new DateOnly(DateTime.Now.Year, DateTime.Now.Month, 1))
+                    : emprestimo.ValorTotal - valorPago,
             Data = emprestimo.Data,
+            Tipo = emprestimo.Tipo,
+            DataFimRecorrencia = emprestimo.DataFimRecorrencia,
+            RecorrenciaAtiva = RecorrenciaEstaAtivaAgora(emprestimo),
             OrigemFinanceira = emprestimo.OrigemFinanceira,
             QuantidadeParcelas = emprestimo.QuantidadeParcelas,
             ParcelasPagas = emprestimo.Parcelas.Count(parcela => parcela.Status == StatusParcelaEmprestimo.Paga),
@@ -589,6 +1041,9 @@ public sealed class EmprestimoService : IEmprestimoService
             ValorPago = resumo.ValorPago,
             SaldoReceber = resumo.SaldoReceber,
             Data = resumo.Data,
+            Tipo = resumo.Tipo,
+            DataFimRecorrencia = resumo.DataFimRecorrencia,
+            RecorrenciaAtiva = resumo.RecorrenciaAtiva,
             OrigemFinanceira = resumo.OrigemFinanceira,
             QuantidadeParcelas = resumo.QuantidadeParcelas,
             ParcelasPagas = resumo.ParcelasPagas,
@@ -599,27 +1054,74 @@ public sealed class EmprestimoService : IEmprestimoService
             Observacao = emprestimo.Observacao,
             CriadoEm = emprestimo.CriadoEm,
             AtualizadoEm = emprestimo.AtualizadoEm,
-            Parcelas = emprestimo.Parcelas
-                .OrderBy(parcela => parcela.NumeroParcela)
-                .Select(parcela => new ParcelaEmprestimoResponse
-                {
-                    Id = parcela.Id,
-                    NumeroParcela = parcela.NumeroParcela,
-                    QuantidadeTotal = emprestimo.QuantidadeParcelas,
-                    DataVencimento = parcela.DataVencimento,
-                    Valor = parcela.Valor,
-                    Status = parcela.Status,
-                    DataPagamento = parcela.DataPagamento,
-                    PagamentoEmprestimoId = parcela.PagamentoEmprestimoId
-                })
-                .ToList(),
+            Parcelas = MapearParcelasDetalhe(emprestimo),
             Pagamentos = emprestimo.Pagamentos
                 .OrderByDescending(pagamento => pagamento.Data)
                 .ThenByDescending(pagamento => pagamento.CriadoEm)
                 .Select(MapearPagamento)
+                .ToList(),
+            AlteracoesRecorrencia = emprestimo.AlteracoesRecorrencia
+                .OrderBy(item => item.Competencia)
+                .Select(item => new AlteracaoRecorrenciaEmprestimoResponse
+                {
+                    Id = item.Id,
+                    Competencia = item.Competencia,
+                    Valor = item.Valor,
+                    Escopo = item.Escopo
+                })
                 .ToList()
         };
     }
+
+    private static IReadOnlyList<ParcelaEmprestimoResponse> MapearParcelasDetalhe(Emprestimo emprestimo)
+    {
+        if (emprestimo.Tipo != TipoEmprestimo.Fixo)
+        {
+            return emprestimo.Parcelas.OrderBy(item => item.NumeroParcela).Select(item => MapearParcela(item, emprestimo.QuantidadeParcelas)).ToList();
+        }
+
+        var inicioJanela = new DateOnly(DateTime.Now.Year, DateTime.Now.Month, 1).AddMonths(-6);
+        var fimJanela = inicioJanela.AddMonths(18);
+        var referencias = new List<DateOnly>();
+        for (var referencia = emprestimo.Data; referencia < fimJanela && RecorrenciaContem(emprestimo, referencia); referencia = emprestimo.Data.AddMonths(ObterNumeroCompetencia(emprestimo, referencia)))
+        {
+            if (referencia >= inicioJanela || emprestimo.Parcelas.Any(item => MesmoMes(item.Competencia, referencia)))
+                referencias.Add(referencia);
+        }
+        referencias.AddRange(emprestimo.Parcelas.Select(item => item.Competencia));
+
+        return referencias.Distinct().OrderBy(item => item).Select(referencia =>
+        {
+            var persistida = emprestimo.Parcelas.SingleOrDefault(item => MesmoMes(item.Competencia, referencia));
+            return persistida is not null
+                ? MapearParcela(persistida, 0)
+                : new ParcelaEmprestimoResponse
+                {
+                    Id = Guid.Empty,
+                    NumeroParcela = ObterNumeroCompetencia(emprestimo, referencia),
+                    QuantidadeTotal = 0,
+                    Competencia = referencia,
+                    DataVencimento = ObterVencimento(emprestimo, referencia),
+                    Valor = ObterValorRecorrencia(emprestimo, referencia),
+                    Status = StatusParcelaEmprestimo.Pendente,
+                    IsVirtual = true
+                };
+        }).ToList();
+    }
+
+    private static ParcelaEmprestimoResponse MapearParcela(ParcelaEmprestimo parcela, int quantidadeTotal) => new()
+    {
+        Id = parcela.Id,
+        NumeroParcela = parcela.NumeroParcela,
+        QuantidadeTotal = quantidadeTotal,
+        Competencia = parcela.Competencia == default ? parcela.DataVencimento : parcela.Competencia,
+        DataVencimento = parcela.DataVencimento,
+        Valor = parcela.Valor,
+        Status = parcela.Status,
+        DataPagamento = parcela.DataPagamento,
+        PagamentoEmprestimoId = parcela.PagamentoEmprestimoId,
+        IsVirtual = false
+    };
 
     private static PagamentoEmprestimoResponse MapearPagamento(PagamentoEmprestimo pagamento) => new()
     {

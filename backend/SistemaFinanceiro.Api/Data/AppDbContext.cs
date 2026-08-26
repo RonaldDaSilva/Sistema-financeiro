@@ -41,6 +41,7 @@ public sealed class AppDbContext : DbContext
     public DbSet<Emprestimo> Emprestimos => Set<Emprestimo>();
     public DbSet<ParcelaEmprestimo> ParcelasEmprestimos => Set<ParcelaEmprestimo>();
     public DbSet<PagamentoEmprestimo> PagamentosEmprestimos => Set<PagamentoEmprestimo>();
+    public DbSet<AlteracaoRecorrenciaEmprestimo> AlteracoesRecorrenciasEmprestimos => Set<AlteracaoRecorrenciaEmprestimo>();
 
     public Guid? TenantId => _tenantProvider.UsuarioId;
 
@@ -72,6 +73,7 @@ public sealed class AppDbContext : DbContext
         ConfigureEmprestimo(modelBuilder);
         ConfigurePagamentoEmprestimo(modelBuilder);
         ConfigureParcelaEmprestimo(modelBuilder);
+        ConfigureAlteracaoRecorrenciaEmprestimo(modelBuilder);
         ConfigureTenantFilters(modelBuilder);
     }
 
@@ -1622,6 +1624,17 @@ public sealed class AppDbContext : DbContext
             entity.Property(emprestimo => emprestimo.Data)
                 .HasColumnName("data")
                 .IsRequired();
+            entity.Property(emprestimo => emprestimo.Tipo)
+                .HasColumnName("tipo")
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+            entity.Property(emprestimo => emprestimo.DataFimRecorrencia)
+                .HasColumnName("data_fim_recorrencia");
+            entity.Property(emprestimo => emprestimo.RecorrenciaAtiva)
+                .HasColumnName("recorrencia_ativa")
+                .HasDefaultValue(false)
+                .IsRequired();
             entity.Property(emprestimo => emprestimo.OrigemFinanceira)
                 .HasColumnName("origem_financeira")
                 .HasConversion<string>()
@@ -1678,6 +1691,7 @@ public sealed class AppDbContext : DbContext
             entity.HasIndex(emprestimo => new { emprestimo.UsuarioId, emprestimo.IsArquivado });
             entity.HasIndex(emprestimo => emprestimo.CartaoCreditoId);
             entity.HasIndex(emprestimo => emprestimo.ContaBancariaId);
+            entity.HasIndex(emprestimo => new { emprestimo.UsuarioId, emprestimo.Tipo, emprestimo.RecorrenciaAtiva });
         });
     }
 
@@ -1754,6 +1768,9 @@ public sealed class AppDbContext : DbContext
             entity.Property(parcela => parcela.NumeroParcela)
                 .HasColumnName("numero_parcela")
                 .IsRequired();
+            entity.Property(parcela => parcela.Competencia)
+                .HasColumnName("competencia")
+                .IsRequired();
             entity.Property(parcela => parcela.DataVencimento)
                 .HasColumnName("data_vencimento")
                 .IsRequired();
@@ -1784,10 +1801,33 @@ public sealed class AppDbContext : DbContext
 
             entity.HasIndex(parcela => parcela.UsuarioId);
             entity.HasIndex(parcela => parcela.EmprestimoId);
+            entity.HasIndex(parcela => new { parcela.EmprestimoId, parcela.Competencia }).IsUnique();
             entity.HasIndex(parcela => parcela.PagamentoEmprestimoId);
             entity.HasIndex(parcela => parcela.Status);
             entity.HasIndex(parcela => new { parcela.EmprestimoId, parcela.NumeroParcela })
                 .IsUnique();
+        });
+    }
+
+    private static void ConfigureAlteracaoRecorrenciaEmprestimo(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<AlteracaoRecorrenciaEmprestimo>(entity =>
+        {
+            entity.ToTable("alteracoes_recorrencias_emprestimos");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(item => item.UsuarioId).HasColumnName("id_usuario").IsRequired();
+            entity.Property(item => item.EmprestimoId).HasColumnName("id_emprestimo").IsRequired();
+            entity.Property(item => item.Competencia).HasColumnName("competencia").IsRequired();
+            entity.Property(item => item.Valor).HasColumnName("valor").HasPrecision(18, 2).IsRequired();
+            entity.Property(item => item.Escopo).HasColumnName("escopo").HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.Property(item => item.CriadoEm).HasColumnName("criado_em").HasDefaultValueSql("now()").IsRequired();
+            entity.HasOne(item => item.Emprestimo).WithMany(item => item.AlteracoesRecorrencia)
+                .HasForeignKey(item => item.EmprestimoId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Usuario).WithMany().HasForeignKey(item => item.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(item => item.UsuarioId);
+            entity.HasIndex(item => new { item.EmprestimoId, item.Competencia, item.Escopo }).IsUnique();
         });
     }
 

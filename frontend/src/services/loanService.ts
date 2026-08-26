@@ -5,9 +5,36 @@ import type {
   CriarEmprestimoRequest,
   EmprestimoDetalhe,
   EmprestimoResumo,
+  ResumoMensalEmprestimos,
   PagamentoEmprestimo,
   RegistrarPagamentoEmprestimoRequest,
 } from "../types/loan";
+
+export async function obterResumoMensalEmprestimos(
+  mes: number,
+  ano: number,
+  contatoId?: string | null,
+  incluirArquivados = false,
+  pagina = 1,
+  tamanhoPagina = 50,
+  signal?: AbortSignal,
+) {
+  const { data } = await api.get<ResumoMensalEmprestimos>(
+    "/api/emprestimos/resumo-mensal",
+    {
+      params: {
+        mes,
+        ano,
+        pagina,
+        tamanhoPagina,
+        ...(contatoId ? { contatoId } : {}),
+        ...(incluirArquivados ? { incluirArquivados: true } : {}),
+      },
+      signal,
+    },
+  );
+  return data;
+}
 
 export async function listarEmprestimos(
   contatoId?: string | null,
@@ -54,6 +81,28 @@ export async function registrarPagamento(
   const { data } = await api.post<PagamentoEmprestimo>(
     `/api/emprestimos/${id}/pagamentos`,
     request,
+  );
+  return data;
+}
+
+export async function alterarRecorrencia(
+  id: string,
+  request: { competencia: string; valor: number; escopo: 1 | 2 },
+) {
+  const { data } = await api.post<EmprestimoDetalhe>(
+    `/api/emprestimos/${id}/recorrencia/alteracoes`,
+    request,
+  );
+  return data;
+}
+
+export async function encerrarRecorrencia(
+  id: string,
+  ultimaCompetencia: string,
+) {
+  const { data } = await api.post<EmprestimoDetalhe>(
+    `/api/emprestimos/${id}/recorrencia/encerrar`,
+    { ultimaCompetencia },
   );
   return data;
 }

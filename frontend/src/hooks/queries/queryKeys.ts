@@ -69,6 +69,21 @@ export const queryKeys = {
   emprestimosScope: ["emprestimos"] as const,
   emprestimos: (contatoId: string | null = null, incluirArquivados = false) =>
     ["emprestimos", "lista", contatoId ?? "todos", incluirArquivados ? "com-arquivados" : "ativos"] as const,
+  resumoEmprestimosMensal: (
+    mes: number,
+    ano: number,
+    contatoId: string | null = null,
+    incluirArquivados = false,
+    pagina = 1,
+  ) => [
+    "emprestimos",
+    "resumo-mensal",
+    ano,
+    mes,
+    contatoId ?? "todos",
+    incluirArquivados ? "com-arquivados" : "ativos",
+    pagina,
+  ] as const,
   emprestimo: (id: string) => ["emprestimos", "detalhe", id] as const,
   contatosEmprestimo: ["emprestimos", "contatos"] as const,
   dashboardScope: ["dashboard"] as const,

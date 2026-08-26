@@ -10,6 +10,9 @@ public sealed class Emprestimo : IHasGuidId, IMustHaveTenant
     public string Descricao { get; set; } = string.Empty;
     public decimal ValorTotal { get; set; }
     public DateOnly Data { get; set; }
+    public TipoEmprestimo Tipo { get; set; } = TipoEmprestimo.Avista;
+    public DateOnly? DataFimRecorrencia { get; set; }
+    public bool RecorrenciaAtiva { get; set; }
     public OrigemFinanceiraEmprestimo OrigemFinanceira { get; set; }
     public Guid? CartaoCreditoId { get; set; }
     public Guid? ContaBancariaId { get; set; }
@@ -26,5 +29,6 @@ public sealed class Emprestimo : IHasGuidId, IMustHaveTenant
     public ContaBancaria? ContaBancaria { get; set; }
     public ICollection<ParcelaEmprestimo> Parcelas { get; set; } = new List<ParcelaEmprestimo>();
     public ICollection<PagamentoEmprestimo> Pagamentos { get; set; } = new List<PagamentoEmprestimo>();
+    public ICollection<AlteracaoRecorrenciaEmprestimo> AlteracoesRecorrencia { get; set; } = new List<AlteracaoRecorrenciaEmprestimo>();
     public ICollection<Transacao> LancamentosFinanceiros { get; set; } = new List<Transacao>();
 }

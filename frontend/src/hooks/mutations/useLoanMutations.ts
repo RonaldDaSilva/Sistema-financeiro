@@ -105,6 +105,30 @@ export function useDefinirArquivamentoEmprestimo() {
   });
 }
 
+export function useAlterarRecorrenciaEmprestimo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, request }: { id: string; request: { competencia: string; valor: number; escopo: 1 | 2 } }) =>
+      loanService.alterarRecorrencia(id, request),
+    onSuccess: async (emprestimo) => {
+      queryClient.setQueryData(queryKeys.emprestimo(emprestimo.id), emprestimo);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.emprestimosScope });
+    },
+  });
+}
+
+export function useEncerrarRecorrenciaEmprestimo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ultimaCompetencia }: { id: string; ultimaCompetencia: string }) =>
+      loanService.encerrarRecorrencia(id, ultimaCompetencia),
+    onSuccess: async (emprestimo) => {
+      queryClient.setQueryData(queryKeys.emprestimo(emprestimo.id), emprestimo);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.emprestimosScope });
+    },
+  });
+}
+
 async function invalidarOrigem(
   queryClient: ReturnType<typeof useQueryClient>,
   origemFinanceira: OrigemFinanceiraEmprestimo,

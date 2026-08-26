@@ -9,6 +9,7 @@ public sealed class ParcelaEmprestimo : IHasGuidId, IMustHaveTenant
     public Guid EmprestimoId { get; set; }
     public Guid? PagamentoEmprestimoId { get; set; }
     public int NumeroParcela { get; set; }
+    public DateOnly Competencia { get; set; }
     public DateOnly DataVencimento { get; set; }
     public decimal Valor { get; set; }
     public StatusParcelaEmprestimo Status { get; set; } = StatusParcelaEmprestimo.Pendente;
