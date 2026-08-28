@@ -15,6 +15,7 @@ import type {
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
   DivisaoParticipante,
+  DivisaoTransacao,
   ExtratoMensalItem,
   ReembolsoDivisao,
   ResolverConvidadoDivisaoResponse,
@@ -141,6 +142,9 @@ export function TransactionForm({
   const [dataPrimeiroVencimento, setDataPrimeiroVencimento] = useState(
     toDateInputValue(new Date()),
   );
+  const [escopoAlteracao, setEscopoAlteracao] = useState<"EstaOcorrencia" | "EstaEProximas">(
+    "EstaOcorrencia",
+  );
   const [erro, setErro] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRepeatPromptOpen, setIsRepeatPromptOpen] = useState(false);
@@ -195,6 +199,7 @@ export function TransactionForm({
     usuarioEhCriador &&
       (divisaoExistente?.status === "Aceita" || divisaoExistente?.status === 3),
   );
+  const alteracaoPendente = divisaoExistente?.versoes.find(isVersaoPendente) ?? null;
   const isCarne = formaPagamento === "Carnê/Crediário";
   const parcelasRestantes =
     initialTransaction?.numeroParcela && initialTransaction?.quantidadeParcelas
@@ -215,6 +220,12 @@ export function TransactionForm({
   const valorMinhaParte = isDividida
     ? calcularParteNumerica(numericValorTotal, percentualMinhaParte)
     : numericValorTotal;
+  const valorTotalEconomico = isEditingCompraParcelada
+    ? arredondarDinheiro(numericValorTotal * parcelasRestantes)
+    : numericValorTotal;
+  const valorMinhaParteEconomico = isEditingCompraParcelada
+    ? arredondarDinheiro(valorMinhaParte * parcelasRestantes)
+    : valorMinhaParte;
   const somaPercentualDivisao = arredondarPercentual(
     percentualMinhaParte + participantesCalculados.somaPercentual,
   );
@@ -225,6 +236,50 @@ export function TransactionForm({
     tipo === "despesa" && isDividida && modoDivisao === "vinculada";
   const criandoPrimeiraDivisaoVinculada =
     divisaoVinculadaAtiva && !possuiDivisaoVinculadaExistente;
+  const alteracaoEconomicaDetectada = useMemo(() => {
+    if (!divisaoExistente || !usuarioEhCriador) {
+      return false;
+    }
+
+    const criador = divisaoExistente.participantes.find(isParticipanteCriador);
+    if (!criador || Math.abs(valorTotalEconomico - divisaoExistente.valorTotal) > 0.01 ||
+        Math.abs(percentualMinhaParte - criador.percentual) > 0.01) {
+      return true;
+    }
+
+    const atuais = new Map(
+      divisaoExistente.participantes
+        .filter((item) => item.ativo && !isParticipanteCriador(item))
+        .map((item) => [item.id, item]),
+    );
+    const informados = [...participantesUsuarios, ...participantesExternos]
+      .filter((item) => item.participanteId);
+    if (informados.length !== atuais.size) {
+      return true;
+    }
+
+    return informados.some((item) => {
+      const atual = atuais.get(item.participanteId!);
+      if (!atual) return true;
+      const percentual = "modo" in item
+        ? item.modo === "Valor"
+          ? percentualPorValor(valorTotalEconomico, parseBrlCurrency(item.entrada))
+          : parsePercentual(item.entrada)
+        : parsePercentual(item.percentual);
+      const valorCalculado = "modo" in item && item.modo === "Valor"
+        ? parseBrlCurrency(item.entrada)
+        : calcularParteNumerica(valorTotalEconomico, percentual);
+      return Math.abs(percentual - atual.percentual) > 0.01 ||
+        Math.abs(valorCalculado - atual.valor) > 0.01;
+    });
+  }, [
+    divisaoExistente,
+    valorTotalEconomico,
+    participantesExternos,
+    participantesUsuarios,
+    percentualMinhaParte,
+    usuarioEhCriador,
+  ]);
 
   useEffect(() => {
     if (categoriasOrdenadas.length > 0 && !categoriaId) {
@@ -256,6 +311,7 @@ export function TransactionForm({
       setIsParcelada(false);
       setQuantidadeParcelas(2);
       setDataPrimeiroVencimento(toDateInputValue(new Date()));
+      setEscopoAlteracao("EstaOcorrencia");
       setErro(null);
       setIsRepeatPromptOpen(false);
       return;
@@ -309,6 +365,7 @@ export function TransactionForm({
     );
     setQuantidadeParcelas(2);
     setDataPrimeiroVencimento(initialTransaction.dataOcorrencia);
+    setEscopoAlteracao("EstaOcorrencia");
     setErro(null);
     setIsRepeatPromptOpen(false);
   }, [
@@ -585,13 +642,24 @@ export function TransactionForm({
           }
         : null;
 
-      if (possuiDivisaoVinculadaExistente && podeProporAlteracao && divisaoExistente) {
+      if (
+        possuiDivisaoVinculadaExistente &&
+        usuarioEhCriador &&
+        alteracaoEconomicaDetectada &&
+        divisaoExistente
+      ) {
+        if (alteracaoPendente) {
+          throw new Error("Já existe uma alteração pendente. Aguarde a resposta ou revise a proposta atual.");
+        }
+        if (!podeProporAlteracao) {
+          throw new Error("A situação atual da divisão não permite uma nova proposta econômica.");
+        }
         await financeService.proporAlteracaoDivisao(divisaoExistente.id, {
-          escopo: isEditingCompraParcelada || isFixa ? "EstaEProximas" : "EstaOcorrencia",
-          valorTotal: Math.abs(numericValue - divisaoExistente.valorTotal) > 0.01
-            ? numericValue
+          escopo: isEditingCompraParcelada ? "EstaEProximas" : isFixa ? escopoAlteracao : "EstaOcorrencia",
+          valorTotal: Math.abs(valorTotalEconomico - divisaoExistente.valorTotal) > 0.01
+            ? valorTotalEconomico
             : null,
-          vencimento: data !== initialTransaction?.dataOcorrencia ? data : null,
+          vencimento: null,
           quantidadeParcelas: isEditingCompraParcelada &&
             parcelasRestantes !== divisaoExistente.quantidadeParcelas
               ? parcelasRestantes
@@ -604,7 +672,7 @@ export function TransactionForm({
                 participanteId: participante.participanteId,
                 percentual: "modo" in participante
                   ? participante.modo === "Valor"
-                    ? percentualPorValor(numericValue, parseBrlCurrency(participante.entrada))
+                    ? percentualPorValor(valorTotalEconomico, parseBrlCurrency(participante.entrada))
                     : parsePercentual(participante.entrada)
                   : parsePercentual(participante.percentual),
               }]
@@ -946,10 +1014,15 @@ export function TransactionForm({
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
                   <p className="font-bold">Divisão vinculada existente</p>
                   <p className="mt-1">
-                    {podeProporAlteracao
-                      ? "Mudanças de valor, percentual ou vencimento serão enviadas como proposta aos participantes afetados."
+                    {alteracaoPendente
+                      ? "A versão vigente continua ativa enquanto os participantes analisam a proposta pendente."
+                      : podeProporAlteracao
+                      ? "Mudanças de valor ou percentual serão enviadas como proposta aos participantes afetados. Categoria, descrição e data local continuam editáveis diretamente."
                       : "Você pode ajustar os dados locais permitidos. Valor e percentual compartilhados permanecem protegidos."}
                   </p>
+                  {alteracaoPendente && (
+                    <p className="mt-2 font-bold">Alteração pendente</p>
+                  )}
                   {initialTransaction?.divisaoTransacaoId && (
                     <p className="mt-2 text-xs font-semibold">
                       Divisão: {initialTransaction.divisaoTransacaoId}
@@ -1075,6 +1148,37 @@ export function TransactionForm({
                 valorMinhaParte={valorMinhaParte}
                 valorTotal={numericValorTotal}
               />
+
+              {possuiDivisaoVinculadaExistente && usuarioEhCriador && alteracaoEconomicaDetectada && divisaoExistente && (
+                <EconomicChangePreview
+                  current={divisaoExistente}
+                  participants={participantesCalculados.itens}
+                  scope={isEditingCompraParcelada ? "EstaEProximas" : isFixa ? escopoAlteracao : "EstaOcorrencia"}
+                  selectedDate={data}
+                  userValue={valorMinhaParteEconomico}
+                  value={valorTotalEconomico}
+                />
+              )}
+
+              {possuiDivisaoVinculadaExistente && usuarioEhCriador && alteracaoEconomicaDetectada && isFixa && (
+                <fieldset className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                  <legend className="px-1 text-sm font-bold text-slate-800 dark:text-slate-100">
+                    Aplicar alteração
+                  </legend>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <RadioOption
+                      checked={escopoAlteracao === "EstaOcorrencia"}
+                      label="Somente este mês"
+                      onChange={() => setEscopoAlteracao("EstaOcorrencia")}
+                    />
+                    <RadioOption
+                      checked={escopoAlteracao === "EstaEProximas"}
+                      label="Este mês e próximos"
+                      onChange={() => setEscopoAlteracao("EstaEProximas")}
+                    />
+                  </div>
+                </fieldset>
+              )}
             </div>
           )}
 
@@ -1317,7 +1421,7 @@ export function TransactionForm({
           >
             {isSubmitting
               ? "Salvando..."
-              : possuiDivisaoVinculadaExistente && podeProporAlteracao
+              : possuiDivisaoVinculadaExistente && alteracaoEconomicaDetectada
                 ? "Enviar proposta"
               : isEditing
                 ? "Atualizar"
@@ -1389,6 +1493,7 @@ export function TransactionForm({
     setIsParcelada(false);
     setQuantidadeParcelas(2);
     setDataPrimeiroVencimento(toDateInputValue(new Date()));
+    setEscopoAlteracao("EstaOcorrencia");
     setErro(null);
   }
 }
@@ -1656,6 +1761,75 @@ function DivisionSummary({
           <p>Os percentuais serão aplicados separadamente em cada parcela.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+function EconomicChangePreview({
+  current,
+  participants,
+  scope,
+  selectedDate,
+  userValue,
+  value,
+}: {
+  current: DivisaoTransacao;
+  participants: ParticipanteCalculado[];
+  scope: "EstaOcorrencia" | "EstaEProximas";
+  selectedDate: string;
+  userValue: number;
+  value: number;
+}) {
+  const currentCreator = current.participantes.find(isParticipanteCriador);
+  const month = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" })
+    .format(new Date(`${selectedDate}T00:00:00Z`));
+
+  return (
+    <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-100">
+      <p className="font-black">Prévia da alteração</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <p className="text-xs font-bold uppercase opacity-70">Valor atual</p>
+          <p className="mt-1 text-lg font-black">{formatCurrency(current.valorTotal)}</p>
+        </div>
+        <div>
+          <p className="text-xs font-bold uppercase opacity-70">Novo valor</p>
+          <p className="mt-1 text-lg font-black">{formatCurrency(value)}</p>
+        </div>
+      </div>
+      <div className="space-y-1 border-t border-blue-200 pt-3 dark:border-blue-500/30">
+        <ChangeRow
+          current={currentCreator?.valor ?? 0}
+          label="Você"
+          proposed={userValue}
+        />
+        {participants.map((participant) => {
+          const currentParticipant = current.participantes.find((item) => item.id === participant.key);
+          return (
+            <ChangeRow
+              current={currentParticipant?.valor ?? participant.valor}
+              key={participant.key}
+              label={participant.nome}
+              proposed={participant.valor}
+            />
+          );
+        })}
+      </div>
+      <p className="text-xs font-bold">
+        Escopo: {scope === "EstaOcorrencia" ? `Somente ${month}` : `${month} e próximas`}
+      </p>
+      <p className="text-xs opacity-80">
+        A configuração vigente continuará válida até todos os participantes necessários aceitarem.
+      </p>
+    </div>
+  );
+}
+
+function ChangeRow({ current, label, proposed }: { current: number; label: string; proposed: number }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span>{label}</span>
+      <span className="font-bold">{formatCurrency(current)} → {formatCurrency(proposed)}</span>
     </div>
   );
 }
@@ -1928,6 +2102,10 @@ function isParticipanteExterno(participante: DivisaoParticipante) {
 
 function isModoValor(modo: DivisaoParticipante["modoDefinicao"]) {
   return modo === 2 || modo === "Valor";
+}
+
+function isVersaoPendente(versao: DivisaoTransacao["versoes"][number]) {
+  return versao.status === 2 || versao.status === "PropostaPendente";
 }
 
 function formatCurrency(value: number) {

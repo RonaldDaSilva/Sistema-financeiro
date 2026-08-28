@@ -1448,6 +1448,28 @@ public sealed class DivisaoTransacaoService : IDivisaoTransacaoService
             throw new InvalidOperationException("Somente alterações recusadas podem ser reenviadas.");
         }
 
+        GarantirItensVersaoHistorica(versao);
+        request.Escopo = string.IsNullOrWhiteSpace(request.Escopo) ||
+            request.Escopo == "EstaOcorrencia" && versao.Escopo != "EstaOcorrencia"
+                ? versao.Escopo
+                : request.Escopo;
+        request.ValorTotal ??= versao.ValorTotalProposto;
+        request.Vencimento ??= versao.VencimentoProposto;
+        request.QuantidadeParcelas ??= versao.QuantidadeParcelasProposta;
+        request.Recorrencia ??= versao.RecorrenciaProposta;
+        request.Frequencia ??= versao.FrequenciaProposta;
+        request.ResponsabilidadeParticipante ??= versao.ResponsabilidadeProposta;
+        if (request.Participantes.Count == 0 && !request.PercentualConvidado.HasValue)
+        {
+            request.Participantes = versao.Participantes
+                .Select(item => new AlterarParticipanteDivisaoRequest
+                {
+                    ParticipanteId = item.DivisaoTransacaoParticipanteId,
+                    Percentual = item.PercentualProposto
+                })
+                .ToList();
+        }
+
         var divisaoId = versao.DivisaoTransacaoId;
         return await ProporAlteracaoAsync(usuarioId, divisaoId, request, cancellationToken);
     }

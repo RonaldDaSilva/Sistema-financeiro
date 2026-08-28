@@ -540,6 +540,140 @@ describe("TransactionForm", () => {
     expect(serviceMocks.criarConviteDivisao).not.toHaveBeenCalled();
   });
 
+  it("salva edição local do criador sem criar proposta econômica", async () => {
+    const user = userEvent.setup();
+    const onUpdateTransacao = vi.fn().mockResolvedValue(undefined);
+    serviceMocks.obterDivisaoTransacao.mockResolvedValue({
+      ...await serviceMocks.obterDivisaoTransacao(),
+      status: "Aceita",
+    });
+
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: "tx-vinculada-1",
+        valor: 600,
+        isDividida: true,
+        valorTotalOriginal: 1000,
+        percentualDivisao: 60,
+        divisaoTransacaoId: "div-1",
+        statusDivisao: "Aceita",
+      }),
+      onUpdateTransacao,
+    });
+
+    await screen.findByText("Divisão vinculada existente");
+    await user.clear(screen.getByLabelText("Descrição"));
+    await user.type(screen.getByLabelText("Descrição"), "Descrição local");
+    await user.click(screen.getByRole("button", { name: "Atualizar" }));
+
+    await waitFor(() => expect(onUpdateTransacao).toHaveBeenCalledWith(
+      "tx-vinculada-1",
+      expect.objectContaining({ descricao: "Descrição local", valor: 600 }),
+    ));
+    expect(serviceMocks.proporAlteracaoDivisao).not.toHaveBeenCalled();
+  });
+
+  it("usa somente este mês como escopo padrão ao alterar fixa compartilhada", async () => {
+    const user = userEvent.setup();
+    serviceMocks.obterDivisaoTransacao.mockResolvedValue({
+      ...await serviceMocks.obterDivisaoTransacao(),
+      valorTotal: 500,
+      status: "Aceita",
+      participantes: [
+        { id: "criador-1", participanteUsuarioId: "user-1", nomeExibicao: "Usuário", tipoParticipante: "Criador", percentual: 50, valor: 250, status: "Aceito", versaoConvite: 1, expiraEm: null, transacaoGeradaId: null, ativo: true },
+        { id: "part-1", participanteUsuarioId: "user-2", nomeExibicao: "Maria", tipoParticipante: "UsuarioSistema", percentual: 50, valor: 250, status: "Aceito", versaoConvite: 1, expiraEm: null, transacaoGeradaId: null, ativo: true },
+      ],
+    });
+
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: "tx-vinculada-1",
+        descricao: "Energia",
+        valor: 250,
+        dataOcorrencia: "2026-09-10",
+        isFixa: true,
+        isDividida: true,
+        valorTotalOriginal: 500,
+        percentualDivisao: 50,
+        divisaoTransacaoId: "div-1",
+        statusDivisao: "Aceita",
+      }),
+    });
+
+    const valueInput = screen.getByPlaceholderText("0,00");
+    await screen.findByText("Divisão vinculada existente");
+    await waitFor(() => expect(valueInput).toBeEnabled());
+    await user.clear(valueInput);
+    await user.type(valueInput, "62000");
+
+    expect(screen.getByLabelText("Somente este mês")).toBeChecked();
+    expect(screen.getByText("Prévia da alteração")).toBeInTheDocument();
+    expect(screen.getByText(/Somente setembro de 2026/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Enviar proposta" }));
+
+    await waitFor(() => expect(serviceMocks.proporAlteracaoDivisao).toHaveBeenCalledWith(
+      "div-1",
+      expect.objectContaining({
+        escopo: "EstaOcorrencia",
+        valorTotal: 620,
+        participantes: [{ participanteId: "part-1", percentual: 50 }],
+      }),
+    ));
+  });
+
+  it("mostra proposta pendente e protege os campos econômicos", async () => {
+    serviceMocks.obterDivisaoTransacao.mockResolvedValue({
+      ...await serviceMocks.obterDivisaoTransacao(),
+      status: "AlteracaoPendente",
+      versoes: [{
+        id: "versao-2",
+        versao: 2,
+        status: "PropostaPendente",
+        escopo: "EstaOcorrencia",
+        valorTotalAnterior: 1000,
+        valorTotalProposto: 1200,
+        percentualCriadorAnterior: 60,
+        percentualCriadorProposto: 60,
+        valorCriadorAnterior: 600,
+        valorCriadorProposto: 720,
+        percentualParticipanteAnterior: 40,
+        percentualParticipanteProposto: 40,
+        valorParticipanteAnterior: 400,
+        valorParticipanteProposto: 480,
+        vencimentoAnterior: null,
+        vencimentoProposto: null,
+        quantidadeParcelasAnterior: null,
+        quantidadeParcelasProposta: null,
+        recorrenciaAnterior: null,
+        recorrenciaProposta: null,
+        frequenciaAnterior: null,
+        frequenciaProposta: null,
+        responsabilidadeAnterior: null,
+        responsabilidadeProposta: null,
+        criadoEm: "2026-08-01T00:00:00Z",
+        respondidoEm: null,
+        motivoResposta: null,
+      }],
+    });
+
+    renderForm({
+      initialTransaction: criarItemExtrato({
+        id: "tx-vinculada-1",
+        valor: 600,
+        isDividida: true,
+        valorTotalOriginal: 1000,
+        percentualDivisao: 60,
+        divisaoTransacaoId: "div-1",
+        statusDivisao: "AlteracaoPendente",
+      }),
+    });
+
+    expect(await screen.findByText("Alteração pendente")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("0,00")).toBeDisabled();
+    expect(screen.getByLabelText("Minha parte")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Atualizar" })).toBeEnabled();
+  });
+
   it("permite ao convidado editar data e categoria sem alterar valor econômico", async () => {
     const user = userEvent.setup();
     const onUpdateTransacao = vi.fn().mockResolvedValue(undefined);

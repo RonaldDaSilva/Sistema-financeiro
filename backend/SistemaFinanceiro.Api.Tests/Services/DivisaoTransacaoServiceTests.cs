@@ -746,6 +746,40 @@ public sealed class DivisaoTransacaoServiceTests
     }
 
     [Fact]
+    public async Task ReenviarAlteracaoAsync_SemNovosValores_ReutilizaPropostaRecusada()
+    {
+        var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
+        var service = new DivisaoTransacaoService(database.Context);
+        var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var alterada = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest
+            {
+                ValorTotal = 1200m,
+                PercentualConvidado = 25m,
+                Escopo = "EstaEProximas"
+            });
+        var recusada = alterada!.Versoes.Single();
+        await service.RecusarAlteracaoAsync(
+            convidado.Id,
+            recusada.Id,
+            new ResponderAlteracaoDivisaoRequest());
+
+        var reenviada = await service.ReenviarAlteracaoAsync(
+            criador.Id,
+            recusada.Id,
+            new ReenviarAlteracaoDivisaoRequest());
+
+        Assert.Equal(2, reenviada!.Versoes.Count);
+        var nova = reenviada.Versoes.Single(item =>
+            item.Status == DivisaoTransacaoVersaoStatus.PropostaPendente);
+        Assert.Equal(1200m, nova.ValorTotalProposto);
+        Assert.Equal("EstaEProximas", nova.Escopo);
+        Assert.Equal(25m, nova.Participantes.Single().PercentualProposto);
+    }
+
+    [Fact]
     public async Task ProporAlteracaoAsync_RegistraEscopoSerieParcelaResponsabilidadeNoHistorico()
     {
         var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();

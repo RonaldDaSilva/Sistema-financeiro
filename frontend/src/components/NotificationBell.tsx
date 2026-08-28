@@ -465,6 +465,9 @@ function DivisionNotificationDetails({
       participante.tipoParticipante !== 1,
   );
   const alteracao = obterAlteracaoPendente(divisao);
+  const alteracaoParticipante = alteracao?.participantes?.find(
+    (item) => !notificacao.participanteDivisaoId || item.participanteId === notificacao.participanteDivisaoId,
+  );
 
   return (
     <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950">
@@ -506,8 +509,23 @@ function DivisionNotificationDetails({
       {alteracao && (
         <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">
           <p className="font-black text-slate-900 dark:text-white">Comparação da alteração</p>
-          <DetailRow label="Atual" value={`${formatCurrency(alteracao.valorParticipanteAnterior)} — vencimento ${alteracao.vencimentoAnterior ?? "atual"}`} />
-          <DetailRow label="Proposto" value={`${formatCurrency(alteracao.valorParticipanteProposto)} — vencimento ${alteracao.vencimentoProposto ?? "sem alteração"}`} />
+          <DetailRow label="Valor total atual" value={formatCurrency(alteracao.valorTotalAnterior)} />
+          <DetailRow label="Novo valor total" value={formatCurrency(alteracao.valorTotalProposto)} />
+          <DetailRow
+            label="Sua parte atual"
+            value={formatCurrency(alteracaoParticipante?.valorAnterior ?? alteracao.valorParticipanteAnterior)}
+          />
+          <DetailRow
+            label="Sua nova parte"
+            value={formatCurrency(alteracaoParticipante?.valorProposto ?? alteracao.valorParticipanteProposto)}
+          />
+          <DetailRow
+            label="Escopo"
+            value={alteracao.escopo === "EstaEProximas" ? "Este mês e próximos" : "Somente esta ocorrência"}
+          />
+          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+            A configuração anterior continuará válida até todos os participantes necessários aceitarem.
+          </p>
         </div>
       )}
     </div>
@@ -551,11 +569,8 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 function obterAlteracaoPendente(divisao: DivisaoTransacao): DivisaoVersao | null {
-  return (
-    divisao.versoes.find((versao) => isStatus(versao.status, "Pendente", 1)) ??
-    divisao.versoes.find((versao) => isStatus(versao.status, "PropostaPendente", 2)) ??
-    null
-  );
+  return divisao.versoes.find((versao) =>
+    isStatus(versao.status, "PropostaPendente", 2)) ?? null;
 }
 
 function isStatus(value: string | number, text: string, numeric: number) {
