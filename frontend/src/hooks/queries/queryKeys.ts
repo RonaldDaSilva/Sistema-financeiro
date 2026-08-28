@@ -67,6 +67,8 @@ export const queryKeys = {
   contas: ["contas"] as const,
   distribuicaoContas: ["distribuicao-contas"] as const,
   emprestimosScope: ["emprestimos"] as const,
+  emprestimosListaScope: ["emprestimos", "lista"] as const,
+  resumoEmprestimosMensalScope: ["emprestimos", "resumo-mensal"] as const,
   emprestimos: (contatoId: string | null = null, incluirArquivados = false) =>
     ["emprestimos", "lista", contatoId ?? "todos", incluirArquivados ? "com-arquivados" : "ativos"] as const,
   resumoEmprestimosMensal: (

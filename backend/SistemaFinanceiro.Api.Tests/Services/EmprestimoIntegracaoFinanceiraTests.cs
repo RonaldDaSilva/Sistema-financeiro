@@ -272,6 +272,134 @@ public sealed class EmprestimoIntegracaoFinanceiraTests
         Assert.Equal(4000m, Assert.Single(depois.DespesasPorCategoria).Valor);
     }
 
+    [Fact]
+    public async Task Excluir_CartaoAvista_RestauraFaturaELimiteSemAlterarOutraCompra()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var transacaoService = new TransacaoService(cenario.Database.Context);
+        var emprestimoService = new EmprestimoService(cenario.Database.Context);
+        var cartaoService = new CartaoCreditoService(cenario.Database.Context, transacaoService);
+        cenario.Database.Context.Transacoes.Add(new Transacao
+        {
+            CodigoExibicao = 1,
+            UsuarioId = cenario.UsuarioId,
+            Tipo = TipoTransacao.Despesa,
+            Descricao = "Compra pessoal preservada",
+            Valor = 200m,
+            DataOcorrencia = new DateOnly(2026, 8, 20),
+            Categoria = cenario.Categoria,
+            CartaoCredito = cenario.Cartao,
+            FormaPagamento = "Cartão de crédito"
+        });
+        await cenario.Database.Context.SaveChangesAsync();
+        var emprestimo = await emprestimoService.CriarAsync(
+            cenario.UsuarioId,
+            CriarEmprestimoCartao(cenario, 1000m, 1));
+
+        Assert.True(await emprestimoService.ExcluirAsync(cenario.UsuarioId, emprestimo.Id));
+
+        var fatura = (await transacaoService.GetFaturasDoMesAsync(8, 2026, cenario.UsuarioId))
+            .Single(item => item.CartaoCreditoId == cenario.Cartao.Id);
+        var cartao = await cartaoService.ObterPorIdAsync(cenario.Cartao.Id, cenario.UsuarioId);
+        Assert.Equal(200m, fatura.ValorTotal);
+        Assert.DoesNotContain(fatura.Detalhes, item => item.EmprestimoId == emprestimo.Id);
+        Assert.Equal(200m, cartao!.ValorUtilizado);
+        Assert.Equal(9800m, cartao.LimiteDisponivel);
+        Assert.Null(await emprestimoService.ObterAsync(cenario.UsuarioId, emprestimo.Id));
+    }
+
+    [Fact]
+    public async Task Excluir_CartaoParcelado_RemoveTodasAsCompetenciasDoEmprestimo()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var emprestimoService = new EmprestimoService(cenario.Database.Context);
+        var emprestimo = await emprestimoService.CriarAsync(
+            cenario.UsuarioId,
+            CriarEmprestimoCartao(cenario, 1200m, 12));
+
+        Assert.Equal(12, cenario.Database.Context.Transacoes.Count(item => item.EmprestimoId == emprestimo.Id));
+        Assert.True(await emprestimoService.ExcluirAsync(cenario.UsuarioId, emprestimo.Id));
+
+        Assert.Empty(cenario.Database.Context.Transacoes.Where(item => item.EmprestimoId == emprestimo.Id));
+        Assert.Empty(cenario.Database.Context.ParcelasEmprestimos.Where(item => item.EmprestimoId == emprestimo.Id));
+        Assert.Null(await emprestimoService.ObterAsync(cenario.UsuarioId, emprestimo.Id));
+    }
+
+    [Fact]
+    public async Task Excluir_Conta_RestauraSaldoRemovendoSomenteSaidaDoEmprestimo()
+    {
+        using var cenario = await CriarCenarioAsync(saldoInicial: 5000m);
+        var emprestimoService = new EmprestimoService(cenario.Database.Context);
+        var contaService = new ContaBancariaService(cenario.Database.Context);
+        var emprestimo = await emprestimoService.CriarAsync(
+            cenario.UsuarioId,
+            CriarEmprestimoConta(cenario, 500m, 1));
+        Assert.Equal(4500m, Assert.Single(await contaService.ObterDistribuicaoAsync(cenario.UsuarioId)).SaldoAtual);
+
+        Assert.True(await emprestimoService.ExcluirAsync(cenario.UsuarioId, emprestimo.Id));
+
+        Assert.Equal(5000m, Assert.Single(await contaService.ObterDistribuicaoAsync(cenario.UsuarioId)).SaldoAtual);
+        Assert.Empty(cenario.Database.Context.Transacoes.Where(item => item.EmprestimoId == emprestimo.Id));
+    }
+
+    [Fact]
+    public async Task Excluir_ComRecebimento_BloqueiaEPreservaEntradaNaConta()
+    {
+        using var cenario = await CriarCenarioAsync(saldoInicial: 5000m);
+        var emprestimoService = new EmprestimoService(cenario.Database.Context);
+        var contaService = new ContaBancariaService(cenario.Database.Context);
+        var emprestimo = await emprestimoService.CriarAsync(
+            cenario.UsuarioId,
+            CriarEmprestimoConta(cenario, 500m, 5));
+        var pagamento = await emprestimoService.RegistrarPagamentoAsync(
+            cenario.UsuarioId,
+            emprestimo.Id,
+            new RegistrarPagamentoEmprestimoRequest
+            {
+                Data = new DateOnly(2026, 9, 1),
+                ContaBancariaId = cenario.Conta.Id,
+                ParcelaIds = new[] { emprestimo.Parcelas[0].Id }
+            });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => emprestimoService.ExcluirAsync(cenario.UsuarioId, emprestimo.Id));
+
+        Assert.Contains("pagamentos registrados", exception.Message);
+        Assert.NotNull(await emprestimoService.ObterAsync(cenario.UsuarioId, emprestimo.Id));
+        Assert.Contains(
+            cenario.Database.Context.Transacoes,
+            item => item.PagamentoEmprestimoId == pagamento!.Id);
+        Assert.Equal(4600m, Assert.Single(await contaService.ObterDistribuicaoAsync(cenario.UsuarioId)).SaldoAtual);
+    }
+
+    [Fact]
+    public async Task Excluir_FixoSemHistorico_RemoveProjecoesEFixoComHistoricoPermanece()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var emprestimoService = new EmprestimoService(cenario.Database.Context);
+        var requestSemHistorico = CriarEmprestimoConta(cenario, 100m, 1);
+        requestSemHistorico.Tipo = TipoEmprestimo.Fixo;
+        var semHistorico = await emprestimoService.CriarAsync(cenario.UsuarioId, requestSemHistorico);
+        Assert.True(await emprestimoService.ExcluirAsync(cenario.UsuarioId, semHistorico.Id));
+        Assert.Equal(0m, (await emprestimoService.ObterResumoMensalAsync(cenario.UsuarioId, 10, 2026)).PrevistoNoMes);
+
+        var requestComHistorico = CriarEmprestimoConta(cenario, 100m, 1);
+        requestComHistorico.Tipo = TipoEmprestimo.Fixo;
+        var comHistorico = await emprestimoService.CriarAsync(cenario.UsuarioId, requestComHistorico);
+        await emprestimoService.RegistrarPagamentoAsync(
+            cenario.UsuarioId,
+            comHistorico.Id,
+            new RegistrarPagamentoEmprestimoRequest
+            {
+                Data = new DateOnly(2026, 8, 25),
+                Competencias = new[] { new DateOnly(2026, 8, 1) }
+            });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => emprestimoService.ExcluirAsync(cenario.UsuarioId, comHistorico.Id));
+        Assert.NotNull(await emprestimoService.ObterAsync(cenario.UsuarioId, comHistorico.Id));
+    }
+
     private static RelatorioService CriarRelatorioService(AppDbContext context, TransacaoService transacaoService) =>
         new(context, new ContaBancariaService(context), transacaoService);
 

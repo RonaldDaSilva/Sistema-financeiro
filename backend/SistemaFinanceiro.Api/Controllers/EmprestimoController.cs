@@ -223,7 +223,7 @@ public sealed class EmprestimoController : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> Cancelar(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Excluir(Guid id, CancellationToken cancellationToken)
     {
         var usuarioId = ObterUsuarioId();
         if (usuarioId is null)
@@ -233,7 +233,7 @@ public sealed class EmprestimoController : ControllerBase
 
         try
         {
-            return await _service.CancelarAsync(usuarioId.Value, id, cancellationToken)
+            return await _service.ExcluirAsync(usuarioId.Value, id, cancellationToken)
                 ? NoContent()
                 : NotFound();
         }

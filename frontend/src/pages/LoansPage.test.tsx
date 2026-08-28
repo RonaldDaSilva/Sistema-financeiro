@@ -13,7 +13,8 @@ const mocks = vi.hoisted(() => ({
   criarEmprestimo: vi.fn(),
   atualizarEmprestimo: vi.fn(),
   registrarPagamento: vi.fn(),
-  cancelarEmprestimo: vi.fn(),
+  excluirEmprestimo: vi.fn(),
+  excluirPending: false,
   desfazerPagamento: vi.fn(),
   definirArquivamento: vi.fn(),
   alterarRecorrencia: vi.fn(),
@@ -80,7 +81,7 @@ vi.mock("../hooks/mutations/useLoanMutations", () => ({
   useCriarEmprestimo: () => ({ mutateAsync: mocks.criarEmprestimo, isPending: false }),
   useAtualizarEmprestimo: () => ({ mutateAsync: mocks.atualizarEmprestimo, isPending: false }),
   useRegistrarPagamentoEmprestimo: () => ({ mutateAsync: mocks.registrarPagamento, isPending: false }),
-  useCancelarEmprestimo: () => ({ mutateAsync: mocks.cancelarEmprestimo, isPending: false }),
+  useExcluirEmprestimo: () => ({ mutateAsync: mocks.excluirEmprestimo, isPending: mocks.excluirPending }),
   useDesfazerPagamentoEmprestimo: () => ({ mutateAsync: mocks.desfazerPagamento, isPending: false }),
   useDefinirArquivamentoEmprestimo: () => ({ mutateAsync: mocks.definirArquivamento, isPending: false }),
   useAlterarRecorrenciaEmprestimo: () => ({ mutateAsync: mocks.alterarRecorrencia, isPending: false }),
@@ -96,7 +97,8 @@ describe("LoansPage", () => {
     mocks.criarEmprestimo.mockReset().mockResolvedValue(mocks.detail);
     mocks.atualizarEmprestimo.mockReset().mockResolvedValue(mocks.detail);
     mocks.registrarPagamento.mockReset().mockResolvedValue({ id: "pagamento-1" });
-    mocks.cancelarEmprestimo.mockReset().mockResolvedValue(undefined);
+    mocks.excluirEmprestimo.mockReset().mockResolvedValue(undefined);
+    mocks.excluirPending = false;
     mocks.desfazerPagamento.mockReset().mockResolvedValue(mocks.detail);
     mocks.definirArquivamento.mockReset().mockResolvedValue(mocks.detail);
     mocks.alterarRecorrencia.mockReset().mockResolvedValue(mocks.detail);
@@ -248,6 +250,71 @@ describe("LoansPage", () => {
     await user.click(screen.getByRole("row", { name: /João Celular Santander/i }));
     await user.click(screen.getByRole("button", { name: "Arquivar" }));
     expect(mocks.definirArquivamento).toHaveBeenCalledWith({ id: "loan-joao", arquivar: true });
+  });
+
+  it("abre confirmação pela ação discreta e permite cancelar", async () => {
+    const user = userEvent.setup();
+    mocks.detail = detail({
+      parcelasPagas: 0,
+      pagamentos: [],
+      parcelas: detail().parcelas.map((parcela) => ({ ...parcela, status: 1, dataPagamento: null, pagamentoEmprestimoId: null })),
+    });
+    render(<LoansPage />);
+
+    await user.click(screen.getAllByRole("button", { name: "Excluir empréstimo Celular de João" })[0]);
+    const confirmacao = screen.getByRole("heading", { name: "Excluir empréstimo?" }).parentElement!;
+    expect(within(confirmacao).getByText("João", { selector: "dd" })).toBeInTheDocument();
+    expect(within(confirmacao).getByText("R$ 1.200,00", { selector: "dd" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("heading", { name: "Excluir empréstimo?" })).not.toBeInTheDocument();
+    expect(mocks.excluirEmprestimo).not.toHaveBeenCalled();
+  });
+
+  it("exclui empréstimo sem pagamentos e fecha o detalhe", async () => {
+    const user = userEvent.setup();
+    mocks.detail = detail({
+      parcelasPagas: 0,
+      pagamentos: [],
+      parcelas: detail().parcelas.map((parcela) => ({ ...parcela, status: 1, dataPagamento: null, pagamentoEmprestimoId: null })),
+    });
+    render(<LoansPage />);
+
+    await user.click(screen.getAllByRole("button", { name: "Excluir empréstimo Celular de João" })[0]);
+    await user.click(screen.getByRole("button", { name: "Excluir" }));
+
+    expect(mocks.excluirEmprestimo).toHaveBeenCalledWith({ id: "loan-joao", origemFinanceira: 1 });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("Empréstimo excluído.")).toBeInTheDocument();
+  });
+
+  it("explica por que empréstimo com pagamento não pode ser excluído", async () => {
+    const user = userEvent.setup();
+    render(<LoansPage />);
+
+    await user.click(screen.getAllByRole("button", { name: "Excluir empréstimo Celular de João" })[0]);
+
+    expect(screen.getByRole("heading", { name: "Não é possível excluir" })).toBeInTheDocument();
+    expect(screen.getByText(/possui pagamentos registrados/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Excluir" })).not.toBeInTheDocument();
+  });
+
+  it("mostra erro da API durante exclusão", async () => {
+    const user = userEvent.setup();
+    mocks.detail = detail({ parcelasPagas: 0, pagamentos: [], parcelas: [] });
+    mocks.excluirEmprestimo.mockRejectedValueOnce(new Error("Exclusão recusada"));
+    render(<LoansPage />);
+    await user.click(screen.getAllByRole("button", { name: "Excluir empréstimo Celular de João" })[0]);
+    await user.click(screen.getByRole("button", { name: "Excluir" }));
+    expect(await screen.findByText("Exclusão recusada")).toBeInTheDocument();
+  });
+
+  it("bloqueia duplo envio durante exclusão", async () => {
+    const user = userEvent.setup();
+    mocks.detail = detail({ parcelasPagas: 0, pagamentos: [], parcelas: [] });
+    mocks.excluirPending = true;
+    render(<LoansPage />);
+    await user.click(screen.getAllByRole("button", { name: "Excluir empréstimo Celular de João" })[0]);
+    expect(screen.getByRole("button", { name: "Excluindo..." })).toBeDisabled();
   });
 
   it("trata estado vazio e erro da API", () => {

@@ -107,7 +107,7 @@ export async function encerrarRecorrencia(
   return data;
 }
 
-export async function cancelarEmprestimo(id: string) {
+export async function excluirEmprestimo(id: string) {
   await api.delete(`/api/emprestimos/${id}`);
 }
 

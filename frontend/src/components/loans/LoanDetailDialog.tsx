@@ -1,7 +1,7 @@
 import axios from "axios";
 import { Archive, ArchiveRestore, Calendar, Check, CreditCard, Landmark, Pencil, ReceiptText, RotateCcw, Trash2 } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
-import { useAlterarRecorrenciaEmprestimo, useAtualizarEmprestimo, useCancelarEmprestimo, useDefinirArquivamentoEmprestimo, useDesfazerPagamentoEmprestimo, useEncerrarRecorrenciaEmprestimo, useRegistrarPagamentoEmprestimo } from "../../hooks/mutations/useLoanMutations";
+import { useAlterarRecorrenciaEmprestimo, useAtualizarEmprestimo, useDefinirArquivamentoEmprestimo, useDesfazerPagamentoEmprestimo, useEncerrarRecorrenciaEmprestimo, useExcluirEmprestimo, useRegistrarPagamentoEmprestimo } from "../../hooks/mutations/useLoanMutations";
 import type { CartaoCreditoOpcao, ContaBancaria } from "../../types/finance";
 import type { ContatoEmprestimo, EmprestimoDetalhe, ParcelaEmprestimo } from "../../types/loan";
 import { EscopoAlteracaoRecorrenciaEmprestimo, OrigemFinanceiraEmprestimo, StatusEmprestimo, StatusParcelaEmprestimo, TipoEmprestimo } from "../../types/loan";
@@ -15,33 +15,34 @@ type LoanDetailDialogProps = {
   contas: ContaBancaria[];
   onClose: () => void;
   onChanged: (message: string) => void;
+  requestDelete?: boolean;
 };
 
-export function LoanDetailDialog({ emprestimo, contatos, cartoes, contas, onClose, onChanged }: LoanDetailDialogProps) {
+export function LoanDetailDialog({ emprestimo, contatos, cartoes, contas, onClose, onChanged, requestDelete = false }: LoanDetailDialogProps) {
   const [mode, setMode] = useState<"detail" | "edit" | "payment">("detail");
-  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(requestDelete);
   const [confirmUndoId, setConfirmUndoId] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const atualizar = useAtualizarEmprestimo();
-  const cancelar = useCancelarEmprestimo();
+  const excluir = useExcluirEmprestimo();
   const desfazerPagamento = useDesfazerPagamentoEmprestimo();
   const definirArquivamento = useDefinirArquivamentoEmprestimo();
   const origemNome = emprestimo.origemFinanceira === OrigemFinanceiraEmprestimo.CartaoCredito
     ? cartoes.find((cartao) => cartao.id === emprestimo.cartaoCreditoId)?.apelidoCartao ?? "Cartão"
     : contas.find((conta) => conta.id === emprestimo.contaBancariaId)?.nomeCustomizado ?? "Conta bancária";
-  const canCancel = emprestimo.parcelasPagas === 0 && emprestimo.status !== StatusEmprestimo.Cancelado;
+  const canDelete = emprestimo.pagamentos.length === 0 && emprestimo.parcelasPagas === 0;
   const canPay = emprestimo.status === StatusEmprestimo.EmAberto || emprestimo.status === StatusEmprestimo.ParcialmentePago;
 
-  async function handleCancel() {
-    if (cancelar.isPending) return;
+  async function handleDelete() {
+    if (excluir.isPending || !canDelete) return;
     setErro(null);
     try {
-      await cancelar.mutateAsync({ id: emprestimo.id, origemFinanceira: emprestimo.origemFinanceira });
-      onChanged("Empréstimo cancelado.");
+      await excluir.mutateAsync({ id: emprestimo.id, origemFinanceira: emprestimo.origemFinanceira });
+      onChanged("Empréstimo excluído.");
       onClose();
     } catch (error) {
-      setErro(getErrorMessage(error, "Não foi possível cancelar o empréstimo."));
-      setConfirmCancel(false);
+      setErro(getErrorMessage(error, "Não foi possível excluir o empréstimo."));
+      setConfirmDelete(false);
     }
   }
 
@@ -70,7 +71,7 @@ export function LoanDetailDialog({ emprestimo, contatos, cartoes, contas, onClos
   }
 
   return (
-    <Dialog title="Detalhes do empréstimo" description={`Empréstimo para ${emprestimo.contatoNome}`} onClose={onClose} className="max-w-3xl" isDismissable={!atualizar.isPending && !cancelar.isPending && !desfazerPagamento.isPending && !definirArquivamento.isPending}>
+    <Dialog title="Detalhes do empréstimo" description={`Empréstimo para ${emprestimo.contatoNome}`} onClose={onClose} className="max-w-3xl" isDismissable={!atualizar.isPending && !excluir.isPending && !desfazerPagamento.isPending && !definirArquivamento.isPending}>
       <div className="p-5 sm:p-7">
         {mode === "edit" ? (
           <EditLoanForm emprestimo={emprestimo} contatos={contatos} isSubmitting={atualizar.isPending} onCancel={() => setMode("detail")} onSubmit={async (request) => {
@@ -135,10 +136,11 @@ export function LoanDetailDialog({ emprestimo, contatos, cartoes, contas, onClos
             </section>
 
             {erro && <ErrorMessage>{erro}</ErrorMessage>}
-            {confirmCancel && <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30"><p className="text-sm font-semibold text-red-800 dark:text-red-200">Cancelar remove o lançamento financeiro e não pode ser desfeito.</p><div className="mt-3 flex gap-2"><button className={secondaryButtonClass} type="button" onClick={() => setConfirmCancel(false)}>Voltar</button><button className={dangerButtonClass} type="button" onClick={handleCancel} disabled={cancelar.isPending}>{cancelar.isPending ? "Cancelando..." : "Confirmar cancelamento"}</button></div></div>}
+            {confirmDelete && canDelete && <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30"><h3 className="font-black text-red-900 dark:text-red-100">Excluir empréstimo?</h3><p className="mt-1 text-sm text-red-800 dark:text-red-200">Este registro e seus efeitos financeiros relacionados serão removidos. Essa ação não pode ser desfeita.</p><dl className="mt-3 grid gap-2 text-sm text-red-900 dark:text-red-100 sm:grid-cols-3"><div><dt className="font-bold">Pessoa</dt><dd>{emprestimo.contatoNome}</dd></div><div><dt className="font-bold">Descrição</dt><dd>{emprestimo.descricao}</dd></div><div><dt className="font-bold">Valor</dt><dd>{formatCurrency(emprestimo.valorTotal)}</dd></div></dl>{emprestimo.quantidadeParcelas > 1 && <p className="mt-3 text-sm font-semibold text-red-800 dark:text-red-200">As parcelas futuras relacionadas também serão removidas.</p>}<div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className={secondaryButtonClass} type="button" onClick={() => setConfirmDelete(false)} disabled={excluir.isPending}>Cancelar</button><button className={dangerButtonClass} type="button" onClick={handleDelete} disabled={excluir.isPending}>{excluir.isPending ? "Excluindo..." : "Excluir"}</button></div></div>}
+            {!canDelete && <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30"><h3 className="font-black text-amber-900 dark:text-amber-100">Não é possível excluir</h3><p className="mt-1 text-sm text-amber-800 dark:text-amber-200">Este empréstimo possui pagamentos registrados. Para preservar o histórico financeiro, ele não pode ser excluído diretamente.</p>{emprestimo.tipo === TipoEmprestimo.Fixo && emprestimo.recorrenciaAtiva && <p className="mt-2 text-sm font-semibold text-amber-800 dark:text-amber-200">Considere encerrar a recorrência.</p>}</div>}
 
             <footer className="mt-7 flex flex-col gap-3 border-t border-[color:var(--app-card-border)] pt-5 dark:border-slate-800 sm:flex-row sm:items-center">
-              {canCancel && !confirmCancel && <button className={`${secondaryButtonClass} text-red-600 dark:text-red-300`} type="button" onClick={() => setConfirmCancel(true)}><Trash2 size={17} /> Cancelar</button>}
+              {canDelete && !confirmDelete && <button className={`${secondaryButtonClass} text-red-600 dark:text-red-300`} type="button" onClick={() => setConfirmDelete(true)}><Trash2 size={17} /> Excluir empréstimo</button>}
               {emprestimo.status === StatusEmprestimo.Pago && <button className={secondaryButtonClass} type="button" onClick={() => void handleArchive(!emprestimo.isArquivado)} disabled={definirArquivamento.isPending}>{emprestimo.isArquivado ? <ArchiveRestore size={17} /> : <Archive size={17} />}{definirArquivamento.isPending ? "Salvando..." : emprestimo.isArquivado ? "Desarquivar" : "Arquivar"}</button>}
               <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:justify-end">
                 <button className={secondaryButtonClass} type="button" onClick={() => setMode("edit")}><Pencil size={17} /> Editar</button>

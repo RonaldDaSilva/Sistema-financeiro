@@ -62,15 +62,17 @@ export function useRegistrarPagamentoEmprestimo() {
   });
 }
 
-export function useCancelarEmprestimo() {
+export function useExcluirEmprestimo() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id }: { id: string; origemFinanceira: OrigemFinanceiraEmprestimo }) =>
-      loanService.cancelarEmprestimo(id),
+      loanService.excluirEmprestimo(id),
     onSuccess: async (_result, variables) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.emprestimo(variables.id), exact: true });
+      queryClient.removeQueries({ queryKey: queryKeys.emprestimo(variables.id), exact: true });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.emprestimosScope }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.emprestimo(variables.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.emprestimosListaScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.resumoEmprestimosMensalScope }),
         invalidarOrigem(queryClient, variables.origemFinanceira),
       ]);
     },

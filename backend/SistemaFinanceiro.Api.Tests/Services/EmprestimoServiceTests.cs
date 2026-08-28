@@ -451,24 +451,37 @@ public sealed class EmprestimoServiceTests
     }
 
     [Fact]
-    public async Task CancelarAsync_PreservaHistoricoERecusaEmprestimoComPagamento()
+    public async Task ExcluirAsync_RemoveSemHistoricoEBloqueiaEmprestimoComPagamento()
     {
         using var cenario = await CriarCenarioAsync();
         var service = new EmprestimoService(cenario.Database.Context);
         var cancelavel = await service.CriarAsync(cenario.UsuarioId, CriarRequest(cenario, 100m, 2));
         var pago = await service.CriarAsync(cenario.UsuarioId, CriarRequest(cenario, 100m, 2));
 
-        Assert.True(await service.CancelarAsync(cenario.UsuarioId, cancelavel.Id));
-        var cancelado = await service.ObterAsync(cenario.UsuarioId, cancelavel.Id);
-        Assert.Equal(StatusEmprestimo.Cancelado, cancelado!.Status);
-        Assert.All(cancelado.Parcelas, parcela => Assert.Equal(StatusParcelaEmprestimo.Cancelada, parcela.Status));
+        Assert.True(await service.ExcluirAsync(cenario.UsuarioId, cancelavel.Id));
+        Assert.Null(await service.ObterAsync(cenario.UsuarioId, cancelavel.Id));
+        Assert.DoesNotContain(
+            cenario.Database.Context.ParcelasEmprestimos,
+            parcela => parcela.EmprestimoId == cancelavel.Id);
 
         await service.RegistrarPagamentoAsync(
             cenario.UsuarioId,
             pago.Id,
             CriarPagamento(pago.Parcelas[0].Id));
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => service.CancelarAsync(cenario.UsuarioId, pago.Id));
+            () => service.ExcluirAsync(cenario.UsuarioId, pago.Id));
+        Assert.NotNull(await service.ObterAsync(cenario.UsuarioId, pago.Id));
+    }
+
+    [Fact]
+    public async Task ExcluirAsync_NaoPermiteExcluirEmprestimoDeOutroUsuario()
+    {
+        using var cenario = await CriarCenarioAsync();
+        var service = new EmprestimoService(cenario.Database.Context);
+        var emprestimo = await service.CriarAsync(cenario.UsuarioId, CriarRequest(cenario, 100m, 1));
+
+        Assert.False(await service.ExcluirAsync(Guid.NewGuid(), emprestimo.Id));
+        Assert.NotNull(await service.ObterAsync(cenario.UsuarioId, emprestimo.Id));
     }
 
     [Fact]

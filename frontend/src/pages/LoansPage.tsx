@@ -8,6 +8,7 @@ import {
   HandCoins,
   Plus,
   RefreshCw,
+  Trash2,
   Users,
   UsersRound,
 } from "lucide-react";
@@ -33,6 +34,7 @@ export function LoansPage() {
   const [pagina, setPagina] = useState(1);
   const [isNewOpen, setIsNewOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deleteRequestedId, setDeleteRequestedId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [groupMode, setGroupMode] = useState<"date" | "person">("date");
   const [showArchived, setShowArchived] = useState(false);
@@ -180,7 +182,11 @@ export function LoansPage() {
                       <h3 id={`loan-group-${grupo.key}`} className="text-sm font-black uppercase text-slate-600 dark:text-slate-300">{grupo.label}</h3>
                       <span className="h-px flex-1 bg-[var(--app-card-border)] dark:bg-slate-800" />
                     </div>
-                    <LoanList emprestimos={grupo.items} onSelect={setSelectedId} />
+                    <LoanList
+                      emprestimos={grupo.items}
+                      onSelect={(id) => { setDeleteRequestedId(null); setSelectedId(id); }}
+                      onDelete={(id) => { setDeleteRequestedId(id); setSelectedId(id); }}
+                    />
                   </section>
                 ))}
               </div>
@@ -214,7 +220,7 @@ export function LoansPage() {
             <AlertCircle className="mx-auto text-red-500" size={30} />
             <h2 className="mt-3 font-black text-slate-950 dark:text-white">Detalhes indisponíveis</h2>
             <div className="mt-5 flex justify-center gap-2">
-              <button className={retryButtonClass} type="button" onClick={() => setSelectedId(null)}>Fechar</button>
+              <button className={retryButtonClass} type="button" onClick={() => { setSelectedId(null); setDeleteRequestedId(null); }}>Fechar</button>
               <button className={retryButtonClass} type="button" onClick={() => detalheQuery.refetch()}>Tentar novamente</button>
             </div>
           </div>
@@ -226,7 +232,8 @@ export function LoansPage() {
           contatos={contatosQuery.data ?? []}
           cartoes={cartoesQuery.data ?? []}
           contas={contasQuery.data ?? []}
-          onClose={() => setSelectedId(null)}
+          requestDelete={deleteRequestedId === selectedId}
+          onClose={() => { setSelectedId(null); setDeleteRequestedId(null); }}
           onChanged={setMessage}
         />
       )}
@@ -259,13 +266,13 @@ function MonthSelector({ mes, ano, onPrevious, onNext, onChange }: { mes: number
   );
 }
 
-function LoanList({ emprestimos, onSelect }: { emprestimos: EmprestimoMensalItem[]; onSelect: (id: string) => void }) {
+function LoanList({ emprestimos, onSelect, onDelete }: { emprestimos: EmprestimoMensalItem[]; onSelect: (id: string) => void; onDelete: (id: string) => void }) {
   return (
     <>
       <div className="mt-3 hidden overflow-hidden rounded-lg border border-[color:var(--app-card-border)] bg-[var(--app-card)] dark:border-slate-800 dark:bg-slate-900 md:block">
         <table className="w-full table-fixed">
           <thead className="bg-[var(--app-card-muted)] text-left text-xs font-black uppercase text-slate-500 dark:bg-slate-950 dark:text-slate-400">
-            <tr><th className="w-[17%] px-4 py-3">Pessoa</th><th className="w-[22%] px-4 py-3">Descrição</th><th className="w-[15%] px-4 py-3">Origem</th><th className="px-4 py-3 text-right">No mês</th><th className="px-4 py-3 text-right">A receber</th><th className="w-[15%] px-4 py-3">Próximo vencimento</th><th className="w-[12%] px-4 py-3">Status</th></tr>
+            <tr><th className="w-[16%] px-4 py-3">Pessoa</th><th className="w-[20%] px-4 py-3">Descrição</th><th className="w-[14%] px-4 py-3">Origem</th><th className="px-4 py-3 text-right">No mês</th><th className="px-4 py-3 text-right">A receber</th><th className="w-[14%] px-4 py-3">Próximo vencimento</th><th className="w-[11%] px-4 py-3">Status</th><th className="w-14 px-2 py-3"><span className="sr-only">Ações</span></th></tr>
           </thead>
           <tbody className="divide-y divide-[color:var(--app-card-border)] dark:divide-slate-800">
             {emprestimos.map((item) => (
@@ -277,6 +284,7 @@ function LoanList({ emprestimos, onSelect }: { emprestimos: EmprestimoMensalItem
                 <td className="px-4 py-4 text-right font-black text-amber-600 dark:text-amber-300">{formatCurrency(item.saldoReceber)}</td>
                 <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-300">{formatDate(item.proximoVencimento)}</td>
                 <td className="px-4 py-4"><LoanStatus status={item.status} />{item.statusCompetencia === StatusParcelaEmprestimo.Paga && <span className="mt-1 block text-[11px] font-bold text-emerald-600 dark:text-emerald-300">Parcela do mês paga</span>}</td>
+                <td className="px-2 py-4"><button className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-300" type="button" title="Excluir empréstimo" aria-label={`Excluir empréstimo ${item.descricao} de ${item.contatoNome}`} onClick={(event) => { event.stopPropagation(); onDelete(item.id); }}><Trash2 size={17} /></button></td>
               </tr>
             ))}
           </tbody>
@@ -284,7 +292,7 @@ function LoanList({ emprestimos, onSelect }: { emprestimos: EmprestimoMensalItem
       </div>
       <div className="mt-3 grid gap-3 md:hidden">
         {emprestimos.map((item) => (
-          <button className="rounded-lg border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 text-left shadow-sm dark:border-slate-800 dark:bg-slate-900" key={item.id} type="button" onClick={() => onSelect(item.id)}>
+          <div className="relative cursor-pointer rounded-lg border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-4 text-left shadow-sm dark:border-slate-800 dark:bg-slate-900" key={item.id} role="button" tabIndex={0} onClick={() => onSelect(item.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelect(item.id); }}>
             <div className="flex items-start justify-between gap-3"><div className="min-w-0"><strong className="block truncate text-slate-950 dark:text-white">{item.contatoNome}</strong><span className="mt-1 block truncate text-sm text-slate-500 dark:text-slate-400">{item.descricao} · {item.origemNome}{item.tipo === TipoEmprestimo.Fixo ? " · Fixo mensal" : ""}</span></div><LoanStatus status={item.status} /></div>
             <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-[color:var(--app-card-border)] pt-3 text-xs dark:border-slate-800">
               <div><dt className="text-slate-500 dark:text-slate-400">Previsto no mês</dt><dd className="mt-1 break-words font-bold text-slate-900 dark:text-white">{formatCurrency(item.valorCompetencia)}</dd></div>
@@ -292,7 +300,8 @@ function LoanList({ emprestimos, onSelect }: { emprestimos: EmprestimoMensalItem
               <div><dt className="text-slate-500 dark:text-slate-400">Próximo vencimento</dt><dd className="mt-1 font-bold text-slate-700 dark:text-slate-200">{formatDate(item.proximoVencimento)}</dd></div>
               <div><dt className="text-slate-500 dark:text-slate-400">Situação do mês</dt><dd className="mt-1 font-bold text-slate-700 dark:text-slate-200">{item.statusCompetencia === StatusParcelaEmprestimo.Paga ? "Pago" : item.valorCompetencia > 0 ? "Pendente" : "Sem parcela"}</dd></div>
             </dl>
-          </button>
+            <div className="mt-2 flex justify-end"><button className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-300" type="button" title="Excluir empréstimo" aria-label={`Excluir empréstimo ${item.descricao} de ${item.contatoNome}`} onClick={(event) => { event.stopPropagation(); onDelete(item.id); }}><Trash2 size={18} /></button></div>
+          </div>
         ))}
       </div>
     </>

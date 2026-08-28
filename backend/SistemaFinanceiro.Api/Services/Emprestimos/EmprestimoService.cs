@@ -739,13 +739,14 @@ public sealed class EmprestimoService : IEmprestimoService
         return await ObterAsync(usuarioId, id, cancellationToken);
     }
 
-    public async Task<bool> CancelarAsync(
+    public async Task<bool> ExcluirAsync(
         Guid usuarioId,
         Guid id,
         CancellationToken cancellationToken = default)
     {
         var emprestimo = await _dbContext.Emprestimos
             .Include(item => item.Parcelas)
+            .Include(item => item.Pagamentos)
             .SingleOrDefaultAsync(
                 item => item.Id == id && item.UsuarioId == usuarioId,
                 cancellationToken);
@@ -754,31 +755,23 @@ public sealed class EmprestimoService : IEmprestimoService
             return false;
         }
 
-        if (emprestimo.Status == StatusEmprestimo.Cancelado)
+        if (emprestimo.Pagamentos.Count > 0 ||
+            emprestimo.Parcelas.Any(parcela => parcela.Status == StatusParcelaEmprestimo.Paga))
         {
-            return true;
+            throw new InvalidOperationException(
+                "Este empréstimo já possui pagamentos registrados e não pode ser excluído diretamente.");
         }
 
-        if (emprestimo.Parcelas.Any(parcela => parcela.Status == StatusParcelaEmprestimo.Paga))
-        {
-            throw new InvalidOperationException("Não é possível cancelar um empréstimo que já possui pagamentos.");
-        }
-
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         var lancamentos = await _dbContext.Transacoes
             .Where(transacao =>
                 transacao.UsuarioId == usuarioId &&
                 transacao.EmprestimoId == emprestimo.Id)
             .ToListAsync(cancellationToken);
         _dbContext.Transacoes.RemoveRange(lancamentos);
-
-        emprestimo.Status = StatusEmprestimo.Cancelado;
-        emprestimo.AtualizadoEm = DateTimeOffset.UtcNow;
-        foreach (var parcela in emprestimo.Parcelas)
-        {
-            parcela.Status = StatusParcelaEmprestimo.Cancelada;
-        }
-
+        _dbContext.Emprestimos.Remove(emprestimo);
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return true;
     }
 

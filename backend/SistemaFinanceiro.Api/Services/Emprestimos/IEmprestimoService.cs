@@ -15,5 +15,5 @@ public interface IEmprestimoService
     Task<EmprestimoDetalheResponse?> EncerrarRecorrenciaAsync(Guid usuarioId, Guid id, EncerrarRecorrenciaEmprestimoRequest request, CancellationToken cancellationToken = default);
     Task<EmprestimoDetalheResponse?> DesfazerPagamentoAsync(Guid usuarioId, Guid id, Guid pagamentoId, CancellationToken cancellationToken = default);
     Task<EmprestimoDetalheResponse?> DefinirArquivamentoAsync(Guid usuarioId, Guid id, bool arquivar, CancellationToken cancellationToken = default);
-    Task<bool> CancelarAsync(Guid usuarioId, Guid id, CancellationToken cancellationToken = default);
+    Task<bool> ExcluirAsync(Guid usuarioId, Guid id, CancellationToken cancellationToken = default);
 }
