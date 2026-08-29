@@ -632,6 +632,9 @@ public sealed class DivisaoTransacaoServiceTests
         var (database, criador, convidado, transacao, _) = await CriarCenarioAsync();
         var service = new DivisaoTransacaoService(database.Context);
         var divisao = await CriarDivisaoAceitaPadraoAsync(service, criador, convidado, transacao);
+        var lancamentoOriginal = database.Context.Transacoes.IgnoreQueryFilters().Single(item =>
+            item.UsuarioId == convidado.Id);
+        var lancamentoOriginalId = lancamentoOriginal.Id;
         var novoVencimento = transacao.DataOcorrencia.AddDays(5);
         var alterada = await service.ProporAlteracaoAsync(
             criador.Id,
@@ -656,9 +659,33 @@ public sealed class DivisaoTransacaoServiceTests
         Assert.Equal(900m, transacao.Valor);
         Assert.Equal(novoVencimento, transacao.DataOcorrencia);
         var gerada = database.Context.Transacoes.IgnoreQueryFilters().Single(item => item.UsuarioId == convidado.Id);
+        Assert.Equal(lancamentoOriginalId, gerada.Id);
         Assert.Equal(300m, gerada.Valor);
         Assert.Equal(novoVencimento, gerada.DataOcorrencia);
         Assert.Equal(DivisaoTransacaoVersaoStatus.Aceita, aceita.Versoes.Single().Status);
+
+        var segundaAlteracao = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest
+            {
+                ValorTotal = 1400m,
+                PercentualConvidado = 20m,
+                Vencimento = novoVencimento.AddDays(2)
+            });
+        var segundaProposta = segundaAlteracao!.Versoes.Single(item =>
+            item.Status == DivisaoTransacaoVersaoStatus.PropostaPendente);
+
+        await service.AceitarAlteracaoAsync(convidado.Id, segundaProposta.Id);
+
+        var lancamentosConvidado = database.Context.Transacoes
+            .IgnoreQueryFilters()
+            .Where(item => item.UsuarioId == convidado.Id)
+            .ToList();
+        var lancamentoAtualizado = Assert.Single(lancamentosConvidado);
+        Assert.Equal(lancamentoOriginalId, lancamentoAtualizado.Id);
+        Assert.Equal(280m, lancamentoAtualizado.Valor);
+        Assert.Equal(novoVencimento.AddDays(2), lancamentoAtualizado.DataOcorrencia);
     }
 
     [Fact]
@@ -1512,6 +1539,10 @@ public sealed class DivisaoTransacaoServiceTests
             });
         var convite = divisao.Participantes.Single(item => item.ParticipanteUsuarioId == convidado.Id);
         await service.AceitarAsync(convidado.Id, convite.Id);
+        var compraGeradaOriginal = Assert.Single(
+            database.Context.ComprasParceladas.IgnoreQueryFilters(),
+            item => item.UsuarioId == convidado.Id);
+        var compraGeradaOriginalId = compraGeradaOriginal.Id;
         var novaData = new DateOnly(2027, 2, 15);
 
         var proposta = await service.ProporAlteracaoAsync(
@@ -1531,12 +1562,39 @@ public sealed class DivisaoTransacaoServiceTests
 
         var gerada = Assert.Single(database.Context.ComprasParceladas.IgnoreQueryFilters(), item =>
             item.UsuarioId == convidado.Id);
+        Assert.Equal(compraGeradaOriginalId, gerada.Id);
         Assert.Equal(900m, compra.ValorTotal);
         Assert.Equal(300m, gerada.ValorTotal);
         Assert.Equal(6, compra.QuantidadeParcelas);
         Assert.Equal(6, gerada.QuantidadeParcelas);
         Assert.Equal(novaData, compra.DataPrimeiroVencimento);
         Assert.Equal(novaData, gerada.DataPrimeiroVencimento);
+
+        var segundaAlteracao = await service.ProporAlteracaoAsync(
+            criador.Id,
+            divisao.Id,
+            new ProporAlteracaoDivisaoRequest
+            {
+                ValorTotal = 1400m,
+                PercentualConvidado = 20m,
+                QuantidadeParcelas = 7,
+                Vencimento = novaData.AddMonths(1),
+                Escopo = "TodaSerie"
+            });
+        var segundaVersao = segundaAlteracao!.Versoes.Single(item =>
+            item.Status == DivisaoTransacaoVersaoStatus.PropostaPendente);
+
+        await service.AceitarAlteracaoAsync(convidado.Id, segundaVersao.Id);
+
+        var comprasConvidado = database.Context.ComprasParceladas
+            .IgnoreQueryFilters()
+            .Where(item => item.UsuarioId == convidado.Id)
+            .ToList();
+        var compraGeradaAtualizada = Assert.Single(comprasConvidado);
+        Assert.Equal(compraGeradaOriginalId, compraGeradaAtualizada.Id);
+        Assert.Equal(280m, compraGeradaAtualizada.ValorTotal);
+        Assert.Equal(7, compraGeradaAtualizada.QuantidadeParcelas);
+        Assert.Equal(novaData.AddMonths(1), compraGeradaAtualizada.DataPrimeiroVencimento);
     }
 
     [Fact]
