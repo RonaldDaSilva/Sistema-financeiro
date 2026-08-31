@@ -383,31 +383,37 @@ public sealed class TransacaoService : ITransacaoService
             StringComparison.OrdinalIgnoreCase);
         var ordenarPor = request.OrdenarPor.Trim().ToLowerInvariant();
 
+        var itensPorStatus = itensFiltrados.OrderBy(item => item.IsPaga);
         var itensOrdenados = ordenarPor switch
         {
             "movimentacao" => descendente
-                ? itensFiltrados.OrderByDescending(
+                ? itensPorStatus.ThenByDescending(
                     item => item.Descricao,
                     StringComparer.OrdinalIgnoreCase)
-                : itensFiltrados.OrderBy(
+                : itensPorStatus.ThenBy(
                     item => item.Descricao,
                     StringComparer.OrdinalIgnoreCase),
             "categoria" => descendente
-                ? itensFiltrados.OrderByDescending(
+                ? itensPorStatus.ThenByDescending(
                     item => item.CategoriaNome,
                     StringComparer.OrdinalIgnoreCase)
-                : itensFiltrados.OrderBy(
+                : itensPorStatus.ThenBy(
                     item => item.CategoriaNome,
                     StringComparer.OrdinalIgnoreCase),
             "valor" => descendente
-                ? itensFiltrados.OrderByDescending(item => item.Valor)
-                : itensFiltrados.OrderBy(item => item.Valor),
+                ? itensPorStatus.ThenByDescending(item => item.Valor)
+                : itensPorStatus.ThenBy(item => item.Valor),
             _ => descendente
-                ? itensFiltrados.OrderByDescending(item => item.DataOcorrencia)
-                : itensFiltrados.OrderBy(item => item.DataOcorrencia)
+                ? itensPorStatus.ThenByDescending(item => item.DataOcorrencia)
+                : itensPorStatus.ThenBy(item => item.DataOcorrencia)
         };
         var itensOrdenadosLista = itensOrdenados
             .ThenBy(item => item.Descricao, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.DataOcorrencia)
+            .ThenBy(item => item.Id)
+            .ThenBy(item => item.CartaoCreditoId)
+            .ThenBy(item => item.CompraParceladaId)
+            .ThenBy(item => item.NumeroParcela)
             .ToList();
         var totalCount = itensOrdenadosLista.Count;
 

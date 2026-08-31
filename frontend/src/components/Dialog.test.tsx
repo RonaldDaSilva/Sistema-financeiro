@@ -124,6 +124,23 @@ describe("Dialog", () => {
     expect(dialog).toHaveAccessibleDescription("Descrição acessível");
   });
 
+  it("mantém painel e conteúdo rolável dentro da viewport dinâmica", () => {
+    render(
+      <Dialog title="Teste mobile" onClose={vi.fn()}>
+        <div>Conteúdo longo</div>
+      </Dialog>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Teste mobile" });
+    const scrollArea = screen.getByText("Conteúdo longo").parentElement;
+
+    expect(dialog.className).toContain("max-h-[calc(100dvh-1rem)]");
+    expect(dialog.className).toContain("overflow-hidden");
+    expect(scrollArea?.className).toContain("overflow-y-auto");
+    expect(dialog.parentElement?.className).toContain("fixed");
+    expect(dialog.parentElement?.className).toContain("overflow-hidden");
+  });
+
   it("não fecha por Escape, backdrop ou botão quando não é dismissable", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

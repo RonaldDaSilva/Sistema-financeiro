@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
+import { Link } from "react-router-dom";
 import * as notificationService from "../services/notificationService";
 import * as financeService from "../services/financeService";
 import { useNotificacoesNaoLidas } from "../hooks/queries/useNotificationQueries";
 import { queryKeys } from "../hooks/queries/queryKeys";
 import type { DivisaoTransacao, DivisaoVersao } from "../types/finance";
 import type { Notificacao } from "../types/notification";
+import { Dialog } from "./Dialog";
 
 type NotificationBellProps = {
   placement?: "header" | "sidebar";
@@ -54,6 +56,7 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
     mutationFn: notificationService.marcarTodasComoLidas,
     onSuccess: () => {
       queryClient.setQueryData(queryKeys.notificacoesNaoLidas, []);
+      queryClient.invalidateQueries({ queryKey: queryKeys.notificacoesScope });
       setError(null);
       setIsOpen(false);
     },
@@ -222,7 +225,7 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
         <Bell size={20} />
         {notificacoes.length > 0 && (
           <span className="absolute right-1 top-1 min-w-4 rounded-full border-2 border-white bg-red-600 px-1 text-center text-[10px] font-bold leading-4 text-white dark:border-slate-900">
-            {notificacoes.length > 99 ? "99+" : notificacoes.length}
+            {notificacoes.length >= 10 ? "10+" : notificacoes.length}
           </span>
         )}
       </button>
@@ -296,12 +299,29 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
               ))
             )}
           </div>
+          <div className="border-t border-slate-100 p-2 dark:border-slate-800">
+            <Link
+              className="flex min-h-10 items-center justify-center rounded-lg px-3 text-sm font-black text-[var(--app-accent)] transition hover:bg-[var(--app-card-muted)] dark:hover:bg-slate-800"
+              to="/notificacoes"
+              onClick={() => setIsOpen(false)}
+            >
+              Ver todas as notificações
+            </Link>
+          </div>
         </div>
       )}
 
-      {divisaoAberta && notificacaoAberta && (
-        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/60 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-sm sm:items-center sm:p-4">
-          <div aria-modal="true" aria-labelledby="division-notification-title" role="dialog" className="max-h-[calc(100dvh-1rem)] w-full max-w-lg overflow-y-auto overscroll-contain rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:max-h-[min(calc(100dvh-2rem),42rem)]">
+      {divisaoAberta && notificacaoAberta && !classificacaoAberta && (
+        <Dialog
+          className="max-w-lg dark:bg-slate-900"
+          description={notificacaoAberta.mensagem}
+          onClose={() => {
+            setDivisaoAberta(null);
+            setNotificacaoAberta(null);
+          }}
+          showCloseButton={false}
+          title={notificacaoAberta.titulo}
+        >
             <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-[var(--app-card)] p-5 dark:border-slate-800 dark:bg-slate-900">
               <div>
                 <p className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">
@@ -387,13 +407,17 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
                 </>
               )}
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
       {classificacaoAberta && divisaoAberta && (
-        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-slate-950/60 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-sm sm:items-center sm:p-4">
-          <div aria-modal="true" aria-labelledby="division-classification-title" role="dialog" className="max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:max-h-[calc(100dvh-2rem)]">
+        <Dialog
+          className="max-w-md dark:bg-slate-900"
+          description="Classifique a obrigação usando somente dados da sua conta."
+          onClose={() => setClassificacaoAberta(false)}
+          title="Aceitar e classificar"
+        >
+          <div className="p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <h2 id="division-classification-title" className="text-xl font-black text-slate-950 dark:text-white">
               Aceitar e classificar
             </h2>
@@ -445,7 +469,7 @@ export function NotificationBell({ placement = "header" }: NotificationBellProps
               </button>
             </div>
           </div>
-        </div>
+        </Dialog>
       )}
     </div>
   );

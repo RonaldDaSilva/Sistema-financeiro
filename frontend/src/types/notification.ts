@@ -33,6 +33,18 @@ export type Notificacao = {
   rota?: string | null;
   acaoPendente?: string | null;
   versao?: number | null;
+  statusAcao?: 'Pendente' | 'Concluida' | null;
+};
+
+export type FiltroNotificacao = 'Todas' | 'NaoLidas' | 'Pendentes' | 'Concluidas';
+export type CategoriaNotificacao = 'Divisoes' | 'Emprestimos' | 'Sistema' | null;
+
+export type NotificacoesPaginadas = {
+  itens: Notificacao[];
+  pagina: number;
+  tamanhoPagina: number;
+  totalItens: number;
+  totalPaginas: number;
 };
 
 export type ConfiguracoesNotificacao = {

@@ -16,4 +16,5 @@ public sealed class NotificacaoResponse
     public string? Rota { get; set; }
     public string? AcaoPendente { get; set; }
     public int? Versao { get; set; }
+    public string? StatusAcao { get; set; }
 }

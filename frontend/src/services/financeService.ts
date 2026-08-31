@@ -31,6 +31,7 @@ import type {
   CampoOrdenacaoExtrato,
   DirecaoOrdenacao,
 } from '../types/finance';
+import { sortTransactionItems } from '../utils/transactionOrdering';
 
 export type ExportacaoParams = {
   dataInicial: string;
@@ -150,7 +151,6 @@ export async function getExtratoMensalPaginado(params: {
       signal,
     );
     const direcao = params.direcao ?? 'desc';
-    const multiplicador = direcao === 'desc' ? -1 : 1;
     const ordenarPor = params.ordenarPor ?? 'data';
     const itensFiltrados = extrato.itens
       .filter((item) => {
@@ -179,26 +179,14 @@ export async function getExtratoMensalPaginado(params: {
 
         return true;
       })
-      .sort((a, b) => {
-        const comparacao =
-          ordenarPor === 'movimentacao'
-            ? a.descricao.localeCompare(b.descricao, 'pt-BR', { sensitivity: 'base' })
-            : ordenarPor === 'categoria'
-              ? a.categoriaNome.localeCompare(b.categoriaNome, 'pt-BR', { sensitivity: 'base' })
-              : ordenarPor === 'valor'
-                ? a.valor - b.valor
-                : a.dataOcorrencia.localeCompare(b.dataOcorrencia);
-
-        return comparacao * multiplicador ||
-          a.descricao.localeCompare(b.descricao, 'pt-BR', { sensitivity: 'base' });
-      });
+    const itensOrdenados = sortTransactionItems(itensFiltrados, ordenarPor, direcao);
 
     const pageNumber = Math.max(1, params.pageNumber);
     const pageSize = Math.max(1, params.pageSize);
-    const totalCount = itensFiltrados.length;
+    const totalCount = itensOrdenados.length;
 
     return {
-      items: itensFiltrados.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
+      items: itensOrdenados.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
       totalCount,
       currentPage: pageNumber,
       pageSize,

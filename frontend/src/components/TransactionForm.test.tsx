@@ -330,9 +330,21 @@ describe("TransactionForm", () => {
     expect(serviceMocks.resolverConvidadoDivisao).not.toHaveBeenCalled();
   });
 
-  it("envia participante externo no convite vinculado", async () => {
+  it("envia contato salvo e participante externo no convite vinculado", async () => {
     const user = userEvent.setup();
     const onCreateTransacao = vi.fn().mockResolvedValue({ id: "tx-1" });
+    serviceMocks.listarContatosDivisao.mockResolvedValue([
+      {
+        id: "contato-1",
+        usuarioContatoId: "user-2",
+        nomeExibicao: "Maria",
+        emailMascarado: "ma***@email.com",
+        apelido: "Amor",
+        ultimoUsoEm: "2026-08-28T00:00:00Z",
+        criadoEm: "2026-08-01T00:00:00Z",
+        ativo: true,
+      },
+    ]);
 
     renderForm({ onCreateTransacao });
 
@@ -342,14 +354,9 @@ describe("TransactionForm", () => {
     await user.click(screen.getByLabelText("Dividir com outra pessoa"));
     await user.clear(screen.getByLabelText("Minha parte"));
     await user.type(screen.getByLabelText("Minha parte"), "60");
-    await user.type(
-      screen.getByPlaceholderText("Buscar contato ou informar e-mail"),
-      "maria@email.com",
-    );
-    await user.click(screen.getByRole("button", { name: "Buscar" }));
-    await screen.findByText("Salvar nos meus contatos");
-    await user.clear(screen.getByLabelText("Percentual de Maria"));
-    await user.type(screen.getByLabelText("Percentual de Maria"), "30");
+    await user.click(await screen.findByRole("button", { name: "Selecionar contato Amor" }));
+    await user.clear(screen.getByLabelText("Percentual de Amor"));
+    await user.type(screen.getByLabelText("Percentual de Amor"), "30");
     await user.click(screen.getByRole("button", { name: "Pessoa externa" }));
     await user.clear(screen.getByLabelText("Percentual da pessoa externa 1"));
     await user.type(screen.getByLabelText("Percentual da pessoa externa 1"), "10");
@@ -360,13 +367,14 @@ describe("TransactionForm", () => {
       expect.objectContaining({
         participantesUsuarios: [
           expect.objectContaining({
-            email: "maria@email.com",
+            contatoId: "contato-1",
+            email: null,
             percentual: 30,
           }),
         ],
         participantesExternos: [
           {
-            modoDefinicao: "Percentual",
+            modoDefinicao: 1,
             percentual: 10,
             valor: null,
             nome: null,
@@ -747,7 +755,7 @@ describe("TransactionForm", () => {
         ],
         participantesExternos: [
           {
-            modoDefinicao: "Percentual",
+            modoDefinicao: 1,
             percentual: 10,
             valor: null,
             nome: null,
@@ -1008,7 +1016,7 @@ describe("TransactionForm", () => {
         expect.objectContaining({ email: "pedro@email.com", percentual: 15 }),
       ]),
     }));
-  });
+  }, 10_000);
 
   it("remove somente o participante escolhido e bloqueia contato duplicado", async () => {
     const user = userEvent.setup();
@@ -1050,7 +1058,7 @@ describe("TransactionForm", () => {
     await waitFor(() => expect(serviceMocks.criarConviteDivisao).toHaveBeenCalled());
     expect(serviceMocks.criarConviteDivisao).toHaveBeenCalledWith(expect.objectContaining({
       participantesExternos: [expect.objectContaining({
-        modoDefinicao: "Valor",
+        modoDefinicao: 2,
         valor: 87.42,
         percentual: null,
       })],

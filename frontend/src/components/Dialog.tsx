@@ -116,7 +116,7 @@ export function Dialog({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-sm sm:p-4"
+      className="fixed inset-0 z-[100] flex items-end justify-center overflow-hidden bg-slate-950/60 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-sm sm:items-center sm:p-4"
       onMouseDown={handleBackdropMouseDown}
     >
       <div
@@ -127,7 +127,7 @@ export function Dialog({
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         onKeyDown={trapFocus}
-        className={`relative max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-full overflow-y-auto rounded-3xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl outline-none dark:border-slate-800 dark:bg-slate-950 sm:max-h-[calc(100dvh-2rem)] sm:w-full ${className}`}
+        className={`relative flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-full flex-col overflow-hidden rounded-2xl border border-[color:var(--app-card-border)] bg-[var(--app-card)] shadow-2xl outline-none dark:border-slate-800 dark:bg-slate-950 sm:max-h-[calc(100dvh-2rem)] sm:w-full sm:rounded-3xl ${className}`}
       >
         <div className="sr-only">
           <h2 id={titleId}>{title}</h2>
@@ -148,7 +148,9 @@ export function Dialog({
             <X size={20} />
           </button>
         )}
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {children}
+        </div>
       </div>
     </div>
   );

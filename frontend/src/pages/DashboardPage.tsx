@@ -41,6 +41,7 @@ import {
   useEditTransacao,
 } from "../hooks/mutations/useTransactionMutations";
 import * as financeService from "../services/financeService";
+import { sortTransactionItems } from "../utils/transactionOrdering";
 import type {
   CriarCompraParceladaRequest,
   CriarTransacaoRequest,
@@ -202,40 +203,11 @@ export function DashboardPage() {
   }, [faturasQueries, rangePeriodo.fim, rangePeriodo.inicio]);
 
   const movimentacoesPaginadas = useMemo(() => {
-    const items = [...(extratoPaginadoQuery.data?.items ?? [])];
-    const direction = ordenacao.direcao === "asc" ? 1 : -1;
-
-    return items.sort((left, right) => {
-      let comparison = 0;
-
-      switch (ordenacao.campo) {
-        case "movimentacao":
-          comparison = left.descricao.localeCompare(right.descricao, "pt-BR", {
-            sensitivity: "base",
-          });
-          break;
-        case "categoria":
-          comparison = left.categoriaNome.localeCompare(
-            right.categoriaNome,
-            "pt-BR",
-            { sensitivity: "base" },
-          );
-          break;
-        case "valor":
-          comparison = left.valor - right.valor;
-          break;
-        default:
-          comparison = left.dataOcorrencia.localeCompare(right.dataOcorrencia);
-          break;
-      }
-
-      return (
-        comparison * direction ||
-        left.descricao.localeCompare(right.descricao, "pt-BR", {
-          sensitivity: "base",
-        })
-      );
-    });
+    return sortTransactionItems(
+      extratoPaginadoQuery.data?.items ?? [],
+      ordenacao.campo,
+      ordenacao.direcao,
+    );
   }, [
     extratoPaginadoQuery.data?.items,
     ordenacao.campo,
@@ -301,7 +273,7 @@ export function DashboardPage() {
 
       return { item, previousStatus: item.isPaga, nextStatus };
     },
-    onError: (error, { item }, context) => {
+    onError: async (error, { item }, context) => {
       if (item.cartaoCreditoId && context) {
         atualizarStatusFaturaLocal(
           item.cartaoCreditoId,
@@ -310,6 +282,11 @@ export function DashboardPage() {
         );
         aplicarImpactoSaldoGlobalLocal(item, context.nextStatus, context.previousStatus);
       }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
+      ]);
 
       if (isSaldoInsuficienteError(error)) {
         setFaturaChequeEspecial(item);
@@ -857,9 +834,14 @@ export function DashboardPage() {
       );
       aplicarImpactoSaldoGlobalLocal(item, nextStatus, response.isPaga);
       atualizarStatusPagamentoLocal(item.id, response.isPaga, dataOcorrenciaStatus);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope });
     } catch {
       atualizarStatusPagamentoLocal(item.id, item.isPaga, dataOcorrenciaStatus);
       aplicarImpactoSaldoGlobalLocal(item, nextStatus, item.isPaga);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
+      ]);
       setToastErro("Não foi possível atualizar o status de pagamento.");
       window.setTimeout(() => setToastErro(null), 3500);
     }
@@ -932,6 +914,10 @@ export function DashboardPage() {
     } catch {
       atualizarStatusPagamentoLocal(item.id, item.isPaga, dataOcorrenciaStatus);
       aplicarImpactoSaldoGlobalLocal(item, true, item.isPaga);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoScope }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.extratoPaginadoScope }),
+      ]);
       setToastErro("Não foi possível atualizar o status de pagamento.");
       window.setTimeout(() => setToastErro(null), 3500);
       throw new Error("Falha ao baixar transação.");

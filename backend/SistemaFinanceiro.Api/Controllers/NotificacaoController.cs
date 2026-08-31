@@ -18,6 +18,24 @@ public sealed class NotificacaoController : ControllerBase
         _notificacaoService = notificacaoService;
     }
 
+    [HttpGet]
+    public async Task<ActionResult<NotificacoesPaginadasResponse>> Listar(
+        [FromQuery] ListarNotificacoesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (!usuarioId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var notificacoes = await _notificacaoService.ListarAsync(
+            usuarioId.Value,
+            request,
+            cancellationToken);
+        return Ok(notificacoes);
+    }
+
     [HttpGet("nao-lidas")]
     public async Task<ActionResult<IReadOnlyList<NotificacaoResponse>>> GetNaoLidas(
         CancellationToken cancellationToken)
@@ -43,6 +61,22 @@ public sealed class NotificacaoController : ControllerBase
 
         await _notificacaoService.MarcarComoLidasAsync(usuarioId.Value, cancellationToken);
         return NoContent();
+    }
+
+    [HttpPut("{id:guid}/marcar-como-lida")]
+    public async Task<IActionResult> MarcarComoLida(Guid id, CancellationToken cancellationToken)
+    {
+        var usuarioId = ObterUsuarioId();
+        if (!usuarioId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var encontrada = await _notificacaoService.MarcarComoLidaAsync(
+            usuarioId.Value,
+            id,
+            cancellationToken);
+        return encontrada ? NoContent() : NotFound();
     }
 
     [HttpGet("configuracoes")]

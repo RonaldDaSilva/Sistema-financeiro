@@ -2068,7 +2068,7 @@ function mapearParticipantesUsuariosRequest(participantes: ParticipanteUsuarioFo
 
 function mapearParticipantesExternosRequest(participantes: ParticipanteExternoForm[]) {
   return participantes.map((participante) => ({
-    modoDefinicao: participante.modo,
+    modoDefinicao: participante.modo === "Valor" ? 2 as const : 1 as const,
     percentual: participante.modo === "Percentual" ? parsePercentual(participante.entrada) : null,
     valor: participante.modo === "Valor" ? parseBrlCurrency(participante.entrada) : null,
     nome: participante.nome.trim() || null,

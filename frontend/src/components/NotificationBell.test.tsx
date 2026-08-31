@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { NotificationBell } from "./NotificationBell";
 import type {
   CartaoCreditoOpcao,
@@ -127,6 +128,17 @@ describe("NotificationBell", () => {
     expect(screen.getByText("Divisão aceita.")).toBeInTheDocument();
   });
 
+  it("abre a Central pelo link Ver todas", async () => {
+    const user = userEvent.setup();
+    mocks.notificacoes = [criarNotificacaoRecebida()];
+
+    renderBell(true);
+    await user.click(screen.getByRole("button", { name: "Notificações" }));
+    await user.click(screen.getByRole("link", { name: "Ver todas as notificações" }));
+
+    expect(await screen.findByRole("heading", { name: "Central de teste" })).toBeInTheDocument();
+  });
+
   it("aceita e classifica usando opções do usuário atual", async () => {
     const user = userEvent.setup();
     mocks.notificacoes = [criarNotificacaoRecebida()];
@@ -136,7 +148,7 @@ describe("NotificationBell", () => {
     await abrirAcoes(user);
     await user.click(screen.getByRole("button", { name: "Aceitar e classificar" }));
 
-    await screen.findByRole("heading", { name: "Aceitar e classificar" });
+    await screen.findByRole("dialog", { name: "Aceitar e classificar" });
     await user.selectOptions(screen.getByLabelText("Categoria"), "cat-1");
     await user.selectOptions(screen.getByLabelText("Conta"), "conta-1");
     await user.selectOptions(screen.getByLabelText("Cartão"), "cartao-1");
@@ -244,10 +256,10 @@ describe("NotificationBell", () => {
 async function abrirAcoes(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Notificações" }));
   await user.click(screen.getByRole("button", { name: "Ver ações" }));
-  await screen.findByRole("heading", { name: /dividiu uma despesa|recusou a divisão/i });
+  await screen.findByRole("dialog", { name: /dividiu uma despesa|recusou a divisão/i });
 }
 
-function renderBell() {
+function renderBell(withRoute = false) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -257,7 +269,14 @@ function renderBell() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <NotificationBell />
+      <MemoryRouter initialEntries={["/"]}>
+        {withRoute ? (
+          <Routes>
+            <Route path="/" element={<NotificationBell />} />
+            <Route path="/notificacoes" element={<h1>Central de teste</h1>} />
+          </Routes>
+        ) : <NotificationBell />}
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

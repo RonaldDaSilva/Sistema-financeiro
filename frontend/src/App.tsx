@@ -14,6 +14,7 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage').then((module) => ({
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })));
 const QuickTransactionPage = lazy(() => import('./pages/QuickTransactionPage').then((module) => ({ default: module.QuickTransactionPage })));
 const LoansPage = lazy(() => import('./pages/LoansPage').then((module) => ({ default: module.LoansPage })));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage').then((module) => ({ default: module.NotificationsPage })));
 
 export function App() {
   return (
@@ -50,6 +51,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <LoansPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/notificacoes"
+          element={
+            <ProtectedRoute>
+              <NotificationsPage />
             </ProtectedRoute>
           }
         />

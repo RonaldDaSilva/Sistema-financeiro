@@ -412,7 +412,7 @@ export type CriarConviteDivisaoRequest = {
     apelidoContato?: string | null;
   }>;
   participantesExternos?: Array<{
-    modoDefinicao?: 1 | 2 | 'Percentual' | 'Valor';
+    modoDefinicao?: 1 | 2;
     percentual?: number | null;
     valor?: number | null;
     nome?: string | null;

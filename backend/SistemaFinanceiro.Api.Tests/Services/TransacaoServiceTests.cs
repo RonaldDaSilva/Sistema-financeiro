@@ -103,6 +103,67 @@ public sealed class TransacaoServiceTests
         Assert.Equal(new DateOnly(anoEsperado, mesEsperado, diaEsperado), dataLocal);
     }
 
+    [Theory]
+    [InlineData("asc", "Pendente 01", "Pendente 05", "Pendente 10", "Paga 02", "Paga 08", "Paga 12")]
+    [InlineData("desc", "Pendente 10", "Pendente 05", "Pendente 01", "Paga 12", "Paga 08", "Paga 02")]
+    public async Task GetExtratoMensalPaginadoAsync_AgrupaPorStatusAntesDeOrdenarPorData(
+        string direcao,
+        params string[] ordemEsperada)
+    {
+        var (database, usuarioId, service) = await CriarCenarioOrdenacaoAsync();
+        using (database)
+        {
+            var resultado = await service.GetExtratoMensalPaginadoAsync(
+                CriarRequestOrdenacao(direcao, pageSize: 10),
+                usuarioId);
+
+            Assert.Equal(ordemEsperada, resultado.Items.Select(item => item.Descricao));
+            Assert.Equal([false, false, false, true, true, true],
+                resultado.Items.Select(item => item.IsPaga));
+        }
+    }
+
+    [Fact]
+    public async Task GetExtratoMensalPaginadoAsync_AplicaStatusAntesDaPaginacao()
+    {
+        var (database, usuarioId, service) = await CriarCenarioOrdenacaoAsync();
+        using (database)
+        {
+            var primeiraPagina = await service.GetExtratoMensalPaginadoAsync(
+                CriarRequestOrdenacao("asc", pageSize: 5),
+                usuarioId);
+            var segundaPagina = await service.GetExtratoMensalPaginadoAsync(
+                CriarRequestOrdenacao("asc", pageNumber: 2, pageSize: 5),
+                usuarioId);
+
+            Assert.Equal(3, primeiraPagina.Items.Count(item => !item.IsPaga));
+            Assert.True(primeiraPagina.Items.Take(3).All(item => !item.IsPaga));
+            Assert.All(segundaPagina.Items, item => Assert.True(item.IsPaga));
+        }
+    }
+
+    [Theory]
+    [InlineData(StatusFiltro.Pagas, true)]
+    [InlineData(StatusFiltro.Pendentes, false)]
+    public async Task GetExtratoMensalPaginadoAsync_PreservaOrdenacaoEmFiltroDeStatus(
+        StatusFiltro status,
+        bool isPagaEsperada)
+    {
+        var (database, usuarioId, service) = await CriarCenarioOrdenacaoAsync();
+        using (database)
+        {
+            var request = CriarRequestOrdenacao("asc", pageSize: 10);
+            request.Statuses = [status];
+
+            var resultado = await service.GetExtratoMensalPaginadoAsync(request, usuarioId);
+
+            Assert.Equal(2, resultado.Items.Count);
+            Assert.All(resultado.Items, item => Assert.Equal(isPagaEsperada, item.IsPaga));
+            Assert.True(resultado.Items.Select(item => item.DataOcorrencia).SequenceEqual(
+                resultado.Items.Select(item => item.DataOcorrencia).OrderBy(data => data)));
+        }
+    }
+
     private static Task<Guid> CriarReceitaAsync(
         TransacaoService service,
         Guid usuarioId,
@@ -119,5 +180,66 @@ public sealed class TransacaoServiceTests
                 FormaPagamento = "Pix"
             },
             usuarioId);
+    }
+
+    private static async Task<(SqliteTestDatabase Database, Guid UsuarioId, TransacaoService Service)>
+        CriarCenarioOrdenacaoAsync()
+    {
+        var usuarioId = Guid.NewGuid();
+        var database = new SqliteTestDatabase(usuarioId);
+        database.Context.Usuarios.Add(new Usuario
+        {
+            Id = usuarioId,
+            Nome = "Usuário ordenação",
+            Email = $"{usuarioId:N}@ordenacao.local",
+            SenhaHash = "hash"
+        });
+        database.Context.Transacoes.AddRange(
+            CriarTransacao(usuarioId, "Pendente 01", 1, false, TipoTransacao.Receita),
+            CriarTransacao(usuarioId, "Paga 02", 2, true),
+            CriarTransacao(usuarioId, "Pendente 05", 5, false),
+            CriarTransacao(usuarioId, "Paga 08", 8, true),
+            CriarTransacao(usuarioId, "Pendente 10", 10, false),
+            CriarTransacao(usuarioId, "Paga 12", 12, true, TipoTransacao.Receita));
+        await database.Context.SaveChangesAsync();
+        return (database, usuarioId, new TransacaoService(database.Context));
+    }
+
+    private static Transacao CriarTransacao(
+        Guid usuarioId,
+        string descricao,
+        int dia,
+        bool isPaga,
+        TipoTransacao tipo = TipoTransacao.Despesa)
+    {
+        return new Transacao
+        {
+            UsuarioId = usuarioId,
+            Tipo = tipo,
+            Descricao = descricao,
+            Valor = dia * 10m,
+            DataOcorrencia = new DateOnly(2026, 9, dia),
+            FormaPagamento = "Pix",
+            CodigoExibicao = dia,
+            IsPaga = isPaga
+        };
+    }
+
+    private static ExtratoPaginadoRequest CriarRequestOrdenacao(
+        string direcao,
+        int pageNumber = 1,
+        int pageSize = 10)
+    {
+        return new ExtratoPaginadoRequest
+        {
+            Mes = 9,
+            Ano = 2026,
+            DataInicial = new DateOnly(2026, 9, 1),
+            DataFinal = new DateOnly(2026, 9, 30),
+            OrdenarPor = "data",
+            Direcao = direcao,
+            PageNumber = pageNumber,
+            PageSize = pageSize
+        };
     }
 }

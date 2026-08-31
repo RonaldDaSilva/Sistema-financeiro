@@ -39,6 +39,9 @@ export const queryKeys = {
   faturasScope: ["faturas"] as const,
   faturas: (mes: number, ano: number) => ["faturas", mes, ano] as const,
   notificacoesNaoLidas: ["notificacoes", "nao-lidas"] as const,
+  notificacoesScope: ["notificacoes"] as const,
+  notificacoes: (pagina: number, filtro: string, categoria: string | null) =>
+    ["notificacoes", "lista", pagina, filtro, categoria ?? "todas"] as const,
   perfilUsuario: ["usuario", "perfil"] as const,
   categorias: ["categorias"] as const,
   contatosDivisao: ["contatos-divisao"] as const,
