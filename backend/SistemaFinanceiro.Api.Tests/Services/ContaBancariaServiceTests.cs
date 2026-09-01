@@ -1,4 +1,5 @@
 using SistemaFinanceiro.Api.Data;
+using SistemaFinanceiro.Api.Dtos.ContasBancarias;
 using SistemaFinanceiro.Api.Models;
 using SistemaFinanceiro.Api.Services.ContasBancarias;
 using SistemaFinanceiro.Api.Tests.Infrastructure;
@@ -8,6 +9,120 @@ namespace SistemaFinanceiro.Api.Tests.Services;
 
 public sealed class ContaBancariaServiceTests
 {
+    [Fact]
+    public async Task TransferirAsync_ContasDiferentes_CriaMovimentosVinculadosEAjustaSaldos()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+        var origem = new ContaBancaria
+        {
+            UsuarioId = usuarioId,
+            NomeCustomizado = "Origem",
+            CodigoBanco = "001",
+            SaldoInicial = 1000m
+        };
+        var destino = new ContaBancaria
+        {
+            UsuarioId = usuarioId,
+            NomeCustomizado = "Destino",
+            CodigoBanco = "033",
+            SaldoInicial = 200m
+        };
+        database.Context.ContasBancarias.AddRange(origem, destino);
+        await database.Context.SaveChangesAsync();
+        var service = new ContaBancariaService(database.Context);
+
+        var transferenciaId = await service.TransferirAsync(new TransferenciaContaRequest
+        {
+            ContaOrigemId = origem.Id,
+            ContaDestinoId = destino.Id,
+            Valor = 150m,
+            Data = new DateOnly(2026, 8, 31),
+            Descricao = "Reserva"
+        }, usuarioId);
+
+        var movimentos = database.Context.Transacoes
+            .Where(item => item.TransferenciaId == transferenciaId)
+            .OrderBy(item => item.Tipo)
+            .ToList();
+        Assert.Equal(2, movimentos.Count);
+        Assert.All(movimentos, item => Assert.True(item.IsPaga));
+        Assert.Contains(movimentos, item =>
+            item.Tipo == TipoTransacao.Despesa && item.ContaBancariaId == origem.Id);
+        Assert.Contains(movimentos, item =>
+            item.Tipo == TipoTransacao.Receita && item.ContaBancariaId == destino.Id);
+
+        var saldos = await service.ObterDistribuicaoAsync(usuarioId);
+        Assert.Equal(850m, saldos.Single(item => item.Id == origem.Id).SaldoAtual);
+        Assert.Equal(350m, saldos.Single(item => item.Id == destino.Id).SaldoAtual);
+    }
+
+    [Fact]
+    public async Task TransferirAsync_MesmaConta_RejeitaSemCriarMovimentos()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+        var conta = new ContaBancaria
+        {
+            UsuarioId = usuarioId,
+            NomeCustomizado = "Conta única",
+            CodigoBanco = "001",
+            SaldoInicial = 1000m
+        };
+        database.Context.ContasBancarias.Add(conta);
+        await database.Context.SaveChangesAsync();
+        var service = new ContaBancariaService(database.Context);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.TransferirAsync(new TransferenciaContaRequest
+            {
+                ContaOrigemId = conta.Id,
+                ContaDestinoId = conta.Id,
+                Valor = 100m
+            }, usuarioId));
+
+        Assert.Equal("A conta de origem deve ser diferente da conta de destino.", exception.Message);
+        Assert.Empty(database.Context.Transacoes);
+    }
+
+    [Fact]
+    public async Task TransferirAsync_SaldoInsuficiente_ExigeConfirmacaoExplicita()
+    {
+        var usuarioId = Guid.NewGuid();
+        using var database = new SqliteTestDatabase(usuarioId);
+        await SeedUsuarioAsync(database.Context, usuarioId);
+        var origem = new ContaBancaria
+        {
+            UsuarioId = usuarioId,
+            NomeCustomizado = "Origem",
+            CodigoBanco = "001",
+            SaldoInicial = 50m
+        };
+        var destino = new ContaBancaria
+        {
+            UsuarioId = usuarioId,
+            NomeCustomizado = "Destino",
+            CodigoBanco = "033",
+            SaldoInicial = 0m
+        };
+        database.Context.ContasBancarias.AddRange(origem, destino);
+        await database.Context.SaveChangesAsync();
+        var service = new ContaBancariaService(database.Context);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.TransferirAsync(new TransferenciaContaRequest
+            {
+                ContaOrigemId = origem.Id,
+                ContaDestinoId = destino.Id,
+                Valor = 100m
+            }, usuarioId));
+
+        Assert.Equal("SALDO_INSUFICIENTE", exception.Message);
+        Assert.Empty(database.Context.Transacoes);
+    }
+
     [Fact]
     public async Task ObterDistribuicaoAsync_CompraNoCartaoNaoDebitaContaEPagamentoFaturaDebita()
     {

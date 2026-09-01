@@ -1,5 +1,6 @@
 import { type FormEvent, type ReactNode, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import {
   Archive,
   ArrowRightLeft,
@@ -176,6 +177,22 @@ export function AccountsPage() {
   async function handleTransferir(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErro(null);
+
+    if (!transferenciaForm.contaOrigemId || !transferenciaForm.contaDestinoId) {
+      setErro("Selecione as contas de origem e destino.");
+      return;
+    }
+
+    if (transferenciaForm.contaOrigemId === transferenciaForm.contaDestinoId) {
+      setErro("A conta de origem deve ser diferente da conta de destino.");
+      return;
+    }
+
+    if (parseBrlCurrency(transferenciaForm.valor) <= 0) {
+      setErro("Informe um valor maior que zero.");
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -190,8 +207,8 @@ export function AccountsPage() {
       setTransferOpen(false);
       setTransferenciaForm(emptyTransferencia);
       await invalidarDadosFinanceiros();
-    } catch {
-      setErro("Não foi possível transferir entre contas.");
+    } catch (error) {
+      setErro(obterMensagemErroTransferencia(error));
     } finally {
       setSaving(false);
     }
@@ -709,13 +726,25 @@ function TransferenciaModal({
             label="Conta de origem"
             value={form.contaOrigemId}
             contas={contas}
-            onChange={(value) => onChange({ ...form, contaOrigemId: value })}
+            onChange={(value) => onChange({
+              ...form,
+              contaOrigemId: value,
+              contaDestinoId: value === form.contaDestinoId
+                ? form.contaOrigemId
+                : form.contaDestinoId,
+            })}
           />
           <ContaSelect
             label="Conta de destino"
             value={form.contaDestinoId}
             contas={contas}
-            onChange={(value) => onChange({ ...form, contaDestinoId: value })}
+            onChange={(value) => onChange({
+              ...form,
+              contaOrigemId: value === form.contaOrigemId
+                ? form.contaDestinoId
+                : form.contaOrigemId,
+              contaDestinoId: value,
+            })}
           />
           <label className="block sm:col-span-2">
             <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -804,6 +833,28 @@ function ContaSelect({
       </select>
     </label>
   );
+}
+
+function obterMensagemErroTransferencia(error: unknown) {
+  if (!axios.isAxiosError(error)) {
+    return "Não foi possível transferir entre contas.";
+  }
+
+  const data = error.response?.data as
+    | { message?: string; mensagem?: string; errors?: Record<string, string[]> }
+    | undefined;
+
+  if (data?.mensagem) {
+    return data.mensagem;
+  }
+
+  if (data?.message) {
+    return data.message;
+  }
+
+  return data?.errors
+    ? Object.values(data.errors).flat().find(Boolean) ?? "Não foi possível transferir entre contas."
+    : "Não foi possível transferir entre contas.";
 }
 
 function ModalShell({ children, onClose }: { children: ReactNode; onClose: () => void }) {

@@ -10,7 +10,7 @@ public sealed class TransferenciaContaRequest
     [Required]
     public Guid ContaDestinoId { get; set; }
 
-    [Range(0.01, 999999999999.99)]
+    [Range(typeof(decimal), "0.01", "999999999999.99", ParseLimitsInInvariantCulture = true)]
     public decimal Valor { get; set; }
 
     public DateOnly? Data { get; set; }
